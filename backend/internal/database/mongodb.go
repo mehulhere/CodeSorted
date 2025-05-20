@@ -6,6 +6,7 @@ import (
 	"log"
 	"time"
 
+	"go.mongodb.org/mongo-driver/bson"
 	"go.mongodb.org/mongo-driver/mongo"
 	"go.mongodb.org/mongo-driver/mongo/options"
 	"go.mongodb.org/mongo-driver/mongo/readpref"
@@ -47,6 +48,39 @@ func ConnectDB(uri string) error {
 
 	DB = client
 	fmt.Println("Successfully connected to MongoDB!")
+
+	// Ensure unique username index
+	err = EnsureUniqueUsername("OJ", "users")
+	if err != nil {
+		log.Fatalf("Failed to ensure unique username index: %v", err)
+	}
+
+	return nil
+}
+
+func EnsureUniqueUsername(dbName string, collectionName string) error {
+	if DB == nil {
+		return fmt.Errorf("mongodb client is not initialized")
+	}
+
+	userCollection := DB.Database(dbName).Collection(collectionName)
+
+	// Create a unique index on the username field
+	indexModel := mongo.IndexModel{
+		Keys:    bson.D{{Key: "username", Value: 1}}, // Index on username and sort in ascending
+		Options: options.Index().SetUnique(true),     // Uniqueness option
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
+	_, err := userCollection.Indexes().CreateOne(ctx, indexModel)
+	if err != nil {
+		return fmt.Errorf("failed to create unique index on username: %v", err)
+	}
+
+	fmt.Println("Successfully created unique index on username.")
+
 	return nil
 }
 
