@@ -33,11 +33,11 @@ func ConnectDB(uri string) error {
 	}
 
 	// Ping the MongoDB server to verify the connection
-	err = client.Ping(ctx, readpref.Primary())
+	err = client.Ping(ctx, readpref.Primary()) // readpref.Primary() reads the primary node of the database
 	if err != nil {
 		log.Printf("Failed to ping MongoDB: %v", err)
 		if client != nil {
-			disconnectErr := client.Disconnect(context.Background())
+			disconnectErr := client.Disconnect(context.Background()) // Sent a new context without timeout
 			if disconnectErr != nil {
 				log.Printf("Failed to disconnect client after ping failure: %v", disconnectErr)
 			}
@@ -58,4 +58,19 @@ func GetCollection(dbName string, collectionName string) *mongo.Collection {
 
 	collection := DB.Database(dbName).Collection(collectionName)
 	return collection
+}
+
+func DisconnectDB() {
+	if DB == nil {
+		return
+	}
+
+	// Creating a 5s timeout for Disconnect too
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	err := DB.Disconnect(ctx)
+	if err != nil {
+		log.Fatalf("Failed to disconnect from MongoDB: %v", err)
+	}
+	fmt.Println("Connection to MongoDB closed.")
 }
