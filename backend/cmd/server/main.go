@@ -138,6 +138,7 @@ func registerHandler(w http.ResponseWriter, r *http.Request) {
 	}
 	json.NewEncoder(w).Encode(response)
 	fmt.Fprintf(w, "User registered: %s (Firstname: %s, Lastname: %s)", username, firstname, lastname)
+	fmt.Println("User registered: ", username, "(Firstname: ", firstname, ", Lastname: ", lastname, ")")
 }
 
 func main() {
