@@ -1,5 +1,5 @@
 import Head from 'next/head';
-import { useState } from 'react';
+import { useState, ChangeEvent } from 'react';
 
 interface RegisterResponse {
     message: string;
@@ -91,8 +91,86 @@ export default function Register() {
     return (
         <>
             <Head>
-                <title>Registration</title>
+                <title>Register - Online Judge</title>
             </Head>
+            <div className="container">
+                <h1>Create Account</h1>
+                {error && <p className="error-message">{error}</p>}
+                {success && <p className="success-message">{success}</p>}
+                <form onSubmit={handleSubmit}>
+                    <div>
+                        <label htmlFor="firstname">First Name</label>
+                        <input
+                            type="text"
+                            id="firstname"
+                            value={firstname}
+                            onChange={(e: ChangeEvent<HTMLInputElement>) => setFirstname(e.target.value)}
+                            required
+                            disabled={isLoading}
+                        />
+                    </div>
+                    <div>
+                        <label htmlFor="lastname">Last Name</label>
+                        <input
+                            type="text"
+                            id="lastname"
+                            value={lastname}
+                            onChange={(e: ChangeEvent<HTMLInputElement>) => setLastname(e.target.value)}
+                            required
+                            disabled={isLoading}
+                        />
+                    </div>
+                    <div>
+                        <label htmlFor="username">Username</label>
+                        <input
+                            type="text"
+                            id="username"
+                            value={username}
+                            onChange={(e: ChangeEvent<HTMLInputElement>) => setUsername(e.target.value)}
+                            required
+                            disabled={isLoading}
+                        />
+                    </div>
+                    <div>
+                        <label htmlFor="email">Email</label>
+                        <input
+                            type="email"
+                            id="email"
+                            value={email}
+                            onChange={(e: ChangeEvent<HTMLInputElement>) => setEmail(e.target.value)}
+                            required
+                            disabled={isLoading}
+                        />
+                    </div>
+                    <div>
+                        <label htmlFor="password">Password</label>
+                        <input
+                            type="password"
+                            id="password"
+                            value={password}
+                            onChange={(e: ChangeEvent<HTMLInputElement>) => setPassword(e.target.value)}
+                            minLength={8}
+                            required
+                            disabled={isLoading}
+                        />
+                    </div>
+                    <div>
+                        <label htmlFor="confirmPassword">Confirm Password</label>
+                        <input
+                            type="password"
+                            id="confirmPassword"
+                            value={confirmPassword}
+                            onChange={(e: ChangeEvent<HTMLInputElement>) => setConfirmPassword(e.target.value)}
+                            minLength={8}
+                            required
+                            disabled={isLoading}
+                        />
+                    </div>
+                    <button type="submit" disabled={isLoading}>
+                        {isLoading ? 'Registering...' : 'Register'}
+                    </button>
+                </form>
+            </div>
         </>
     )
 }
