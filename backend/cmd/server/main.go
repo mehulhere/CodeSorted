@@ -9,6 +9,7 @@ import (
 	"log"
 	"net/http"
 	"os"
+	"regexp"
 	"time"
 
 	"github.com/golang-jwt/jwt/v5"
@@ -21,9 +22,18 @@ import (
 type Claims struct {
 	UserID    string `json:"user_id"`
 	Username  string `json:"username"`
+	Email     string `json:"email"`
 	Firstname string `json:"firstname"`
 	Lastname  string `json:"lastname"`
 	jwt.RegisteredClaims
+}
+
+type RegisterationPayload struct {
+	Firstname string `json:"firstname"`
+	Lastname  string `json:"lastname"`
+	Email     string `json:"email"`
+	Username  string `json:"username"`
+	Password  string `json:"password"`
 }
 
 var jwtKey []byte
@@ -40,35 +50,59 @@ func greetHandler(w http.ResponseWriter, r *http.Request) {
 	fmt.Fprintf(w, "Hello, %s!", name)
 }
 
+func isValidEmail(email string) bool {
+	emailRegex := regexp.MustCompile(`^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$`)
+	return emailRegex.MatchString(email)
+}
+
 func registerHandler(w http.ResponseWriter, r *http.Request) {
+
+	// Enfore POST method
+	if r.Method != http.MethodPost {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
 	// Get the username and password from the request
-	firstname := r.URL.Query().Get("firstname")
-	lastname := r.URL.Query().Get("lastname")
-	username := r.URL.Query().Get("username")
-	password := r.URL.Query().Get("password")
+	var payload RegisterationPayload
+
+	err := json.NewDecoder(r.Body).Decode(&payload)
+	if err != nil {
+		log.Println("Invalid request payload", err)
+		http.Error(w, "Invalid request payload", http.StatusBadRequest)
+		return
+	}
+
+	defer r.Body.Close()
 
 	// Validate the input
-	if firstname == "" || lastname == "" || username == "" || password == "" {
+	if payload.Firstname == "" || payload.Lastname == "" || payload.Username == "" || payload.Password == "" {
 		http.Error(w, "All fields are required", http.StatusBadRequest)
 		return
 	}
 
-	if len(password) < 8 {
+	if len(payload.Password) < 8 {
 		http.Error(w, "Password must be at least 8 characters long", http.StatusBadRequest)
 		return
 	}
 
+	if !isValidEmail(payload.Email) {
+		http.Error(w, "Invalid email address", http.StatusBadRequest)
+		return
+	}
+
 	// Hash the password
-	hashedPassword, err := bcrypt.GenerateFromPassword([]byte(password), bcrypt.DefaultCost)
+	hashedPassword, err := bcrypt.GenerateFromPassword([]byte(payload.Password), bcrypt.DefaultCost)
 	if err != nil {
 		http.Error(w, "Failed to complete password hasing", http.StatusInternalServerError)
 		return
 	}
 
 	newUser := models.User{
-		Firstname: firstname,
-		Lastname:  lastname,
-		Username:  username,
+		Firstname: payload.Firstname,
+		Lastname:  payload.Lastname,
+		Username:  payload.Username,
+		Email:     payload.Email,
 		Password:  string(hashedPassword),
 		CreatedAt: time.Now(),
 		UpdatedAt: time.Now(),
@@ -109,9 +143,10 @@ func registerHandler(w http.ResponseWriter, r *http.Request) {
 	// JWT Generation
 	expirationTime := time.Now().Add(24 * time.Hour) // Token will expire after 24 hours
 
-	payload := &Claims{
+	claims := &Claims{
 		UserID:    userIDHex,
 		Username:  newUser.Username,
+		Email:     newUser.Email,
 		Firstname: newUser.Firstname,
 		Lastname:  newUser.Lastname,
 		RegisteredClaims: jwt.RegisteredClaims{
@@ -121,7 +156,7 @@ func registerHandler(w http.ResponseWriter, r *http.Request) {
 	}
 	jwtKey = []byte(secret)
 
-	token := jwt.NewWithClaims(jwt.SigningMethodHS256, payload)
+	token := jwt.NewWithClaims(jwt.SigningMethodHS256, claims)
 	tokenString, err := token.SignedString(jwtKey)
 	if err != nil {
 		http.Error(w, "User registered, but failed to generate token", http.StatusInternalServerError)
@@ -137,8 +172,8 @@ func registerHandler(w http.ResponseWriter, r *http.Request) {
 		"token":      tokenString,
 	}
 	json.NewEncoder(w).Encode(response)
-	fmt.Fprintf(w, "User registered: %s (Firstname: %s, Lastname: %s)", username, firstname, lastname)
-	fmt.Println("User registered: ", username, "(Firstname: ", firstname, ", Lastname: ", lastname, ")")
+	log.Println("User registered: ", newUser.Username, "(Firstname: ", newUser.Firstname, ", Lastname: ", newUser.Lastname, ", Email: ", newUser.Email, ")")
+	fmt.Fprintf(w, "User registered: %s (Firstname: %s, Lastname: %s, Email: %s)", newUser.Username, newUser.Firstname, newUser.Lastname, newUser.Email)
 }
 
 func main() {
