@@ -173,7 +173,6 @@ func registerHandler(w http.ResponseWriter, r *http.Request) {
 	}
 	json.NewEncoder(w).Encode(response)
 	log.Println("User registered: ", newUser.Username, "(Firstname: ", newUser.Firstname, ", Lastname: ", newUser.Lastname, ", Email: ", newUser.Email, ")")
-	fmt.Fprintf(w, "User registered: %s (Firstname: %s, Lastname: %s, Email: %s)", newUser.Username, newUser.Firstname, newUser.Lastname, newUser.Email)
 }
 
 func withCORS(next http.HandlerFunc) http.HandlerFunc {
