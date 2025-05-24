@@ -44,6 +44,13 @@ type LoginPayload struct {
 
 var jwtKey []byte
 
+// Helper function to send JSON errors
+func sendJSONError(w http.ResponseWriter, message string, statusCode int) {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(statusCode)
+	json.NewEncoder(w).Encode(map[string]string{"message": message})
+}
+
 func helloHandler(w http.ResponseWriter, r *http.Request) {
 	fmt.Fprintln(w, "Hello, World!")
 }
@@ -62,45 +69,37 @@ func isValidEmail(email string) bool {
 }
 
 func registerHandler(w http.ResponseWriter, r *http.Request) {
-
-	// Enfore POST method
 	if r.Method != http.MethodPost {
-		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		sendJSONError(w, "Method not allowed. Only POST is accepted.", http.StatusMethodNotAllowed)
 		return
 	}
 
-	// Get the username and password from the request
 	var payload RegisterationPayload
-
 	err := json.NewDecoder(r.Body).Decode(&payload)
 	if err != nil {
-		log.Println("Invalid request payload", err)
-		http.Error(w, "Invalid request payload", http.StatusBadRequest)
+		log.Println("Invalid registration request payload:", err)
+		sendJSONError(w, "Invalid request payload. Ensure all fields are valid JSON strings.", http.StatusBadRequest)
 		return
 	}
-
 	defer r.Body.Close()
 
-	// Validate the input
 	if payload.Firstname == "" || payload.Lastname == "" || payload.Username == "" || payload.Password == "" || payload.Email == "" {
-		http.Error(w, "All fields are required", http.StatusBadRequest)
+		sendJSONError(w, "All fields (firstname, lastname, username, email, password) are required.", http.StatusBadRequest)
 		return
 	}
-
 	if len(payload.Password) < 8 {
-		http.Error(w, "Password must be at least 8 characters long", http.StatusBadRequest)
+		sendJSONError(w, "Password must be at least 8 characters long.", http.StatusBadRequest)
 		return
 	}
-
 	if !isValidEmail(payload.Email) {
-		http.Error(w, "Invalid email address", http.StatusBadRequest)
+		sendJSONError(w, "Invalid email address.", http.StatusBadRequest)
 		return
 	}
 
-	// Hash the password
 	hashedPassword, err := bcrypt.GenerateFromPassword([]byte(payload.Password), bcrypt.DefaultCost)
 	if err != nil {
-		http.Error(w, "Failed to complete password hasing", http.StatusInternalServerError)
+		log.Println("Failed to hash password:", err)
+		sendJSONError(w, "Failed to complete password hashing.", http.StatusInternalServerError)
 		return
 	}
 
@@ -114,20 +113,18 @@ func registerHandler(w http.ResponseWriter, r *http.Request) {
 		UpdatedAt: time.Now(),
 	}
 
-	// Get the collection
 	usersCollection := database.GetCollection("OJ", "users")
-
-	// Insert the user
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 
 	result, err := usersCollection.InsertOne(ctx, newUser)
 	if err != nil {
 		if mongo.IsDuplicateKeyError(err) {
-			http.Error(w, "Username already exists", http.StatusConflict)
+			sendJSONError(w, "Username or email already exists.", http.StatusConflict)
 			return
 		}
-		http.Error(w, fmt.Sprintf("Failed to register user: %v", err), http.StatusInternalServerError)
+		log.Printf("Failed to register user in DB: %v\n", err)
+		sendJSONError(w, fmt.Sprintf("Failed to register user: %v", err), http.StatusInternalServerError)
 		return
 	}
 
@@ -135,19 +132,20 @@ func registerHandler(w http.ResponseWriter, r *http.Request) {
 	if oid, ok := result.InsertedID.(primitive.ObjectID); ok {
 		userIDHex = oid.Hex()
 	} else {
-		http.Error(w, "Failed to retrieve generated user ID for token", http.StatusInternalServerError)
+		log.Println("Failed to retrieve generated user ID for token. InsertedID was not an ObjectID.")
+		sendJSONError(w, "Failed to retrieve generated user ID for token.", http.StatusInternalServerError)
 		return
 	}
 
-	// Access the key from env
 	secret := os.Getenv("JWT_SECRET_KEY")
 	if secret == "" {
-		log.Fatal("FATAL: JWT_SECRET_KEY not found")
+		log.Println("CRITICAL: JWT_SECRET_KEY not found in environment variables.")
+		sendJSONError(w, "User registered, but server configuration error prevented token generation.", http.StatusInternalServerError)
+		return
 	}
+	jwtKey = []byte(secret)
 
-	// JWT Generation
-	expirationTime := time.Now().Add(24 * time.Hour) // Token will expire after 24 hours
-
+	expirationTime := time.Now().Add(24 * time.Hour)
 	claims := &Claims{
 		UserID:    userIDHex,
 		Username:  newUser.Username,
@@ -159,16 +157,15 @@ func registerHandler(w http.ResponseWriter, r *http.Request) {
 			IssuedAt:  jwt.NewNumericDate(time.Now()),
 		},
 	}
-	jwtKey = []byte(secret)
 
 	token := jwt.NewWithClaims(jwt.SigningMethodHS256, claims)
 	tokenString, err := token.SignedString(jwtKey)
 	if err != nil {
-		http.Error(w, "User registered, but failed to generate token", http.StatusInternalServerError)
+		log.Printf("Failed to sign JWT token: %v\n", err)
+		sendJSONError(w, "User registered, but failed to generate token.", http.StatusInternalServerError)
 		return
 	}
 
-	// Return User Registered Successfully
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusCreated)
 	response := map[string]interface{}{
@@ -181,9 +178,8 @@ func registerHandler(w http.ResponseWriter, r *http.Request) {
 }
 
 func loginHandler(w http.ResponseWriter, r *http.Request) {
-	// Enforce POST method
 	if r.Method != http.MethodPost {
-		http.Error(w, "Method not allowed. Only POST is accepted.", http.StatusMethodNotAllowed)
+		sendJSONError(w, "Method not allowed. Only POST is accepted.", http.StatusMethodNotAllowed)
 		return
 	}
 
@@ -191,59 +187,49 @@ func loginHandler(w http.ResponseWriter, r *http.Request) {
 	err := json.NewDecoder(r.Body).Decode(&payload)
 	if err != nil {
 		log.Println("Invalid login request payload:", err)
-		http.Error(w, "Invalid request payload. Ensure email/username and password are provided as strings.", http.StatusBadRequest)
+		sendJSONError(w, "Invalid request payload. Ensure email and password are provided as valid JSON strings.", http.StatusBadRequest)
 		return
 	}
 	defer r.Body.Close()
 
-	// Validate input
-	if payload.Email == "" || payload.Password == "" { // Or payload.Username
-		http.Error(w, "Email/username and password are required.", http.StatusBadRequest)
+	if payload.Email == "" || payload.Password == "" {
+		sendJSONError(w, "Email and password are required.", http.StatusBadRequest)
 		return
 	}
 
-	// Get the users collection
 	usersCollection := database.GetCollection("OJ", "users")
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 
-	// Find the user by email (or username)
-	var foundUser models.User // Assuming models.User has Email, Username, Password, ID fields
-	// If using email to login:
+	var foundUser models.User
 	err = usersCollection.FindOne(ctx, primitive.M{"email": payload.Email}).Decode(&foundUser)
-	// If you want to allow login with username instead, change to:
-	// err = usersCollection.FindOne(ctx, bson.M{"username": payload.Username}).Decode(&user)
-
 	if err != nil {
 		if err == mongo.ErrNoDocuments {
-			http.Error(w, "Invalid email/username or password.", http.StatusUnauthorized) // Generic error for security
+			sendJSONError(w, "Invalid email or password.", http.StatusUnauthorized)
 			return
 		}
 		log.Println("Error finding user:", err)
-		http.Error(w, "Failed to process login.", http.StatusInternalServerError)
+		sendJSONError(w, "Failed to process login due to a server error.", http.StatusInternalServerError)
 		return
 	}
 
-	// Compare the provided password with the stored hashed password
 	err = bcrypt.CompareHashAndPassword([]byte(foundUser.Password), []byte(payload.Password))
 	if err != nil {
-		// If passwords don't match, bcrypt returns an error
-		http.Error(w, "Invalid email/username or password.", http.StatusUnauthorized) // Generic error
+		sendJSONError(w, "Invalid email or password.", http.StatusUnauthorized)
 		return
 	}
 
-	// --- Passwords match, generate JWT ---
 	secret := os.Getenv("JWT_SECRET_KEY")
 	if secret == "" {
 		log.Println("CRITICAL: JWT_SECRET_KEY not found in environment variables during login.")
-		http.Error(w, "Login successful, but server configuration error prevented token generation.", http.StatusInternalServerError)
+		sendJSONError(w, "Login successful, but server configuration error prevented token generation.", http.StatusInternalServerError)
 		return
 	}
-	jwtKey = []byte(secret) // Assuming jwtKey is a global var as in registerHandler
+	jwtKey = []byte(secret)
 
-	expirationTime := time.Now().Add(24 * time.Hour) // Token expires in 24 hours
+	expirationTime := time.Now().Add(24 * time.Hour)
 	claims := &Claims{
-		UserID:    foundUser.ID.Hex(), // Assuming your models.User has an ID field of type primitive.ObjectID
+		UserID:    foundUser.ID.Hex(),
 		Username:  foundUser.Username,
 		Email:     foundUser.Email,
 		Firstname: foundUser.Firstname,
@@ -258,7 +244,7 @@ func loginHandler(w http.ResponseWriter, r *http.Request) {
 	tokenString, err := token.SignedString(jwtKey)
 	if err != nil {
 		log.Println("Failed to sign JWT token during login:", err)
-		http.Error(w, "Login successful, but failed to generate token.", http.StatusInternalServerError)
+		sendJSONError(w, "Login successful, but failed to generate token.", http.StatusInternalServerError)
 		return
 	}
 
@@ -267,7 +253,7 @@ func loginHandler(w http.ResponseWriter, r *http.Request) {
 	response := map[string]interface{}{
 		"message": "Login Successful",
 		"token":   tokenString,
-		"user": map[string]string{ // Optionally send some non-sensitive user info
+		"user": map[string]string{
 			"user_id":   foundUser.ID.Hex(),
 			"username":  foundUser.Username,
 			"email":     foundUser.Email,
@@ -281,11 +267,11 @@ func loginHandler(w http.ResponseWriter, r *http.Request) {
 
 func withCORS(next http.HandlerFunc) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("Access-Control-Allow-Origin", "http://localhost:3000, http://localhost:3001")
+		w.Header().Set("Access-Control-Allow-Origin", "http://localhost:3000")
 		w.Header().Set("Access-Control-Allow-Methods", "POST, GET, OPTIONS, PUT, DELETE")
 		w.Header().Set("Access-Control-Allow-Headers", "Accept, Content-Type, Content-Length, Accept-Encoding, X-CSRF-Token, Authorization")
 
-		if r.Method == "OPTIONS" { // Handle preflight requests
+		if r.Method == "OPTIONS" {
 			w.WriteHeader(http.StatusOK)
 			return
 		}
@@ -296,19 +282,23 @@ func withCORS(next http.HandlerFunc) http.HandlerFunc {
 func main() {
 	err := godotenv.Load()
 	if err != nil {
-		log.Println("Warning: Error loading .env file")
+		log.Println("Warning: Error loading .env file. Ensure environment variables are set if .env is not used.")
 	}
 
 	mongoURI := os.Getenv("MONGO_URI")
 	if mongoURI == "" {
-		log.Fatal("Warning: MONGO_URI not initialized")
+		log.Fatal("FATAL: MONGO_URI not found in environment variables.")
+	}
+	jwtSecret := os.Getenv("JWT_SECRET_KEY")
+	if jwtSecret == "" {
+		log.Fatal("FATAL: JWT_SECRET_KEY not found in environment variables.")
 	}
 
 	err_db := database.ConnectDB(mongoURI)
 	if err_db != nil {
 		log.Fatalf("Could not connect to the database: %v", err_db)
 	}
-	log.Println("Succesfuuily connected to MongoDB")
+	log.Println("Successfully connected to MongoDB.")
 	defer database.DisconnectDB()
 
 	http.HandleFunc("/register", withCORS(registerHandler))
