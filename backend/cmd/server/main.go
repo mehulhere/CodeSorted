@@ -76,7 +76,7 @@ func registerHandler(w http.ResponseWriter, r *http.Request) {
 	defer r.Body.Close()
 
 	// Validate the input
-	if payload.Firstname == "" || payload.Lastname == "" || payload.Username == "" || payload.Password == "" {
+	if payload.Firstname == "" || payload.Lastname == "" || payload.Username == "" || payload.Password == "" || payload.Email == "" {
 		http.Error(w, "All fields are required", http.StatusBadRequest)
 		return
 	}
@@ -176,6 +176,19 @@ func registerHandler(w http.ResponseWriter, r *http.Request) {
 	fmt.Fprintf(w, "User registered: %s (Firstname: %s, Lastname: %s, Email: %s)", newUser.Username, newUser.Firstname, newUser.Lastname, newUser.Email)
 }
 
+func withCORS(next http.HandlerFunc) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Access-Control-Allow-Origin", "http://localhost:3000")
+		w.Header().Set("Access-Control-Allow-Methods", "POST, GET, OPTIONS, PUT, DELETE")
+		w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization")
+		if r.Method == "OPTIONS" {
+			w.WriteHeader(http.StatusOK)
+			return
+		}
+		next(w, r)
+	}
+}
+
 func main() {
 
 	err := godotenv.Load()
@@ -195,9 +208,9 @@ func main() {
 	log.Println("Succesfuuily connected to MongoDB")
 	defer database.DisconnectDB()
 
-	http.HandleFunc("/", helloHandler)
-	http.HandleFunc("/greet", greetHandler)
-	http.HandleFunc("/register", registerHandler)
+	http.HandleFunc("/register", withCORS(registerHandler))
+	http.HandleFunc("/", withCORS(helloHandler))
+	http.HandleFunc("/greet", withCORS(greetHandler))
 
 	fmt.Println("Server listening on port 8080")
 	log.Fatal(http.ListenAndServe(":8080", nil))
