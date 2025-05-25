@@ -10,6 +10,7 @@ import (
 	"net/http"
 	"os"
 	"regexp"
+	"strings"
 	"time"
 
 	"github.com/golang-jwt/jwt/v5"
@@ -295,6 +296,7 @@ func getProblemsHandler(w http.ResponseWriter, r *http.Request) {
 			ProblemID:  problem.ProblemID,
 			Title:      problem.Title,
 			Difficulty: problem.Difficulty,
+			Tags:       problem.Tags,
 		})
 	}
 
@@ -312,6 +314,54 @@ func getProblemsHandler(w http.ResponseWriter, r *http.Request) {
 		// Consider more centralized error handling for such cases.
 	}
 	log.Println("Successfully retrieved problems list. Count:", len(problems))
+}
+
+// getProblemHandler (singular problem)
+func getProblemHandler(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		sendJSONError(w, "Method not allowed. Only GET is accepted.", http.StatusMethodNotAllowed)
+		return
+	}
+
+	pathSegments := strings.Split(strings.Trim(r.URL.Path, "/"), "/")
+	if len(pathSegments) < 2 || pathSegments[0] != "problems" {
+		sendJSONError(w, "Invalid problem URL format. Expected /problems/{id}", http.StatusBadRequest)
+		return
+	}
+	problemIDFromURL := pathSegments[len(pathSegments)-1] // Get the last segment as ID
+
+	if problemIDFromURL == "" {
+		sendJSONError(w, "Problem ID is required in the URL path.", http.StatusBadRequest)
+		return
+	}
+
+	problemsCollection := database.GetCollection("OJ", "problems")
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
+	var problem models.Problem // Use the full Problem struct from models package
+
+	// Try to find by custom ProblemID first
+	filter := primitive.M{"problem_id": problemIDFromURL}
+	err := problemsCollection.FindOne(ctx, filter).Decode(&problem)
+
+	if err != nil {
+		if err == mongo.ErrNoDocuments {
+			sendJSONError(w, "Problem not found.", http.StatusNotFound)
+		}
+
+		log.Println("Error fetching single problem from DB:", err)
+		sendJSONError(w, "Failed to retrieve problem.", http.StatusInternalServerError)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusOK)
+	if err := json.NewEncoder(w).Encode(problem); err != nil {
+		log.Println("Error encoding single problem to JSON:", err)
+		// At this point, headers are written, so sending a new JSON error might be complex.
+	}
+	log.Println("Successfully retrieved problem:", problem.Title)
 }
 
 func addTestCaseHandler(w http.ResponseWriter, r *http.Request) {
@@ -427,6 +477,7 @@ func main() {
 	http.HandleFunc("/register", withCORS(registerHandler))
 	http.HandleFunc("/login", withCORS(loginHandler))
 	http.HandleFunc("/problems", withCORS(getProblemsHandler))
+	http.HandleFunc("/problems/", withCORS(getProblemHandler))
 	http.HandleFunc("/testcases", withCORS(addTestCaseHandler))
 	http.HandleFunc("/", withCORS(helloHandler))
 	http.HandleFunc("/greet", withCORS(greetHandler))
