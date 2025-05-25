@@ -3,6 +3,7 @@ import { useRouter } from 'next/router';
 import { useEffect, useState } from 'react';
 import Link from 'next/link';
 import type { ProblemType, ApiError } from '@/types/problem'; // Adjust path
+import '@/app/globals.css';
 
 export default function SingleProblemPage() {
     const router = useRouter();
@@ -108,8 +109,8 @@ export default function SingleProblemPage() {
                                     </h1>
                                     <p className="mt-1 max-w-2xl text-sm text-gray-500">
                                         Difficulty: <span className={`font-semibold ${problem.difficulty?.toLowerCase() === 'easy' ? 'text-green-600' :
-                                                problem.difficulty?.toLowerCase() === 'medium' ? 'text-yellow-600' :
-                                                    problem.difficulty?.toLowerCase() === 'hard' ? 'text-red-600' : 'text-gray-600'
+                                            problem.difficulty?.toLowerCase() === 'medium' ? 'text-yellow-600' :
+                                                problem.difficulty?.toLowerCase() === 'hard' ? 'text-red-600' : 'text-gray-600'
                                             }`}>{problem.difficulty || 'N/A'}</span>
                                     </p>
                                 </div>
@@ -132,7 +133,7 @@ export default function SingleProblemPage() {
                         <div className="px-4 py-5 sm:p-6">
                             <h2 className="text-xl font-semibold text-gray-800 mb-3">Problem Statement</h2>
                             {/* Use a markdown renderer here for better formatting if statement is in markdown */}
-                            <div className="prose prose-indigo max-w-none" dangerouslySetInnerHTML={{ __html: problem.statement.replace(/\n/g, '<br />') /* Basic newline handling, consider markdown */ }} />
+                            <div className="prose prose-indigo max-w-none text-gray-800" dangerouslySetInnerHTML={{ __html: problem.statement.replace(/\n/g, '<br />') /* Basic newline handling, consider markdown */ }} />
                         </div>
                     </div>
 

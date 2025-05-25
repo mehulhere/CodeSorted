@@ -2,6 +2,7 @@ import Head from 'next/head';
 import Link from 'next/link';
 import { useEffect, useState } from 'react';
 import type { ProblemListItemType, ApiError } from '@/types/problem'; // Adjust path if needed
+import '@/app/globals.css';
 
 export default function ProblemsPage() {
     const [problems, setProblems] = useState<ProblemListItemType[]>([]);
