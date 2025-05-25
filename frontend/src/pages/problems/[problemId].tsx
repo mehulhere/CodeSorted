@@ -8,8 +8,7 @@ import Editor, { Monaco } from '@monaco-editor/react';
 
 export default function SingleProblemPage() {
     const router = useRouter();
-    const { problemId } = router.query; // problemId comes from the filename [problemId].tsx
-
+    const { problemId } = router.query;
     const [problem, setProblem] = useState<ProblemType | null>(null);
     const [isLoading, setIsLoading] = useState<boolean>(true);
     const [error, setError] = useState<string | null>(null);
@@ -24,7 +23,6 @@ export default function SingleProblemPage() {
 
     useEffect(() => {
         if (!problemId) {
-            // problemId might be undefined on initial render
             return;
         }
 
@@ -39,7 +37,6 @@ export default function SingleProblemPage() {
                         const errorData: ApiError = await response.json();
                         errorMessage = errorData.message || errorMessage;
                     } catch (jsonError) {
-                        // If response is not JSON, use the status text
                         errorMessage = response.statusText || errorMessage;
                     }
                     throw new Error(errorMessage);
@@ -55,7 +52,7 @@ export default function SingleProblemPage() {
         };
 
         fetchProblem();
-    }, [problemId]); // Re-run effect if problemId changes
+    }, [problemId]); // Re-run effect if problemId (from dynamic path) changes
 
     function handleEditorDidMount(editor: any, monaco: Monaco) {
         editorRef.current = editor;
@@ -83,43 +80,28 @@ export default function SingleProblemPage() {
                 body: JSON.stringify({
                     language: selectedLanguage,
                     code: code,
-                    stdin: '',
+                    stdin: '', // Assuming you have a state for stdin if needed: userInputStdin
                 }),
             });
 
-            // Try to parse the JSON body regardless of response.ok status,
-            // as even errors might come with a JSON body.
             let responseBody;
             try {
                 responseBody = await response.json();
             } catch (jsonParseError) {
-                // If JSON parsing fails, and response was not ok, throw a generic error.
-                // If response was ok but JSON parsing failed, that's a different issue.
                 if (!response.ok) {
                     throw new Error(`Request failed with status ${response.status}. Response body was not valid JSON.`);
                 }
-                // If response.ok but JSON is bad, this is a server issue.
                 throw new Error('Received OK status, but response body was not valid JSON.');
             }
 
             if (!response.ok) {
-                // If response was not OK, use message/error from the parsed JSON body if available.
-                // These are for errors caught by sendJSONError in Go (e.g. bad request, server internal error before exec)
                 throw new Error(responseBody.message || responseBody.error || `Request failed with status ${response.status}`);
             }
-
-            // If response.ok, responseBody contains the execution result.
-            // This includes successful runs, or runs where the user's code had errors (syntax, runtime).
             setOutput(responseBody);
-
         } catch (err) {
-            // This catch handles:
-            // 1. Network errors (fetch itself fails).
-            // 2. response.json() parsing errors.
-            // 3. Errors explicitly thrown from `if (!response.ok)`.
             console.error('Failed to execute code:', err);
             setExecutionError(err instanceof Error ? err.message : 'An unknown error occurred during execution.');
-            setOutput(null); // Clear any partial output
+            setOutput(null);
         } finally {
             setIsExecuting(false);
         }
@@ -129,7 +111,6 @@ export default function SingleProblemPage() {
         return (
             <div className="min-h-screen bg-gray-100 flex justify-center items-center">
                 <p className="text-xl text-gray-700">Loading problem details...</p>
-                {/* You can add a spinner here */}
             </div>
         );
     }
@@ -380,7 +361,7 @@ export default function SingleProblemPage() {
                             )}
                             {!output && !isExecuting && !executionError && (
                                 <div className="mt-2 text-sm text-gray-600 bg-gray-50 p-3 rounded-md min-h-[100px]">
-                                    <pre>// Click "Run Code" to see output</pre>
+                                    <pre>Click "Run Code" to see output</pre>
                                 </div>
                             )}
                         </div>
