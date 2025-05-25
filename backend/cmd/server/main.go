@@ -19,6 +19,7 @@ import (
 	"github.com/joho/godotenv"
 	"go.mongodb.org/mongo-driver/bson/primitive"
 	"go.mongodb.org/mongo-driver/mongo"
+	"go.mongodb.org/mongo-driver/mongo/options"
 	"golang.org/x/crypto/bcrypt"
 )
 
@@ -342,7 +343,7 @@ func getProblemHandler(w http.ResponseWriter, r *http.Request) {
 		sendJSONError(w, "Invalid problem URL format. Expected /problems/{id}", http.StatusBadRequest)
 		return
 	}
-	problemIDFromURL := pathSegments[len(pathSegments)-1] // Get the last segment as ID
+	problemIDFromURL := pathSegments[len(pathSegments)-1]
 
 	if problemIDFromURL == "" {
 		sendJSONError(w, "Problem ID is required in the URL path.", http.StatusBadRequest)
@@ -350,32 +351,77 @@ func getProblemHandler(w http.ResponseWriter, r *http.Request) {
 	}
 
 	problemsCollection := database.GetCollection("OJ", "problems")
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 	defer cancel()
 
-	var problem models.Problem // Use the full Problem struct from models package
+	var problemData models.Problem // This is the clean struct without SampleTestCases
 
-	// Try to find by custom ProblemID first
 	filter := primitive.M{"problem_id": problemIDFromURL}
-	err := problemsCollection.FindOne(ctx, filter).Decode(&problem)
+	err := problemsCollection.FindOne(ctx, filter).Decode(&problemData)
 
 	if err != nil {
 		if err == mongo.ErrNoDocuments {
-			sendJSONError(w, "Problem not found.", http.StatusNotFound)
+			objectID, idErr := primitive.ObjectIDFromHex(problemIDFromURL)
+			if idErr != nil {
+				sendJSONError(w, "Problem not found (and ID is not a valid ObjectID).", http.StatusNotFound)
+				return
+			}
+			filter = primitive.M{"_id": objectID}
+			err = problemsCollection.FindOne(ctx, filter).Decode(&problemData)
+			if err != nil {
+				if err == mongo.ErrNoDocuments {
+					sendJSONError(w, "Problem not found.", http.StatusNotFound)
+					return
+				}
+				log.Println("Error fetching single problem by ObjectID from DB:", err)
+				sendJSONError(w, "Failed to retrieve problem.", http.StatusInternalServerError)
+				return
+			}
+		} else {
+			log.Println("Error fetching single problem by problem_id from DB:", err)
+			sendJSONError(w, "Failed to retrieve problem.", http.StatusInternalServerError)
+			return
 		}
+	}
 
-		log.Println("Error fetching single problem from DB:", err)
-		sendJSONError(w, "Failed to retrieve problem.", http.StatusInternalServerError)
-		return
+	// Fetch sample test cases
+	var fetchedSampleTestCases []models.TestCase
+	testCasesCollection := database.GetCollection("OJ", "testcases")
+	findOptions := options.Find()
+	findOptions.SetSort(primitive.D{{Key: "sequence_number", Value: 1}})
+	findOptions.SetLimit(2)
+	testCaseFilter := primitive.M{"problem_db_id": problemData.ID}
+
+	cursor, err := testCasesCollection.Find(ctx, testCaseFilter, findOptions)
+	if err != nil {
+		log.Println("Error fetching sample test cases from DB for problem "+problemData.ID.Hex()+":", err)
+		// fetchedSampleTestCases will remain empty or nil
+	} else {
+		defer cursor.Close(ctx)
+		if err = cursor.All(ctx, &fetchedSampleTestCases); err != nil {
+			log.Println("Error decoding sample test cases for problem "+problemData.ID.Hex()+":", err)
+			fetchedSampleTestCases = nil // Ensure it's nil if decoding fails
+		}
+	}
+
+	// Define a response structure that embeds problemData and adds sample test cases
+	// This way, models.Problem struct remains clean.
+	type problemResponse struct {
+		models.Problem                    // Embed all fields from models.Problem
+		SampleTestCases []models.TestCase `json:"sample_test_cases,omitempty"`
+	}
+
+	responsePayload := problemResponse{
+		Problem:         problemData,
+		SampleTestCases: fetchedSampleTestCases,
 	}
 
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)
-	if err := json.NewEncoder(w).Encode(problem); err != nil {
-		log.Println("Error encoding single problem to JSON:", err)
-		// At this point, headers are written, so sending a new JSON error might be complex.
+	if err := json.NewEncoder(w).Encode(responsePayload); err != nil {
+		log.Println("Error encoding single problem (with samples) to JSON:", err)
 	}
-	log.Println("Successfully retrieved problem:", problem.Title)
+	log.Println("Successfully retrieved problem:", responsePayload.Title, "with", len(responsePayload.SampleTestCases), "sample test cases.")
 }
 
 func addTestCaseHandler(w http.ResponseWriter, r *http.Request) {

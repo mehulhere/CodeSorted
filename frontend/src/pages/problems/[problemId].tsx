@@ -240,6 +240,29 @@ export default function SingleProblemPage() {
                                 </dl>
                             </div>
                         </div>
+
+                        {/* Sample Test Cases Section */}
+                        {problem.sample_test_cases && problem.sample_test_cases.length > 0 && (
+                            <div className="bg-white shadow overflow-hidden sm:rounded-lg mb-8">
+                                <div className="px-4 py-5 sm:p-6">
+                                    <h2 className="text-xl font-semibold text-gray-800 mb-4">Sample Test Cases</h2>
+                                    {problem.sample_test_cases.map((tc, index) => (
+                                        <div key={tc.id || `sample-${index}`} className="mb-6 pb-4 border-b border-gray-200 last:mb-0 last:border-b-0">
+                                            <h3 className="text-md font-semibold text-gray-700 mb-1">Sample Case {index + 1}</h3>
+                                            {tc.notes && <p className="text-sm text-gray-500 mb-2 italic">{tc.notes}</p>}
+                                            <div>
+                                                <p className="text-sm font-medium text-gray-600">Input:</p>
+                                                <pre className="mt-1 p-3 bg-gray-100 text-gray-800 rounded-md text-sm whitespace-pre-wrap">{tc.input}</pre>
+                                            </div>
+                                            <div className="mt-2">
+                                                <p className="text-sm font-medium text-gray-600">Expected Output:</p>
+                                                <pre className="mt-1 p-3 bg-gray-100 text-gray-800 rounded-md text-sm whitespace-pre-wrap">{tc.expected_output}</pre>
+                                            </div>
+                                        </div>
+                                    ))}
+                                </div>
+                            </div>
+                        )}
                     </div>
 
                     {/* Right Column: Code Editor and Actions */}
