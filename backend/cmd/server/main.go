@@ -9,6 +9,8 @@ import (
 	"log"
 	"net/http"
 	"os"
+	"os/exec"
+	"path/filepath"
 	"regexp"
 	"strings"
 	"time"
@@ -39,8 +41,24 @@ type RegisterationPayload struct {
 
 // Add a new type for the login payload
 type LoginPayload struct {
-	Email    string `json:"email"` // Or Username, depending on what you want to use for login
+	Email    string `json:"email"`
 	Password string `json:"password"`
+}
+
+// Structures for code execution
+type ExecuteCodePayload struct {
+	Language string `json:"language"`
+	Code     string `json:"code"`
+	Stdin    string `json:"stdin"` // Optional standard input
+}
+
+type ExecuteCodeResult struct {
+	Stdout          string `json:"stdout"`
+	Stderr          string `json:"stderr"`
+	ExecutionTimeMs int64  `json:"execution_time_ms"`
+	MemoryUsageKb   int64  `json:"memory_usage_kb"` // Placeholder, actual measurement is complex
+	Error           string `json:"error,omitempty"` // For errors in the execution service itself
+	Status          string `json:"status"`          // e.g., "success", "compile_error", "runtime_error", "timeout"
 }
 
 var jwtKey []byte
@@ -50,10 +68,6 @@ func sendJSONError(w http.ResponseWriter, message string, statusCode int) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(statusCode)
 	json.NewEncoder(w).Encode(map[string]string{"message": message})
-}
-
-func helloHandler(w http.ResponseWriter, r *http.Request) {
-	fmt.Fprintln(w, "Hello, World!")
 }
 
 func greetHandler(w http.ResponseWriter, r *http.Request) {
@@ -438,6 +452,164 @@ func addTestCaseHandler(w http.ResponseWriter, r *http.Request) {
 	log.Printf("Test case added for problem %s with ID: %v. Points: %d, Sequence: %d\n", payload.ProblemDBID, result.InsertedID, payload.Points, payload.SequenceNumber)
 }
 
+func executeCodeHandler(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		sendJSONError(w, "Method not allowed. Only POST is accepted.", http.StatusMethodNotAllowed)
+		return
+	}
+
+	var payload ExecuteCodePayload
+	if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
+		log.Println("Invalid execute code request payload:", err)
+		sendJSONError(w, "Invalid request payload for code execution.", http.StatusBadRequest)
+		return
+	}
+	defer r.Body.Close()
+
+	if payload.Code == "" {
+		sendJSONError(w, "Code cannot be empty.", http.StatusBadRequest)
+		return
+	}
+	if payload.Language == "" {
+		sendJSONError(w, "Language must be specified.", http.StatusBadRequest)
+		return
+	}
+
+	result := ExecuteCodeResult{
+		// Initialize status, it will be overwritten by actual execution outcomes
+		Status: "processing",
+	}
+
+	// Default error in case a language isn't handled, or early exit.
+	// This will be cleared if a language handler successfully completes.
+	result.Error = "Language not supported or internal error before execution: " + payload.Language
+
+	if payload.Language == "python" {
+		tempDir, err := os.MkdirTemp("", "codejudge-python-*")
+		if err != nil {
+			log.Println("Failed to create temp dir for python:", err)
+			// Use sendJSONError for server-internal issues before forming a full 'result'
+			sendJSONError(w, "Server error creating python execution environment.", http.StatusInternalServerError)
+			return
+		}
+		defer os.RemoveAll(tempDir)
+
+		scriptPath := filepath.Join(tempDir, "script.py")
+		if err := os.WriteFile(scriptPath, []byte(payload.Code), 0644); err != nil {
+			log.Println("Failed to write python code to temp file:", err)
+			sendJSONError(w, "Server error preparing python code for execution.", http.StatusInternalServerError)
+			return
+		}
+
+		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer cancel()
+
+		cmd := exec.CommandContext(ctx, "python3", scriptPath)
+		cmd.Stdin = strings.NewReader(payload.Stdin)
+		var out, errStream strings.Builder
+		cmd.Stdout = &out
+		cmd.Stderr = &errStream
+
+		startTime := time.Now()
+		runErr := cmd.Run()
+		executionTime := time.Since(startTime).Milliseconds()
+
+		result.Stdout = out.String()
+		result.Stderr = errStream.String()
+		result.ExecutionTimeMs = executionTime
+		result.Error = "" // Clear pre-set error as execution proceeded
+
+		if ctx.Err() == context.DeadlineExceeded {
+			result.Status = "time_limit_exceeded"
+			// Append to stderr, as TLE might not produce its own stderr
+			if result.Stderr == "" {
+				result.Stderr = "Execution timed out after 10 seconds."
+			} else {
+				result.Stderr += "\nExecution timed out after 10 seconds."
+			}
+		} else if runErr != nil {
+			// This covers Python syntax errors, runtime errors, etc.
+			result.Status = "runtime_error" // Or "syntax_error" - "runtime_error" is a general catch-all
+			if result.Stderr == "" {        // If Python didn't output to stderr for some reason
+				result.Stderr = runErr.Error()
+			}
+		} else {
+			result.Status = "success"
+		}
+
+	} else if payload.Language == "javascript" {
+		tempDir, err := os.MkdirTemp("", "codejudge-js-*")
+		if err != nil {
+			log.Println("Failed to create temp dir for javascript:", err)
+			sendJSONError(w, "Server error creating javascript execution environment.", http.StatusInternalServerError)
+			return
+		}
+		defer os.RemoveAll(tempDir)
+
+		scriptPath := filepath.Join(tempDir, "script.js")
+		if err := os.WriteFile(scriptPath, []byte(payload.Code), 0644); err != nil {
+			log.Println("Failed to write javascript code to temp file:", err)
+			sendJSONError(w, "Server error preparing javascript code for execution.", http.StatusInternalServerError)
+			return
+		}
+
+		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer cancel()
+
+		cmd := exec.CommandContext(ctx, "node", scriptPath)
+		cmd.Stdin = strings.NewReader(payload.Stdin)
+		var out, errStream strings.Builder
+		cmd.Stdout = &out
+		cmd.Stderr = &errStream
+
+		startTime := time.Now()
+		runErr := cmd.Run()
+		executionTime := time.Since(startTime).Milliseconds()
+
+		result.Stdout = out.String()
+		result.Stderr = errStream.String()
+		result.ExecutionTimeMs = executionTime
+		result.Error = "" // Clear pre-set error
+
+		if ctx.Err() == context.DeadlineExceeded {
+			result.Status = "time_limit_exceeded"
+			if result.Stderr == "" {
+				result.Stderr = "Execution timed out after 10 seconds."
+			} else {
+				result.Stderr += "\nExecution timed out after 10 seconds."
+			}
+		} else if runErr != nil {
+			result.Status = "runtime_error"
+			if result.Stderr == "" {
+				result.Stderr = runErr.Error()
+			}
+		} else {
+			result.Status = "success"
+		}
+	} else {
+		// If language not supported, result.Error is already set.
+		// We might want a specific status for "language_not_supported" if we send 200 OK.
+		// For now, the default "processing" status would be overwritten if we had a dedicated 'else' block.
+		// Let's ensure result.Status reflects this if we are sending 200 OK.
+		if result.Error != "" { // If error is still the default "Language not supported..."
+			result.Status = "client_error_language_not_supported" // A more specific status
+		}
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	// Always send http.StatusOK if we have managed to form a 'result' object.
+	// The 'status', 'stderr', and 'error' fields within 'result' will indicate the actual outcome.
+	// Errors that prevent forming a 'result' (e.g., bad JSON payload, internal file write errors)
+	// are handled by 'sendJSONError' which sends appropriate non-200 statuses.
+	w.WriteHeader(http.StatusOK)
+	if err := json.NewEncoder(w).Encode(result); err != nil {
+		log.Printf("Error encoding execution result: %v", err)
+		// At this point, headers are sent. Can't send a new JSON error.
+	}
+	log.Printf("Code execution: lang=%s, status=%s, time=%dms, stdout_len=%d, stderr_len=%d, error_msg_len=%d",
+		payload.Language, result.Status, result.ExecutionTimeMs, len(result.Stdout), len(result.Stderr), len(result.Error))
+}
+
 func withCORS(next http.HandlerFunc) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Access-Control-Allow-Origin", "http://localhost:3000")
@@ -479,7 +651,7 @@ func main() {
 	http.HandleFunc("/problems", withCORS(getProblemsHandler))
 	http.HandleFunc("/problems/", withCORS(getProblemHandler))
 	http.HandleFunc("/testcases", withCORS(addTestCaseHandler))
-	http.HandleFunc("/", withCORS(helloHandler))
+	http.HandleFunc("/execute", withCORS(executeCodeHandler))
 	http.HandleFunc("/greet", withCORS(greetHandler))
 
 	log.Println("Server listening on port 8080. Allowed origin for CORS: http://localhost:3000")
