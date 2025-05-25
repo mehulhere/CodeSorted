@@ -42,6 +42,25 @@ type LoginPayload struct {
 	Password string `json:"password"`
 }
 
+// Problem struct - consider moving to models package
+type Problem struct {
+	ID         primitive.ObjectID `json:"id" bson:"_id,omitempty"`
+	ProblemID  string             `json:"problem_id" bson:"problem_id"`
+	Title      string             `json:"title" bson:"title"`
+	Difficulty string             `json:"difficulty" bson:"difficulty"`
+	Statement  string             `json:"statement" bson:"statement"`
+	CreatedAt  time.Time          `json:"created_at" bson:"created_at"`
+	UpdatedAt  time.Time          `json:"updated_at" bson:"updated_at"`
+}
+
+// ProblemListItem for simplified list responses
+type ProblemListItem struct {
+	ID         primitive.ObjectID `json:"id" bson:"_id,omitempty"`
+	ProblemID  string             `json:"problem_id" bson:"problem_id"`
+	Title      string             `json:"title" bson:"title"`
+	Difficulty string             `json:"difficulty" bson:"difficulty"`
+}
+
 var jwtKey []byte
 
 // Helper function to send JSON errors
@@ -265,6 +284,55 @@ func loginHandler(w http.ResponseWriter, r *http.Request) {
 	log.Println("User logged in:", foundUser.Username)
 }
 
+func getProblemsHandler(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		sendJSONError(w, "Method not allowed. Only GET is accepted.", http.StatusMethodNotAllowed)
+		return
+	}
+
+	problemsCollection := database.GetCollection("OJ", "problems")
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
+	cursor, err := problemsCollection.Find(ctx, primitive.M{})
+	if err != nil {
+		log.Println("Error fetching problems from DB:", err)
+		sendJSONError(w, "Failed to retrieve problems.", http.StatusInternalServerError)
+		return
+	}
+	defer cursor.Close(ctx)
+
+	var problems []ProblemListItem
+	for cursor.Next(ctx) {
+		var problem Problem
+		if err := cursor.Decode(&problem); err != nil {
+			log.Println("Error decoding problem:", err)
+			continue
+		}
+		problems = append(problems, ProblemListItem{
+			ID:         problem.ID,
+			ProblemID:  problem.ProblemID,
+			Title:      problem.Title,
+			Difficulty: problem.Difficulty,
+		})
+	}
+
+	if err := cursor.Err(); err != nil {
+		log.Println("Error with problems cursor:", err)
+		sendJSONError(w, "Error processing problems list.", http.StatusInternalServerError)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusOK)
+	if err := json.NewEncoder(w).Encode(problems); err != nil {
+		log.Println("Error encoding problems to JSON:", err)
+		// If headers are already written, this specific sendJSONError might not be effective.
+		// Consider more centralized error handling for such cases.
+	}
+	log.Println("Successfully retrieved problems list. Count:", len(problems))
+}
+
 func withCORS(next http.HandlerFunc) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Access-Control-Allow-Origin", "http://localhost:3000")
@@ -303,6 +371,7 @@ func main() {
 
 	http.HandleFunc("/register", withCORS(registerHandler))
 	http.HandleFunc("/login", withCORS(loginHandler))
+	http.HandleFunc("/problems", withCORS(getProblemsHandler))
 	http.HandleFunc("/", withCORS(helloHandler))
 	http.HandleFunc("/greet", withCORS(greetHandler))
 
