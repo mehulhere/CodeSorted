@@ -8,7 +8,8 @@ import Editor, { Monaco } from '@monaco-editor/react';
 
 export default function SingleProblemPage() {
     const router = useRouter();
-    const { problemId } = router.query;
+    const { problemId } = router.query; // problemId comes from the filename [problemId].tsx
+
     const [problem, setProblem] = useState<ProblemType | null>(null);
     const [isLoading, setIsLoading] = useState<boolean>(true);
     const [error, setError] = useState<string | null>(null);
@@ -23,6 +24,7 @@ export default function SingleProblemPage() {
 
     useEffect(() => {
         if (!problemId) {
+            // problemId might be undefined on initial render
             return;
         }
 
