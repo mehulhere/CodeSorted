@@ -10,6 +10,7 @@ import (
 	"net/http"
 	"os"
 	"regexp"
+	"strings"
 	"time"
 
 	"github.com/golang-jwt/jwt/v5"
@@ -265,6 +266,178 @@ func loginHandler(w http.ResponseWriter, r *http.Request) {
 	log.Println("User logged in:", foundUser.Username)
 }
 
+func getProblemsHandler(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		sendJSONError(w, "Method not allowed. Only GET is accepted.", http.StatusMethodNotAllowed)
+		return
+	}
+
+	problemsCollection := database.GetCollection("OJ", "problems")
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
+	cursor, err := problemsCollection.Find(ctx, primitive.M{})
+	if err != nil {
+		log.Println("Error fetching problems from DB:", err)
+		sendJSONError(w, "Failed to retrieve problems.", http.StatusInternalServerError)
+		return
+	}
+	defer cursor.Close(ctx)
+
+	var problems []models.ProblemListItem
+	for cursor.Next(ctx) {
+		var problem models.Problem
+		if err := cursor.Decode(&problem); err != nil {
+			log.Println("Error decoding problem:", err)
+			continue
+		}
+		problems = append(problems, models.ProblemListItem{
+			ID:         problem.ID,
+			ProblemID:  problem.ProblemID,
+			Title:      problem.Title,
+			Difficulty: problem.Difficulty,
+			Tags:       problem.Tags,
+		})
+	}
+
+	if err := cursor.Err(); err != nil {
+		log.Println("Error with problems cursor:", err)
+		sendJSONError(w, "Error processing problems list.", http.StatusInternalServerError)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusOK)
+	if err := json.NewEncoder(w).Encode(problems); err != nil {
+		log.Println("Error encoding problems to JSON:", err)
+		// If headers are already written, this specific sendJSONError might not be effective.
+		// Consider more centralized error handling for such cases.
+	}
+	log.Println("Successfully retrieved problems list. Count:", len(problems))
+}
+
+// getProblemHandler (singular problem)
+func getProblemHandler(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		sendJSONError(w, "Method not allowed. Only GET is accepted.", http.StatusMethodNotAllowed)
+		return
+	}
+
+	pathSegments := strings.Split(strings.Trim(r.URL.Path, "/"), "/")
+	if len(pathSegments) < 2 || pathSegments[0] != "problems" {
+		sendJSONError(w, "Invalid problem URL format. Expected /problems/{id}", http.StatusBadRequest)
+		return
+	}
+	problemIDFromURL := pathSegments[len(pathSegments)-1] // Get the last segment as ID
+
+	if problemIDFromURL == "" {
+		sendJSONError(w, "Problem ID is required in the URL path.", http.StatusBadRequest)
+		return
+	}
+
+	problemsCollection := database.GetCollection("OJ", "problems")
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
+	var problem models.Problem // Use the full Problem struct from models package
+
+	// Try to find by custom ProblemID first
+	filter := primitive.M{"problem_id": problemIDFromURL}
+	err := problemsCollection.FindOne(ctx, filter).Decode(&problem)
+
+	if err != nil {
+		if err == mongo.ErrNoDocuments {
+			sendJSONError(w, "Problem not found.", http.StatusNotFound)
+		}
+
+		log.Println("Error fetching single problem from DB:", err)
+		sendJSONError(w, "Failed to retrieve problem.", http.StatusInternalServerError)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusOK)
+	if err := json.NewEncoder(w).Encode(problem); err != nil {
+		log.Println("Error encoding single problem to JSON:", err)
+		// At this point, headers are written, so sending a new JSON error might be complex.
+	}
+	log.Println("Successfully retrieved problem:", problem.Title)
+}
+
+func addTestCaseHandler(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		sendJSONError(w, "Method not allowed. Only POST is accepted.", http.StatusMethodNotAllowed)
+		return
+	}
+
+	var payload models.AddTestCasePayload
+	if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
+		log.Println("Invalid add test case request payload:", err)
+		sendJSONError(w, "Invalid request payload for test case.", http.StatusBadRequest)
+		return
+	}
+	defer r.Body.Close()
+
+	// Validate input (Points and SequenceNumber might have defaults if not provided, or be required)
+	if payload.ProblemDBID == "" || payload.Input == "" {
+		sendJSONError(w, "ProblemDBID and Input are required for a test case.", http.StatusBadRequest)
+		return
+	}
+	// You might want to add validation for payload.Points and payload.SequenceNumber (e.g., >= 0)
+
+	problemObjectID, err := primitive.ObjectIDFromHex(payload.ProblemDBID)
+	if err != nil {
+		sendJSONError(w, "Invalid ProblemDBID format. Must be a valid ObjectID hex string.", http.StatusBadRequest)
+		return
+	}
+
+	problemsCollection := database.GetCollection("OJ", "problems")
+	ctxCheck, cancelCheck := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancelCheck()
+	var existingProblem models.Problem
+	err = problemsCollection.FindOne(ctxCheck, primitive.M{"_id": problemObjectID}).Decode(&existingProblem)
+	if err != nil {
+		if err == mongo.ErrNoDocuments {
+			sendJSONError(w, "Problem with the given ProblemDBID not found.", http.StatusNotFound)
+			return
+		}
+		log.Println("Error checking for existing problem:", err)
+		sendJSONError(w, "Error verifying problem existence.", http.StatusInternalServerError)
+		return
+	}
+
+	newTestCase := models.TestCase{
+		ProblemDBID:    problemObjectID,
+		Input:          payload.Input,
+		ExpectedOutput: payload.ExpectedOutput,
+		IsSample:       payload.IsSample,
+		Points:         payload.Points,
+		Notes:          payload.Notes,
+		SequenceNumber: payload.SequenceNumber,
+		CreatedAt:      time.Now(),
+	}
+
+	testCasesCollection := database.GetCollection("OJ", "testcases")
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
+	result, err := testCasesCollection.InsertOne(ctx, newTestCase)
+	if err != nil {
+		log.Println("Failed to insert test case into DB:", err)
+		sendJSONError(w, "Failed to add test case.", http.StatusInternalServerError)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusCreated)
+	response := map[string]interface{}{
+		"message":      "Test case added successfully",
+		"test_case_id": result.InsertedID,
+	}
+	json.NewEncoder(w).Encode(response)
+	log.Printf("Test case added for problem %s with ID: %v. Points: %d, Sequence: %d\n", payload.ProblemDBID, result.InsertedID, payload.Points, payload.SequenceNumber)
+}
+
 func withCORS(next http.HandlerFunc) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Access-Control-Allow-Origin", "http://localhost:3000")
@@ -303,6 +476,9 @@ func main() {
 
 	http.HandleFunc("/register", withCORS(registerHandler))
 	http.HandleFunc("/login", withCORS(loginHandler))
+	http.HandleFunc("/problems", withCORS(getProblemsHandler))
+	http.HandleFunc("/problems/", withCORS(getProblemHandler))
+	http.HandleFunc("/testcases", withCORS(addTestCaseHandler))
 	http.HandleFunc("/", withCORS(helloHandler))
 	http.HandleFunc("/greet", withCORS(greetHandler))
 
