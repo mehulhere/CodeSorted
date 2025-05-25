@@ -16,10 +16,20 @@ export interface ProblemType extends ProblemListItemType {
   author?: string;
   created_at: string; // ISO date string
   updated_at: string; // ISO date string
+  sample_test_cases?: TestCaseType[]; // Added field
   // Add other fields if your backend sends them for a single problem view
 }
 
 // For API error responses
 export interface ApiError {
   message: string;
-} 
+}
+
+export interface TestCaseType {
+  id?: string; 
+  input: string;
+  expected_output: string;
+  is_sample?: boolean;
+  notes?: string;
+  sequence_number?: number;
+}
