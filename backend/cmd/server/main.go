@@ -23,6 +23,7 @@ import (
 	"golang.org/x/crypto/bcrypt"
 )
 
+// This is the struct for the JWT token
 type Claims struct {
 	UserID    string `json:"user_id"`
 	Username  string `json:"username"`
@@ -32,6 +33,7 @@ type Claims struct {
 	jwt.RegisteredClaims
 }
 
+// This is the struct for the registration payload
 type RegisterationPayload struct {
 	Firstname string `json:"firstname"`
 	Lastname  string `json:"lastname"`
@@ -40,19 +42,20 @@ type RegisterationPayload struct {
 	Password  string `json:"password"`
 }
 
-// Add a new type for the login payload
+// This is the struct for the login payload
 type LoginPayload struct {
 	Email    string `json:"email"`
 	Password string `json:"password"`
 }
 
-// Structures for code execution
+// This is the struct for the code execution payload
 type ExecuteCodePayload struct {
 	Language string `json:"language"`
 	Code     string `json:"code"`
 	Stdin    string `json:"stdin"` // Optional standard input
 }
 
+// This is the struct for the code execution result
 type ExecuteCodeResult struct {
 	Stdout          string `json:"stdout"`
 	Stderr          string `json:"stderr"`
@@ -69,14 +72,6 @@ func sendJSONError(w http.ResponseWriter, message string, statusCode int) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(statusCode)
 	json.NewEncoder(w).Encode(map[string]string{"message": message})
-}
-
-func greetHandler(w http.ResponseWriter, r *http.Request) {
-	name := r.URL.Query().Get("name")
-	if name == "" {
-		name = "Guest"
-	}
-	fmt.Fprintf(w, "Hello, %s!", name)
 }
 
 func isValidEmail(email string) bool {
@@ -354,7 +349,7 @@ func getProblemHandler(w http.ResponseWriter, r *http.Request) {
 	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 	defer cancel()
 
-	var problemData models.Problem // This is the clean struct without SampleTestCases
+	var problemData models.Problem
 
 	filter := primitive.M{"problem_id": problemIDFromURL}
 	err := problemsCollection.FindOne(ctx, filter).Decode(&problemData)
@@ -547,7 +542,7 @@ func executeCodeHandler(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 
-		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 		defer cancel()
 
 		cmd := exec.CommandContext(ctx, "python3", scriptPath)
@@ -569,9 +564,9 @@ func executeCodeHandler(w http.ResponseWriter, r *http.Request) {
 			result.Status = "time_limit_exceeded"
 			// Append to stderr, as TLE might not produce its own stderr
 			if result.Stderr == "" {
-				result.Stderr = "Execution timed out after 10 seconds."
+				result.Stderr = "Execution timed out after 2 seconds."
 			} else {
-				result.Stderr += "\nExecution timed out after 10 seconds."
+				result.Stderr += "\nExecution timed out after 2 seconds."
 			}
 		} else if runErr != nil {
 			// This covers Python syntax errors, runtime errors, etc.
@@ -656,6 +651,7 @@ func executeCodeHandler(w http.ResponseWriter, r *http.Request) {
 		payload.Language, result.Status, result.ExecutionTimeMs, len(result.Stdout), len(result.Stderr), len(result.Error))
 }
 
+// This is the middleware for the CORS
 func withCORS(next http.HandlerFunc) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Access-Control-Allow-Origin", "http://localhost:3000")
@@ -698,7 +694,6 @@ func main() {
 	http.HandleFunc("/problems/", withCORS(getProblemHandler))
 	http.HandleFunc("/testcases", withCORS(addTestCaseHandler))
 	http.HandleFunc("/execute", withCORS(executeCodeHandler))
-	http.HandleFunc("/greet", withCORS(greetHandler))
 
 	log.Println("Server listening on port 8080. Allowed origin for CORS: http://localhost:3000")
 	log.Fatal(http.ListenAndServe(":8080", nil))
