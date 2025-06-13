@@ -21,16 +21,18 @@ const (
 
 // Submission defines the structure for a user's code submission
 type Submission struct {
-	ID              primitive.ObjectID `json:"id" bson:"_id,omitempty"`
-	UserID          primitive.ObjectID `json:"user_id" bson:"user_id"`
-	ProblemID       string             `json:"problem_id" bson:"problem_id"`
-	Language        string             `json:"language" bson:"language"` // e.g., "python", "javascript", "cpp"
-	Status          SubmissionStatus   `json:"status" bson:"status"`
-	ExecutionTimeMs int                `json:"execution_time_ms" bson:"execution_time_ms"`
-	MemoryUsedKB    int                `json:"memory_used_kb" bson:"memory_used_kb"`
-	SubmittedAt     time.Time          `json:"submitted_at" bson:"submitted_at"`
-	TestCasesPassed int                `json:"test_cases_passed" bson:"test_cases_passed"`
-	TestCasesTotal  int                `json:"test_cases_total" bson:"test_cases_total"`
+	ID               primitive.ObjectID `json:"id" bson:"_id,omitempty"`
+	UserID           primitive.ObjectID `json:"user_id" bson:"user_id"`
+	ProblemID        string             `json:"problem_id" bson:"problem_id"`
+	Language         string             `json:"language" bson:"language"` // e.g., "python", "javascript", "cpp"
+	Status           SubmissionStatus   `json:"status" bson:"status"`
+	ExecutionTimeMs  int                `json:"execution_time_ms" bson:"execution_time_ms"`
+	MemoryUsedKB     int                `json:"memory_used_kb" bson:"memory_used_kb"`
+	SubmittedAt      time.Time          `json:"submitted_at" bson:"submitted_at"`
+	TestCasesPassed  int                `json:"test_cases_passed" bson:"test_cases_passed"`
+	TestCasesTotal   int                `json:"test_cases_total" bson:"test_cases_total"`
+	TimeComplexity   string             `json:"time_complexity,omitempty" bson:"time_complexity,omitempty"`
+	MemoryComplexity string             `json:"memory_complexity,omitempty" bson:"memory_complexity,omitempty"`
 }
 
 // Parse submission data

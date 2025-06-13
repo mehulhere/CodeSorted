@@ -12,6 +12,7 @@ import (
 	"strings"
 	"time"
 
+	"go.mongodb.org/mongo-driver/bson"
 	"go.mongodb.org/mongo-driver/bson/primitive"
 	"go.mongodb.org/mongo-driver/mongo"
 	"go.mongodb.org/mongo-driver/mongo/options"
@@ -158,6 +159,45 @@ func GetProblemHandler(w http.ResponseWriter, r *http.Request) {
 		log.Println("Error encoding single problem (with samples) to JSON:", err)
 	}
 	log.Println("Successfully retrieved problem:", responsePayload.Title, "with", len(responsePayload.SampleTestCases), "sample test cases.")
+}
+
+// GetProblemStatsHandler retrieves complexity statistics for a given problem.
+func GetProblemStatsHandler(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		utils.SendJSONError(w, "Method not allowed. Only GET is accepted.", http.StatusMethodNotAllowed)
+		return
+	}
+
+	// Extract problem ID from URL
+	path := r.URL.Path
+	parts := strings.Split(path, "/")
+	if len(parts) < 3 {
+		utils.SendJSONError(w, "Invalid URL format for problem stats", http.StatusBadRequest)
+		return
+	}
+	problemID := parts[2] // e.g. /problems/two-sum/stats -> "two-sum"
+
+	// Query database for stats
+	statsCollection := database.GetCollection("OJ", "problem_stats")
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
+	var stats models.ProblemStats
+	err := statsCollection.FindOne(ctx, bson.M{"problem_id": problemID}).Decode(&stats)
+	if err != nil {
+		if err == mongo.ErrNoDocuments {
+			// It's not an error if no stats exist yet, just return empty
+			w.Header().Set("Content-Type", "application/json")
+			json.NewEncoder(w).Encode(models.ProblemStats{ProblemID: problemID})
+			return
+		}
+		log.Printf("Failed to retrieve problem stats: %v", err)
+		utils.SendJSONError(w, "Failed to retrieve problem stats", http.StatusInternalServerError)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(stats)
 }
 
 // CreateProblemHandler handles the creation of a new problem

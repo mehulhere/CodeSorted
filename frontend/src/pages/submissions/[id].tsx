@@ -3,6 +3,16 @@ import { useState, useEffect } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/router';
 import '@/app/globals.css';
+import {
+    Bar,
+    BarChart,
+    CartesianGrid,
+    ResponsiveContainer,
+    Tooltip,
+    XAxis,
+    YAxis,
+    Cell,
+} from "recharts"
 
 // Define submission detail type
 interface SubmissionDetail {
@@ -20,13 +30,56 @@ interface SubmissionDetail {
     test_cases_passed: number;
     test_cases_total: number;
     test_case_status: string;
+    time_complexity: string;
+    memory_complexity: string;
 }
+
+interface ProblemStats {
+    total_accepted_submissions: number;
+    time_complexity_distribution: { [key: string]: number };
+    memory_complexity_distribution: { [key: string]: number };
+}
+
+// Order of complexities from best to worst
+const complexityOrder = [
+    "O(1)", "O(log n)", "O(n)", "O(n log n)", "O(n^2)", "O(2^n)", "O(n!)"
+];
+
+const getRank = (complexity: string) => {
+    const rank = complexityOrder.indexOf(complexity);
+    return rank === -1 ? Infinity : rank;
+};
+
+const calculatePercentile = (userComplexity: string, distribution: { [key: string]: number }): number => {
+    if (!userComplexity || !distribution) return 0;
+
+    const userRank = getRank(userComplexity);
+    let submissionsWithBetterOrEqualComplexity = 0;
+    let totalSubmissions = 0;
+
+    for (const complexity in distribution) {
+        const count = distribution[complexity];
+        totalSubmissions += count;
+        if (getRank(complexity) <= userRank) {
+            submissionsWithBetterOrEqualComplexity += count;
+        }
+    }
+
+    if (totalSubmissions === 0) return 100;
+
+    // Percentile: "Beats X% of submissions"
+    const submissionsWithWorseComplexity = totalSubmissions - submissionsWithBetterOrEqualComplexity;
+    const percentile = (submissionsWithWorseComplexity / totalSubmissions) * 100;
+
+    return percentile;
+};
 
 export default function SubmissionDetailPage() {
     const router = useRouter();
     const { id } = router.query;
 
     const [submission, setSubmission] = useState<SubmissionDetail | null>(null);
+    const [stats, setStats] = useState<ProblemStats | null>(null);
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState<string | null>(null);
     const [isLoggedIn, setIsLoggedIn] = useState(false);
@@ -64,53 +117,62 @@ export default function SubmissionDetailPage() {
     }, []);
 
     useEffect(() => {
-        let isPolling = true;
+        if (!id) return;
 
-        const fetchAndPoll = async () => {
-            if (!isPolling) return;
+        let intervalId: NodeJS.Timeout;
 
+        const fetchSubmissionAndStats = async () => {
             try {
-                const response = await fetch(`http://localhost:8080/submissions/${id}`, {
-                    method: 'GET',
+                // Fetch submission details
+                const subResponse = await fetch(`http://localhost:8080/submissions/${id}`, {
                     credentials: 'include',
-                    headers: {
-                        'Accept': 'application/json'
-                    }
                 });
 
-                if (!response.ok) {
-                    if (response.status === 403) {
-                        setError('You do not have permission to view this submission');
-                    } else if (response.status === 404) {
-                        setError('Submission not found');
-                    } else {
-                        throw new Error(`Error: ${response.status}`);
+                if (!subResponse.ok) {
+                    const errorData = await subResponse.json();
+                    throw new Error(errorData.message || `Failed to fetch submission with status: ${subResponse.status}`);
+                }
+
+                const subData: SubmissionDetail = await subResponse.json();
+                setSubmission(subData);
+
+                // If submission is accepted, fetch stats
+                if (subData.status === "ACCEPTED" && subData.problem_id) {
+                    const statsResponse = await fetch(`http://localhost:8080/problems/${subData.problem_id}/stats`);
+                    if (statsResponse.ok) {
+                        const statsData = await statsResponse.json();
+                        setStats(statsData);
+                    }
+                }
+
+                // If the submission is still processing, set up polling
+                if (subData.status === "PENDING" || subData.status === "PROCESSING") {
+                    if (!intervalId) {
+                        intervalId = setInterval(fetchSubmissionAndStats, 2000); // Poll every 2 seconds
+                    }
+                } else {
+                    // Stop polling if processing is finished
+                    if (intervalId) {
+                        clearInterval(intervalId);
                     }
                     setLoading(false);
-                    return;
                 }
-
-                const data = await response.json();
-                setSubmission(data);
-                setLoading(false); // Set loading to false as soon as we have data
-
-                if (data.status === 'PENDING' || data.status === 'IN_PROGRESS') {
-                    setTimeout(fetchAndPoll, 3000); // Poll every 3 seconds
-                }
-
             } catch (err) {
-                setError('Failed to fetch submission details');
-                console.error('Error fetching submission details:', err);
+                setError(err instanceof Error ? err.message : "An unknown error occurred");
                 setLoading(false);
+                if (intervalId) {
+                    clearInterval(intervalId);
+                }
             }
         };
 
-        if (id) {
-            fetchAndPoll();
-        }
+        fetchSubmissionAndStats();
 
+        // Cleanup function to clear interval on component unmount
         return () => {
-            isPolling = false; // Cleanup to stop polling when component unmounts
+            if (intervalId) {
+                clearInterval(intervalId);
+            }
         };
     }, [id]);
 
@@ -212,6 +274,21 @@ export default function SubmissionDetailPage() {
         }
     };
 
+    if (loading) {
+        return <div className="min-h-screen bg-gray-100 flex justify-center items-center">Loading submission...</div>;
+    }
+
+    if (error) {
+        return <div className="min-h-screen bg-gray-100 flex justify-center items-center text-red-500">Error: {error}</div>;
+    }
+
+    if (!submission) {
+        return <div className="min-h-screen bg-gray-100 flex justify-center items-center">Submission not found.</div>;
+    }
+
+    const timePercentile = submission.time_complexity && stats ? calculatePercentile(submission.time_complexity, stats.time_complexity_distribution) : 0;
+    const memoryPercentile = submission.memory_complexity && stats ? calculatePercentile(submission.memory_complexity, stats.memory_complexity_distribution) : 0;
+
     return (
         <>
             <Head>
@@ -277,103 +354,147 @@ export default function SubmissionDetailPage() {
                     <h1 className="text-3xl font-bold text-white">Submission Details</h1>
                 </div>
 
-                {loading ? (
-                    <div className="text-center py-10">
-                        <div className="inline-block animate-spin rounded-full h-8 w-8 border-t-2 border-b-2 border-indigo-600"></div>
-                        <p className="mt-2 text-gray-500">Loading submission details...</p>
-                    </div>
-                ) : error ? (
-                    <div className="bg-red-50 border-l-4 border-red-400 p-4">
-                        <p className="text-red-700">{error}</p>
-                    </div>
-                ) : submission ? (
-                    <div className="bg-white rounded-lg shadow-md overflow-hidden">
-                        {/* Submission Info */}
-                        <div className="p-6 border-b border-gray-200">
-                            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                                <div>
-                                    <h2 className="text-xl font-semibold text-gray-900 mb-4">Submission Information</h2>
-                                    <dl className="grid grid-cols-1 gap-x-4 gap-y-4 sm:grid-cols-2">
-                                        <div className="sm:col-span-1">
-                                            <dt className="text-sm font-medium text-gray-500">Problem</dt>
-                                            <dd className="mt-1 text-sm text-gray-900">
-                                                <Link href={`/problems/${submission.problem_id}`} className="text-indigo-600 hover:text-indigo-900">
-                                                    {submission.problem_title || submission.problem_id}
-                                                </Link>
-                                            </dd>
-                                        </div>
-                                        <div className="sm:col-span-1">
-                                            <dt className="text-sm font-medium text-gray-500">User</dt>
-                                            <dd className="mt-1 text-sm text-gray-900">{submission.username}</dd>
-                                        </div>
-                                        <div className="sm:col-span-1">
-                                            <dt className="text-sm font-medium text-gray-500">Submitted At</dt>
-                                            <dd className="mt-1 text-sm text-gray-900">{formatDate(submission.submitted_at)}</dd>
-                                        </div>
-                                        <div className="sm:col-span-1">
-                                            <dt className="text-sm font-medium text-gray-500">Language</dt>
-                                            <dd className="mt-1 text-sm text-gray-900">{getLanguageFormatted(submission.language)}</dd>
-                                        </div>
-                                        <div className="sm:col-span-1">
-                                            <dt className="text-sm font-medium text-gray-500">Status</dt>
-                                            <dd className="mt-1">
-                                                <span className={`px-3 py-1 inline-flex items-center text-sm leading-5 font-semibold rounded-full ${getStatusClass(submission.status)}`}>
-                                                    {getStatusIcon(submission.status)} {submission.status.replace(/_/g, ' ')}
-                                                </span>
-                                                <p className="mt-1 text-xs text-gray-500">{getStatusDescription(submission.status)}</p>
-                                            </dd>
-                                        </div>
-                                        <div className="sm:col-span-1">
-                                            <dt className="text-sm font-medium text-gray-500">Execution Time</dt>
-                                            <dd className="mt-1 text-sm text-gray-900">
-                                                {submission.execution_time_ms > 0 ? `${submission.execution_time_ms} ms` : '-'}
-                                            </dd>
-                                        </div>
-                                        <div className="sm:col-span-1">
-                                            <dt className="text-sm font-medium text-gray-500">Memory Used</dt>
-                                            <dd className="mt-1 text-sm text-gray-900">
-                                                {submission.memory_used_kb > 0 ? `${submission.memory_used_kb} KB` : '-'}
-                                            </dd>
-                                        </div>
-                                        <div className="sm:col-span-1">
-                                            <dt className="text-sm font-medium text-gray-500">Test Cases</dt>
-                                            <dd className="mt-1 text-sm text-gray-900">
-                                                {submission.test_cases_passed}/{submission.test_cases_total} passed
-                                            </dd>
-                                        </div>
-                                    </dl>
-                                </div>
+                <div className="bg-gray-800 rounded-lg shadow-xl p-6">
+                    {/* Header */}
+                    <div className="flex justify-between items-start mb-6">
+                        <div>
+                            <h1 className="text-3xl font-bold text-white">{submission.problem_title}</h1>
+                            <div className="mt-2">
+                                <span
+                                    className={`px-3 py-1 text-sm font-medium rounded-full ${submission.status === 'ACCEPTED' ? 'bg-green-900 text-green-300' : 'bg-red-900 text-red-300'
+                                        }`}
+                                >
+                                    {submission.status}
+                                </span>
+                                <span className="ml-4 text-gray-400">
+                                    Submitted on {new Date(submission.submitted_at).toLocaleString()}
+                                </span>
                             </div>
                         </div>
+                        <button className="bg-gray-700 hover:bg-gray-600 text-white font-bold py-2 px-4 rounded">
+                            Editorial
+                        </button>
+                    </div>
 
-                        {/* Code Section */}
-                        <div className="p-6 border-b border-gray-200">
-                            <h2 className="text-xl font-semibold text-gray-900 mb-4">Submitted Code</h2>
+                    {/* Stats */}
+                    <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8">
+                        {/* Runtime */}
+                        <div className="bg-gray-900 p-4 rounded-lg">
+                            <h3 className="text-sm font-medium text-gray-400">Runtime</h3>
+                            <p className="text-2xl font-semibold text-white">{submission.execution_time_ms} ms</p>
+                            <p className="text-sm text-gray-500">Beats --.--%</p>
+                        </div>
+                        {/* Memory */}
+                        <div className="bg-gray-900 p-4 rounded-lg">
+                            <h3 className="text-sm font-medium text-gray-400">Memory</h3>
+                            <p className="text-2xl font-semibold text-white">{(submission.memory_used_kb / 1024).toFixed(2)} MB</p>
+                            <p className="text-sm text-gray-500">Beats --.--%</p>
+                        </div>
+                        {/* Test Cases */}
+                        <div className="bg-gray-900 p-4 rounded-lg">
+                            <h3 className="text-sm font-medium text-gray-400">Testcases</h3>
+                            <p className="text-2xl font-semibold text-white">{submission.test_cases_passed} / {submission.test_cases_total}</p>
+                            {submission.test_cases_passed === submission.test_cases_total && submission.test_cases_total > 0 ? (
+                                <p className="text-sm text-green-500">All passed</p>
+                            ) : (
+                                <p className="text-sm text-red-500">{submission.test_cases_total - submission.test_cases_passed} failed</p>
+                            )}
+                        </div>
+                    </div>
+
+                    {/* Complexity Analysis */}
+                    {submission.status === 'ACCEPTED' && (
+                        <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mb-8">
+                            <ComplexityAnalysis
+                                title="Time Complexity"
+                                userComplexity={submission.time_complexity}
+                                percentile={timePercentile}
+                                distribution={stats?.time_complexity_distribution}
+                            />
+                            <ComplexityAnalysis
+                                title="Memory Complexity"
+                                userComplexity={submission.memory_complexity}
+                                percentile={memoryPercentile}
+                                distribution={stats?.memory_complexity_distribution}
+                            />
+                        </div>
+                    )}
+
+                    {/* Code */}
+                    <div className="bg-gray-900 rounded-lg">
+                        <div className="px-4 py-2 border-b border-gray-700">
+                            <h3 className="text-lg font-semibold text-white">Code</h3>
+                            <p className="text-sm text-gray-400">{submission.language}</p>
+                        </div>
+                        <div className="p-4">
                             <div className="bg-gray-50 rounded-md overflow-x-auto">
                                 <pre className="p-4 text-sm text-gray-800 font-mono whitespace-pre">
                                     {submission.code}
                                 </pre>
                             </div>
                         </div>
-
-                        {/* Test Case Results */}
-                        {submission.test_case_status && (
-                            <div className="p-6">
-                                <h2 className="text-xl font-semibold text-gray-900 mb-4">Test Case Results</h2>
-                                <div className="bg-gray-50 rounded-md overflow-x-auto">
-                                    <pre className="p-4 text-sm text-gray-800 font-mono whitespace-pre">
-                                        {submission.test_case_status}
-                                    </pre>
-                                </div>
-                            </div>
-                        )}
                     </div>
-                ) : (
-                    <div className="text-center py-10 text-gray-500">
-                        Submission not found or you don't have permission to view it.
-                    </div>
-                )}
+                </div>
             </main>
         </>
+    );
+}
+
+// New component for the complexity chart
+const ComplexityAnalysis = ({ title, userComplexity, percentile, distribution }: {
+    title: string,
+    userComplexity: string,
+    percentile: number,
+    distribution: { [key: string]: number } | undefined
+}) => {
+    if (!userComplexity || !distribution) {
+        return (
+            <div className="bg-gray-900 p-4 rounded-lg">
+                <h3 className="text-lg font-medium text-gray-400 mb-2">{title}</h3>
+                <p className="text-gray-500">Complexity analysis not available.</p>
+            </div>
+        );
+    }
+
+    const chartData = complexityOrder
+        .filter(c => distribution[c] > 0)
+        .map(c => ({
+            name: c,
+            count: distribution[c],
+            isCurrentUser: c === userComplexity
+        }));
+
+    return (
+        <div className="bg-gray-900 p-6 rounded-lg">
+            <div className="flex justify-between items-center mb-4">
+                <h3 className="text-xl font-semibold text-white">{title}</h3>
+                <span className="text-sm text-gray-400">{userComplexity}</span>
+            </div>
+            <div className="text-left mb-4">
+                <p className="text-3xl font-bold text-white">{percentile.toFixed(2)}%</p>
+                <p className="text-sm text-gray-400">Beats percentile of submissions</p>
+            </div>
+            <div style={{ width: '100%', height: 200 }}>
+                <ResponsiveContainer>
+                    <BarChart data={chartData} margin={{ top: 5, right: 20, left: -20, bottom: 5 }}>
+                        <XAxis dataKey="name" stroke="#9ca3af" fontSize={12} tickLine={false} axisLine={false} />
+                        <YAxis stroke="#9ca3af" fontSize={12} tickLine={false} axisLine={false} />
+                        <Tooltip
+                            cursor={{ fill: 'rgba(107, 114, 128, 0.1)' }}
+                            contentStyle={{
+                                backgroundColor: '#1f2937',
+                                borderColor: '#4b5563',
+                                color: '#d1d5db',
+                            }}
+                        />
+                        <Bar dataKey="count" fill="#4f46e5">
+                            {chartData.map((entry, index) => (
+                                <Cell key={`cell-${index}`} fill={entry.isCurrentUser ? '#818cf8' : '#4f46e5'} />
+                            ))}
+                        </Bar>
+                    </BarChart>
+                </ResponsiveContainer>
+            </div>
+        </div>
     );
 } 

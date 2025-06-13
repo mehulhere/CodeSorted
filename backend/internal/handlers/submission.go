@@ -1,6 +1,7 @@
 package handlers
 
 import (
+	"backend/internal/ai"
 	"backend/internal/database"
 	"backend/internal/models"
 	"backend/internal/types"
@@ -200,7 +201,7 @@ func processSubmission(submissionID primitive.ObjectID) {
 	err = problemsCollection.FindOne(ctx, bson.M{"problem_id": submission.ProblemID}).Decode(&problem)
 	if err != nil {
 		log.Printf("Failed to retrieve problem %s: %v", submission.ProblemID, err)
-		updateSubmissionStatus(submissionID, models.StatusRuntimeError, 0, 0, 0, 0)
+		updateSubmissionStatus(submissionID, models.StatusRuntimeError, 0, 0, 0, 0, "", "")
 		return
 	}
 
@@ -209,7 +210,7 @@ func processSubmission(submissionID primitive.ObjectID) {
 	cursor, err := testCasesCollection.Find(ctx, bson.M{"problem_db_id": problem.ID})
 	if err != nil {
 		log.Printf("Failed to retrieve test cases for problem %s: %v", submission.ProblemID, err)
-		updateSubmissionStatus(submissionID, models.StatusRuntimeError, 0, 0, 0, 0)
+		updateSubmissionStatus(submissionID, models.StatusRuntimeError, 0, 0, 0, 0, "", "")
 		return
 	}
 	defer cursor.Close(ctx)
@@ -217,13 +218,13 @@ func processSubmission(submissionID primitive.ObjectID) {
 	var testCases []models.TestCase
 	if err = cursor.All(ctx, &testCases); err != nil {
 		log.Printf("Failed to decode test cases: %v", err)
-		updateSubmissionStatus(submissionID, models.StatusRuntimeError, 0, 0, 0, 0)
+		updateSubmissionStatus(submissionID, models.StatusRuntimeError, 0, 0, 0, 0, "", "")
 		return
 	}
 
 	if len(testCases) == 0 {
 		log.Printf("No test cases found for problem %s", submission.ProblemID)
-		updateSubmissionStatus(submissionID, models.StatusRuntimeError, 0, 0, 0, 0)
+		updateSubmissionStatus(submissionID, models.StatusRuntimeError, 0, 0, 0, 0, "", "")
 		return
 	}
 
@@ -242,7 +243,15 @@ func processSubmission(submissionID primitive.ObjectID) {
 	default:
 		fileExtension = ".txt"
 	}
+
+	// Read code file first, as it's needed for AI analysis later
 	codeFilePath := filepath.Join(submissionDir, "code"+fileExtension)
+	code, err := os.ReadFile(codeFilePath)
+	if err != nil {
+		log.Printf("Failed to read code file for submission %s: %v", submissionID.Hex(), err)
+		updateSubmissionStatus(submissionID, models.StatusRuntimeError, 0, 0, 0, 0, "", "")
+		return
+	}
 
 	// Create test case status file
 	testCaseStatusPath := filepath.Join(submissionDir, "testcasesStatus.txt")
@@ -253,8 +262,10 @@ func processSubmission(submissionID primitive.ObjectID) {
 	defer testCaseStatusFile.Close()
 
 	// Execute each test case
-	passedCount := 0
+	var passedCount int
 	totalCount := len(testCases)
+	var testCaseResults []string
+	var finalErrorStatus models.SubmissionStatus = ""
 
 	maxExecutionTime := 0
 	maxMemoryUsed := 0
@@ -315,64 +326,65 @@ func processSubmission(submissionID primitive.ObjectID) {
 			}
 		}
 
+		// Append the status of this test case
+		testCaseResults = append(testCaseResults, result.Status)
+		if result.Status != "success" {
+			if finalErrorStatus == "" { // Record the first error encountered
+				switch result.Status {
+				case "compilation_error":
+					finalErrorStatus = models.StatusCompilationError
+				case "runtime_error":
+					finalErrorStatus = models.StatusRuntimeError
+				case "time_limit_exceeded":
+					finalErrorStatus = models.StatusTimeLimitExceeded
+				default:
+					finalErrorStatus = models.StatusWrongAnswer
+				}
+			}
+		}
 		// Write status to test case status file
 		testCaseStatusFile.WriteString(status + "\n\n")
 	}
 
 	// Determine final status
 	var finalStatus models.SubmissionStatus
-	if passedCount == totalCount {
+	var timeComplexity, memoryComplexity string
+
+	if passedCount == totalCount && totalCount > 0 {
 		finalStatus = models.StatusAccepted
-	} else {
-		// Check if any test case had a specific error
-		// Read the test case status file to find the error type
-		testCaseStatusContent, err := os.ReadFile(testCaseStatusPath)
-		if err == nil {
-			content := string(testCaseStatusContent)
-			fmt.Println(content)
-
-			// Special handling for Python common errors - check for Python's error types directly in the output
-			if strings.Contains(strings.ToLower(submission.Language), "python") {
-				if strings.Contains(content, "NameError:") ||
-					strings.Contains(content, "SyntaxError:") ||
-					strings.Contains(content, "IndentationError:") ||
-					strings.Contains(content, "TabError:") ||
-					strings.Contains(content, "ImportError:") ||
-					strings.Contains(content, "ModuleNotFoundError:") {
-					finalStatus = models.StatusCompilationError
-					log.Printf("Classified Python error as COMPILATION_ERROR: %s", submission.ID.Hex())
-					updateSubmissionStatus(submissionID, finalStatus, maxExecutionTime, maxMemoryUsed, passedCount, totalCount)
-					return
-				}
-			}
-
-			if strings.Contains(content, "COMPILATION_ERROR") {
-				finalStatus = models.StatusCompilationError
-			} else if strings.Contains(content, "RUNTIME_ERROR") {
-				finalStatus = models.StatusRuntimeError
-			} else if strings.Contains(content, "TIME_LIMIT_EXCEEDED") {
-				finalStatus = models.StatusTimeLimitExceeded
-			} else if strings.Contains(content, "MEMORY_LIMIT_EXCEEDED") {
-				finalStatus = models.StatusMemoryLimitExceeded
-			} else {
-				finalStatus = models.StatusWrongAnswer
-			}
+		// Analyze complexity only if accepted
+		aiCtx, aiCancel := context.WithTimeout(context.Background(), 30*time.Second) // 30-second timeout for AI
+		defer aiCancel()
+		complexity, err := ai.AnalyzeCodeComplexity(aiCtx, string(code), submission.Language)
+		if err != nil {
+			log.Printf("AI COMPLEXITY ANALYSIS FAILED for submission %s: %v", submissionID.Hex(), err)
+			// Don't fail the whole submission, just log the error
 		} else {
-			// Default to wrong answer if can't read the file
-			finalStatus = models.StatusWrongAnswer
+			log.Printf("AI COMPLEXITY ANALYSIS SUCCEEDED for submission %s: Time=%s, Memory=%s",
+				submissionID.Hex(), complexity.TimeComplexity, complexity.MemoryComplexity)
+			timeComplexity = complexity.TimeComplexity
+			memoryComplexity = complexity.MemoryComplexity
+			// Update aggregated stats
+			updateProblemStats(aiCtx, submission.ProblemID, timeComplexity, memoryComplexity)
 		}
+	} else if finalErrorStatus != "" {
+		finalStatus = finalErrorStatus
+	} else if passedCount > 0 {
+		finalStatus = models.StatusWrongAnswer // Partial credit could be a future feature
+	} else {
+		finalStatus = models.StatusWrongAnswer // Or could be another status based on errors
 	}
 
-	// Update submission in database
-	updateSubmissionStatus(submissionID, finalStatus, maxExecutionTime, maxMemoryUsed, passedCount, totalCount)
+	log.Printf("Submission %s processed. Status: %s, Time: %dms, Memory: %dKB, Passed: %d/%d, TimeComplexity: %s, MemoryComplexity: %s",
+		submissionID.Hex(), finalStatus, maxExecutionTime, maxMemoryUsed, passedCount, totalCount, timeComplexity, memoryComplexity)
 
-	log.Printf("Finished processing submission %s: %s (%d/%d passed)",
-		submissionID.Hex(), finalStatus, passedCount, totalCount)
+	// Persist the final status to the database
+	updateSubmissionStatus(submissionID, finalStatus, maxExecutionTime, maxMemoryUsed, passedCount, totalCount, timeComplexity, memoryComplexity)
 }
 
 // Update submission status in database
 func updateSubmissionStatus(submissionID primitive.ObjectID, status models.SubmissionStatus,
-	executionTimeMs, memoryUsedKB, testCasesPassed, testCasesTotal int) {
+	executionTimeMs, memoryUsedKB, testCasesPassed, testCasesTotal int, timeComplexity, memoryComplexity string) {
 
 	submissionsCollection := database.GetCollection("OJ", "submissions")
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
@@ -388,9 +400,41 @@ func updateSubmissionStatus(submissionID primitive.ObjectID, status models.Submi
 		},
 	}
 
+	// Add complexity fields only if they are not empty
+	if timeComplexity != "" {
+		update["$set"].(bson.M)["time_complexity"] = timeComplexity
+	}
+	if memoryComplexity != "" {
+		update["$set"].(bson.M)["memory_complexity"] = memoryComplexity
+	}
+
 	_, err := submissionsCollection.UpdateOne(ctx, bson.M{"_id": submissionID}, update)
 	if err != nil {
 		log.Printf("Failed to update submission status: %v", err)
+	}
+}
+
+// updateProblemStats updates the aggregated complexity statistics for a problem.
+func updateProblemStats(ctx context.Context, problemID, timeComplexity, memoryComplexity string) {
+	statsCollection := database.GetCollection("OJ", "problem_stats")
+
+	filter := bson.M{"problem_id": problemID}
+	update := bson.M{
+		"$inc": bson.M{
+			"total_accepted_submissions":                                       1,
+			fmt.Sprintf("time_complexity_distribution.%s", timeComplexity):     1,
+			fmt.Sprintf("memory_complexity_distribution.%s", memoryComplexity): 1,
+		},
+		"$set": bson.M{
+			"last_updated_at": time.Now(),
+			"problem_id":      problemID, // Ensure problem_id is set on upsert
+		},
+	}
+	opts := options.Update().SetUpsert(true)
+
+	_, err := statsCollection.UpdateOne(ctx, filter, update, opts)
+	if err != nil {
+		log.Printf("Failed to update problem stats for %s: %v", problemID, err)
 	}
 }
 

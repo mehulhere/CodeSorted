@@ -4,10 +4,13 @@ import (
 	"log"
 	"net/http"
 	"os"
+	"strings"
 
+	"backend/internal/ai"
 	"backend/internal/database"
 	"backend/internal/handlers"
 	"backend/internal/middleware"
+	"context"
 
 	"github.com/joho/godotenv"
 )
@@ -31,6 +34,11 @@ func main() {
 		log.Fatal(err)
 	}
 	defer database.DisconnectDB()
+
+	// Initialize AI Client
+	if err := ai.InitAIClient(context.Background()); err != nil {
+		log.Fatalf("Failed to initialize AI client: %v", err)
+	}
 
 	// Set JWT key
 	secret := os.Getenv("JWT_SECRET_KEY")
@@ -69,7 +77,13 @@ func main() {
 	http.HandleFunc("/login", middleware.WithCORS(handlers.LoginHandler))
 	http.HandleFunc("/api/auth-status", middleware.WithCORS(handlers.AuthStatusHandler))
 	http.HandleFunc("/problems", middleware.WithCORS(handlers.GetProblemsHandler))
-	http.HandleFunc("/problems/", middleware.WithCORS(handlers.GetProblemHandler))
+	http.HandleFunc("/problems/", middleware.WithCORS(func(w http.ResponseWriter, r *http.Request) {
+		if strings.HasSuffix(r.URL.Path, "/stats") {
+			handlers.GetProblemStatsHandler(w, r)
+		} else {
+			handlers.GetProblemHandler(w, r)
+		}
+	}))
 	http.HandleFunc("/execute", middleware.WithCORS(middleware.JWTAuthMiddleware(handlers.ExecuteCodeHandler)))
 	http.HandleFunc("/testcases", middleware.WithCORS(middleware.JWTAuthMiddleware(handlers.AddTestCaseHandler))) // Only for admins
 

@@ -8,7 +8,7 @@ This is an Online Judge platform for competitive programming practice and contes
 - **Problem Solving**: Browse problems by difficulty and topic
 - **Code Editor**: Built-in Monaco editor with syntax highlighting
 - **Multiple Languages**: Support for Python, JavaScript, C++, and Java
-- **Real-time Execution**: Test your code with custom inputs before submission
+- **Real-time Execution**: Test your code with custom inputs before submission (via sandboxed language executors)
 - **Automated Evaluation**: Submit solutions to be evaluated against test cases
 - **Detailed Feedback**: Receive specific error messages and test case results
 - **Submission History**: Track your progress and review past submissions
@@ -42,10 +42,13 @@ This is an Online Judge platform for competitive programming practice and contes
    npm run dev
    ```
 
-5. Start the docker image
+5. Build & start language-executor containers (Python, JS, C++, Java)
+   ```bash
+   cd docker  # contains docker-compose.yml and language executors
+   docker compose up --build -d  # builds images and starts on ports 8001-8004
    ```
-   docker compose up -d                     # start/continue all services
-   ```
+
+6. (Re)start the backend & frontend as usual. The backend now delegates code execution to those containers.
 
 ## Creating an Admin User
 
@@ -70,7 +73,15 @@ The platform intelligently classifies errors to provide helpful feedback:
 
 - **Backend**: Go REST API with JWT authentication and MongoDB integration
 - **Frontend**: Next.js application with React, TypeScript, and Tailwind CSS
-- **Code Execution**: Sandboxed environment for safe code execution
+- **Code Execution**: Sandboxed environment for safe code execution, powered by per-language Docker micro-services
+
+## New API (June 2025)
+
+| Endpoint | Method | Description |
+|----------|--------|-------------|
+| `/last-code` | GET | Retrieve the most recent code draft for the authenticated user for a given `problem_id` (and optional `language`). |
+
+The frontend now uses this endpoint to repopulate the Monaco editor when you revisit a problem page, falling back to `localStorage` first.
 
 ## Contribution
 
