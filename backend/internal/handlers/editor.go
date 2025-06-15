@@ -95,19 +95,7 @@ func GetLastCodeHandler(w http.ResponseWriter, r *http.Request) {
 
 	// Read code file from submissions directory
 	submissionDir := filepath.Join("./submissions", latest.ID.Hex())
-	var ext string
-	switch strings.ToLower(latest.Language) {
-	case "python":
-		ext = ".py"
-	case "javascript":
-		ext = ".js"
-	case "cpp":
-		ext = ".cpp"
-	case "java":
-		ext = ".java"
-	default:
-		ext = ".txt"
-	}
+	ext := utils.GetFileExtension(latest.Language)
 	codePath := filepath.Join(submissionDir, "code"+ext)
 	codeBytes, err := os.ReadFile(codePath)
 	if err != nil {

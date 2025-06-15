@@ -83,3 +83,21 @@ func ExecuteCode(ctx context.Context, req types.ExecutionRequest) (types.Executi
 
 	return result, nil
 }
+
+// GetFileExtension returns the file extension for a given language.
+func GetFileExtension(language string) string {
+	switch strings.ToLower(language) {
+	case "python":
+		return ".py"
+	case "javascript":
+		return ".js"
+	case "cpp":
+		return ".cpp"
+	case "java":
+		return ".java"
+	case "pseudocode":
+		return ".pseudo"
+	default:
+		return ".txt"
+	}
+}

@@ -75,6 +75,8 @@ func main() {
 
 	http.HandleFunc("/register", middleware.WithCORS(handlers.RegisterHandler))
 	http.HandleFunc("/login", middleware.WithCORS(handlers.LoginHandler))
+	http.HandleFunc("/logout", middleware.WithCORS(handlers.LogoutHandler))
+	http.HandleFunc("/autocomplete", middleware.WithCORS(middleware.JWTAuthMiddleware(handlers.AutocompleteHandler)))
 	http.HandleFunc("/api/auth-status", middleware.WithCORS(handlers.AuthStatusHandler))
 	http.HandleFunc("/problems", middleware.WithCORS(handlers.GetProblemsHandler))
 	http.HandleFunc("/problems/", middleware.WithCORS(func(w http.ResponseWriter, r *http.Request) {
@@ -91,6 +93,7 @@ func main() {
 	http.HandleFunc("/submissions", middleware.WithCORS(handlers.GetSubmissionsHandler))
 	http.HandleFunc("/submissions/", middleware.WithCORS(handlers.GetSubmissionDetailsHandler))
 	http.HandleFunc("/submit", middleware.WithCORS(middleware.JWTAuthMiddleware(handlers.SubmitSolutionHandler)))
+	http.HandleFunc("/convert-code", middleware.WithCORS(middleware.JWTAuthMiddleware(handlers.ConvertCodeHandler)))
 
 	// Last code retrieval route
 	http.HandleFunc("/last-code", middleware.WithCORS(middleware.JWTAuthMiddleware(handlers.GetLastCodeHandler)))

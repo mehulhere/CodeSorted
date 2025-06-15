@@ -1,10 +1,20 @@
-import Head from 'next/head';
-import { useRouter } from 'next/router';
-import { useEffect, useState, useRef, useCallback } from 'react';
-import Link from 'next/link';
-import type { ProblemType, ApiError } from '@/types/problem'; // Adjust path
 import '@/app/globals.css';
 import Editor, { Monaco } from '@monaco-editor/react';
+import { Button } from '@/components/ui/button';
+import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from '@/components/ui/card';
+import { ResizableHandle, ResizablePanel, ResizablePanelGroup } from '@/components/ui/resizable';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import { Separator } from '@/components/ui/separator';
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
+import { Textarea } from '@/components/ui/textarea';
+import axios from 'axios';
+import { AlertCircle, CheckCircle, ChevronDown, ChevronRight, ChevronsUpDown, Loader, Terminal, XCircle } from 'lucide-react';
+import type { editor } from 'monaco-editor';
+import { useRouter } from 'next/router';
+import { useCallback, useEffect, useRef, useState } from 'react';
+import Head from 'next/head';
+import Link from 'next/link';
+import type { ProblemType, ApiError } from '@/types/problem'; // Adjust path
 
 export default function SingleProblemPage() {
     const router = useRouter();
@@ -15,7 +25,8 @@ export default function SingleProblemPage() {
     const [error, setError] = useState<string | null>(null);
     const [code, setCode] = useState<string>('// Start coding here...');
     const [selectedLanguage, setSelectedLanguage] = useState<string>('python');
-    const editorRef = useRef<any>(null);
+    const [convertedCode, setConvertedCode] = useState<string>('');
+    const editorRef = useRef<editor.IStandaloneCodeEditor | null>(null);
     const [isLoggedIn, setIsLoggedIn] = useState<boolean>(false);
     const [currentTab, setCurrentTab] = useState<string>('description');
 
@@ -41,6 +52,196 @@ export default function SingleProblemPage() {
     const [customTestCases, setCustomTestCases] = useState<{ input: string, expected?: string }[]>([{ input: '', expected: '' }]);
     const [activeTestCase, setActiveTestCase] = useState<number>(0);
     const [testCaseInput, setTestCaseInput] = useState<string>('');
+
+    const [activeTab, setActiveTab] = useState('pseudocode');
+    const debounceTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+
+    const monacoRef = useRef<Monaco | null>(null);
+    const [editorInstance, setEditorInstance] = useState<editor.IStandaloneCodeEditor | null>(null);
+    const [monacoInstance, setMonacoInstance] = useState<any>(null);
+    const lastSuggestionRef = useRef<string>('');
+
+    const onEditorMount = (editor: editor.IStandaloneCodeEditor, monaco: Monaco) => {
+        setEditorInstance(editor);
+        setMonacoInstance(monaco);
+        editorRef.current = editor;
+
+        // --- FIX for Tab Key ---
+        // Programmatically disable the "Tab Trap"
+        // This is equivalent to the user pressing Ctrl+M
+        // It allows the Tab key to move focus out of the editor
+        editor.getAction('editor.action.toggleTabFocusMode')?.run();
+        // --- End of FIX ---
+    };
+
+    useEffect(() => {
+        if (!monacoInstance || !editorInstance) return;
+
+        // --- Start of Autocomplete Logic ---
+
+        // 1. Add CSS for Ghost Text
+        const styleElement = document.createElement('style');
+        styleElement.textContent = `
+            .monaco-editor .suggest-preview-text,
+            .monaco-editor .inline-completion-text {
+                opacity: 0.7 !important;
+                color: #7fb5ff !important;
+                font-weight: bold !important;
+            }
+        `;
+        document.head.appendChild(styleElement);
+
+        // 2. Configure Editor Options
+        editorInstance.updateOptions({
+            inlineSuggest: { enabled: true, mode: 'subword' },
+            quickSuggestions: { other: true, comments: true, strings: true },
+            suggestOnTriggerCharacters: true,
+            tabCompletion: 'on',
+            acceptSuggestionOnEnter: 'on'
+        });
+
+        // 3. Define the Completion Provider with proper debouncing and cancellation
+        const inlineCompletionProvider = {
+            provideInlineCompletions: async (
+                model: editor.ITextModel,
+                position: { lineNumber: number; column: number },
+                context: any,
+                token: any // This is the CancellationToken
+            ) => {
+                // Debounce the request
+                await new Promise(r => setTimeout(r, 500));
+                if (token.isCancellationRequested) {
+                    return { items: [] };
+                }
+
+                try {
+                    const prefix = model.getValueInRange({
+                        startLineNumber: 1, startColumn: 1,
+                        endLineNumber: position.lineNumber, endColumn: position.column
+                    });
+
+                    const res = await axios.post(
+                        `http://localhost:8080/autocomplete`,
+                        { prefix, currentLine: model.getLineContent(position.lineNumber).substring(0, position.column - 1), language: selectedLanguage },
+                        { withCredentials: true }
+                    );
+
+                    if (token.isCancellationRequested || !res.data.suggestion) {
+                        return { items: [] };
+                    }
+
+                    const suggestion = res.data.suggestion;
+
+                    // The backend now provides correctly formatted suggestions, so the
+                    // frontend heuristic for adding newlines is no longer needed and has been removed.
+
+                    // Check if this is a multi-line suggestion
+                    const isMultiLine = suggestion.includes('\n');
+
+                    // Store the suggestion in state for Tab key handler to access
+                    lastSuggestionRef.current = suggestion;
+
+                    let replaceRange;
+
+                    if (isMultiLine) {
+                        // For multi-line suggestions, we need to calculate the end position differently
+                        // Find how many lines are in the suggestion
+                        const lines = suggestion.split('\n');
+                        const lastLineLength = lines[lines.length - 1].length;
+
+                        replaceRange = new monacoInstance.Range(
+                            position.lineNumber,
+                            position.column,
+                            position.lineNumber + lines.length - 1,
+                            lines.length > 1 ? lastLineLength + 1 : position.column + lastLineLength
+                        );
+                    } else {
+                        // For single-line suggestions, use the original approach
+                        replaceRange = new monacoInstance.Range(
+                            position.lineNumber,
+                            position.column,
+                            position.lineNumber,
+                            model.getLineContent(position.lineNumber).length + 1
+                        );
+                    }
+
+                    return { items: [{ insertText: suggestion, range: replaceRange }] };
+                } catch (error) {
+                    return { items: [] }; // Silently fail
+                }
+            },
+            freeInlineCompletions: () => { }
+        };
+
+        const providerRegistration = monacoInstance.languages.registerInlineCompletionsProvider(
+            ['python', 'javascript', 'cpp', 'java', 'pseudocode'],
+            inlineCompletionProvider
+        );
+
+        // 4. Setup Key Listeners
+        const keyDownListener = editorInstance.onKeyDown((e) => {
+            // Check if Tab was pressed
+            if (e.keyCode === monacoInstance.KeyCode.Tab.valueOf() && !e.shiftKey) {
+                // Use the editor's context key to check if an inline suggestion is visible.
+                // This is more reliable than querying the DOM.
+                const isSuggestionVisible = (editorInstance as any).getContextKey('inlineSuggestionVisible')?.get();
+
+                if (isSuggestionVisible) {
+                    // If ghost text is visible, accept it.
+                    // We prevent default and stop propagation to avoid triggering
+                    // any other Tab behavior, like opening the suggestion widget.
+                    e.preventDefault();
+                    e.stopPropagation();
+                    editorInstance.getAction('editor.action.inlineSuggest.accept')?.run();
+                }
+                // If no suggestion is visible, we do nothing and let the default Tab behavior occur.
+                // This stops Tab from aggressively triggering the suggestion dropdown.
+            } else if (e.keyCode === monacoInstance.KeyCode.Escape.valueOf()) {
+                // Hide inline suggestions on Escape.
+                editorInstance.getAction('editor.action.inlineSuggest.hide')?.run();
+            }
+
+            // Add a shortcut for Alt+Enter to manually insert the last suggestion
+            if (e.altKey && e.keyCode === monacoInstance.KeyCode.Enter.valueOf()) {
+                e.preventDefault();
+                e.stopPropagation();
+
+                if (lastSuggestionRef.current) {
+                    const position = editorInstance.getPosition();
+                    if (position) {
+                        const model = editorInstance.getModel();
+                        if (model) {
+                            editorInstance.executeEdits('alt-enter-completion', [{
+                                range: {
+                                    startLineNumber: position.lineNumber,
+                                    startColumn: position.column,
+                                    endLineNumber: position.lineNumber,
+                                    endColumn: position.column
+                                },
+                                text: lastSuggestionRef.current
+                            }]);
+                        }
+                    }
+                }
+            }
+        });
+
+        // --- End of Autocomplete Logic ---
+
+        return () => {
+            // Cleanup all autocomplete resources
+            providerRegistration.dispose();
+            keyDownListener.dispose();
+            if (debounceTimeoutRef.current) clearTimeout(debounceTimeoutRef.current);
+            document.head.removeChild(styleElement);
+        };
+    }, [monacoInstance, editorInstance, selectedLanguage]);
+
+    const handleLanguageChange = (value: string) => {
+        if (code.trim() !== '' && code.trim() !== 'Start coding here...') {
+            setSelectedLanguage(value);
+        }
+    };
 
     // Persist code only after user changes or after remote fetch
     const persistCode = (newCode: string) => {
@@ -158,104 +359,103 @@ export default function SingleProblemPage() {
         const newVal = value || '';
         setCode(newVal);
         persistCode(newVal);
+        if (selectedLanguage === 'pseudocode') {
+            setConvertedCode(''); // Clear converted code on edit
+        }
     }
 
     const handleRunCode = async () => {
         if (isExecuting) return;
 
-        // Restore login check since authentication is required on the backend
-        if (!isLoggedIn) {
-            setExecutionError("Please log in to run code.");
-            return;
-        }
-
         setIsExecuting(true);
-        setOutput(null);
         setExecutionError(null);
         setTestCaseResults([]);
+        setOutput(null);
         setActiveResultTab(0);
 
         try {
-            // Collect all test case inputs
-            const testCaseInputs = customTestCases
-                .map(tc => tc.input.trim())
-                .filter(input => input.length > 0);
+            let codeToExecute = code;
+            let languageToExecute = selectedLanguage;
 
-            if (testCaseInputs.length === 0) {
-                throw new Error("No test cases to run. Please add at least one test case with input.");
-            }
-
-            console.log(`Executing ${testCaseInputs.length} test cases in a single request`);
-
-            // Create an AbortController for timeout
-            const controller = new AbortController();
-            const timeoutId = setTimeout(() => controller.abort(), 15000); // Longer timeout for multiple test cases
-
-            try {
-                const response = await fetch('http://localhost:8080/execute', {
+            // Handle pseudocode conversion
+            if (selectedLanguage === 'pseudocode') {
+                const convertRes = await fetch('http://localhost:8080/convert-code', {
                     method: 'POST',
-                    headers: {
-                        'Content-Type': 'application/json',
-                    },
+                    headers: { 'Content-Type': 'application/json' },
                     credentials: 'include',
-                    body: JSON.stringify({
-                        language: selectedLanguage,
-                        code: code,
-                        testCases: testCaseInputs,
-                    }),
-                    signal: controller.signal
+                    body: JSON.stringify({ pseudocode: code }),
                 });
 
-                // Clear the timeout
-                clearTimeout(timeoutId);
-
-                const text = await response.text();
-                const responseBody = JSON.parse(text);
-
-                if (!response.ok) {
-                    throw new Error(responseBody.message || responseBody.error || `Request failed with status ${response.status}`);
+                if (!convertRes.ok) {
+                    const errData = await convertRes.json();
+                    throw new Error(errData.message || 'Failed to convert pseudocode');
                 }
 
-                // Process results from the backend
-                const results = [];
-
-                if (responseBody.results && responseBody.results.length > 0) {
-                    // Process multiple test case results
-                    for (let i = 0; i < responseBody.results.length; i++) {
-                        const result = responseBody.results[i];
-                        const testCase = customTestCases[i] || { input: testCaseInputs[i], expected: '' };
-
-                        // Determine if the test case passed by comparing with expected output
-                        let status = result.status;
-                        if (status === 'success' && testCase.expected) {
-                            // Clean outputs for comparison (trim whitespace, normalize line endings)
-                            const cleanedActual = result.stdout.trim().replace(/\r\n/g, '\n');
-                            const cleanedExpected = testCase.expected.trim().replace(/\r\n/g, '\n');
-
-                            // Update status based on output comparison
-                            if (cleanedActual !== cleanedExpected) {
-                                status = 'wrong_answer';
-                            }
-                        }
-
-                        results.push({
-                            stdout: result.stdout || '',
-                            stderr: result.stderr || '',
-                            status: status,
-                            executionTimeMs: result.execution_time_ms || 0,
-                            error: result.error || '',
-                            testCase: testCase
-                        });
-                    }
+                const convertData = await convertRes.json();
+                if (convertData.python_code) {
+                    setConvertedCode(convertData.python_code);
+                    codeToExecute = convertData.python_code;
+                    languageToExecute = 'python';
                 } else {
-                    // Fallback for backward compatibility
-                    const testCase = customTestCases[0] || { input: testCaseInputs[0], expected: '' };
+                    throw new Error("Conversion successful but no Python code was returned.");
+                }
+            }
+
+            await executeCode(codeToExecute, languageToExecute, customTestCases.map(tc => tc.input.trim()).filter(input => input.length > 0));
+
+        } catch (err) {
+            setExecutionError(err instanceof Error ? err.message : 'An unknown error occurred during conversion or execution.');
+            setOutput(null); // Clear output on error
+        } finally {
+            setIsExecuting(false);
+        }
+    };
+
+    // Helper function to abstract the actual execution call
+    const executeCode = async (codeToExecute: string, languageToExecute: string, testCases: string[]) => {
+        // This function no longer manages isExecuting or executionError state.
+        // It will throw an error to be caught by the caller.
+        try {
+            const controller = new AbortController();
+            const timeoutId = setTimeout(() => controller.abort(), 15000);
+
+            const response = await fetch('http://localhost:8080/execute', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                },
+                credentials: 'include',
+                body: JSON.stringify({
+                    language: languageToExecute,
+                    code: codeToExecute,
+                    testCases: testCases,
+                }),
+                signal: controller.signal
+            });
+
+            clearTimeout(timeoutId);
+
+            const text = await response.text();
+            const responseBody = JSON.parse(text);
+
+            if (!response.ok) {
+                throw new Error(responseBody.message || responseBody.error || `Request failed with status ${response.status}`);
+            }
+
+            // Process results from the backend
+            const results = [];
+
+            if (responseBody.results && responseBody.results.length > 0) {
+                // Process multiple test case results
+                for (let i = 0; i < responseBody.results.length; i++) {
+                    const result = responseBody.results[i];
+                    const testCase = customTestCases[i] || { input: testCases[i], expected: '' };
 
                     // Determine if the test case passed by comparing with expected output
-                    let status = responseBody.status;
+                    let status = result.status;
                     if (status === 'success' && testCase.expected) {
-                        // Clean outputs for comparison
-                        const cleanedActual = responseBody.stdout.trim().replace(/\r\n/g, '\n');
+                        // Clean outputs for comparison (trim whitespace, normalize line endings)
+                        const cleanedActual = result.stdout.trim().replace(/\r\n/g, '\n');
                         const cleanedExpected = testCase.expected.trim().replace(/\r\n/g, '\n');
 
                         // Update status based on output comparison
@@ -265,43 +465,59 @@ export default function SingleProblemPage() {
                     }
 
                     results.push({
-                        stdout: responseBody.stdout || '',
-                        stderr: responseBody.stderr || '',
+                        stdout: result.stdout || '',
+                        stderr: result.stderr || '',
                         status: status,
-                        executionTimeMs: responseBody.execution_time_ms || 0,
-                        error: responseBody.error || '',
+                        executionTimeMs: result.execution_time_ms || 0,
+                        error: result.error || '',
                         testCase: testCase
                     });
                 }
+            } else {
+                // Fallback for backward compatibility
+                const testCase = customTestCases[0] || { input: testCases[0], expected: '' };
 
-                // Update state with all results
-                setTestCaseResults(results);
+                // Determine if the test case passed by comparing with expected output
+                let status = responseBody.status;
+                if (status === 'success' && testCase.expected) {
+                    // Clean outputs for comparison
+                    const cleanedActual = responseBody.stdout.trim().replace(/\r\n/g, '\n');
+                    const cleanedExpected = testCase.expected.trim().replace(/\r\n/g, '\n');
 
-                // If there's at least one result, set it as the current output for backward compatibility
-                if (results.length > 0) {
-                    setOutput({
-                        stdout: results[0].stdout,
-                        stderr: results[0].stderr,
-                        status: results[0].status,
-                        execution_time_ms: results[0].executionTimeMs,
-                        error: results[0].error
-                    });
+                    // Update status based on output comparison
+                    if (cleanedActual !== cleanedExpected) {
+                        status = 'wrong_answer';
+                    }
                 }
 
-            } catch (error: any) {
-                console.error('Fetch operation failed:', error);
-                if (error.name === 'AbortError') {
-                    throw new Error('Request timed out. The server took too long to respond.');
-                } else {
-                    throw new Error(`Network error: ${error.message}. Please check if the backend server is running.`);
-                }
+                results.push({
+                    stdout: responseBody.stdout || '',
+                    stderr: responseBody.stderr || '',
+                    status: status,
+                    executionTimeMs: responseBody.execution_time_ms || 0,
+                    error: responseBody.error || '',
+                    testCase: testCase
+                });
             }
+
+            // Update state with all results
+            setTestCaseResults(results);
+
+            // If there's at least one result, set it as the current output for backward compatibility
+            if (results.length > 0) {
+                setOutput({
+                    stdout: results[0].stdout,
+                    stderr: results[0].stderr,
+                    status: results[0].status,
+                    execution_time_ms: results[0].executionTimeMs,
+                    error: results[0].error
+                });
+            }
+
         } catch (err) {
             console.error('Failed to execute code:', err);
-            setExecutionError(err instanceof Error ? err.message : 'An unknown error occurred during execution.');
-            setOutput(null);
-        } finally {
-            setIsExecuting(false);
+            // Re-throw so the caller can handle UI state
+            throw err;
         }
     };
 
@@ -363,8 +579,8 @@ export default function SingleProblemPage() {
                         setSubmissionResult(responseBody);
 
                         // Navigate to submission detail page
-                        if (responseBody.submission_id) {
-                            router.push(`/submissions/${responseBody.submission_id}`);
+                        if (responseBody.submissionId) {
+                            router.push(`/submissions/${responseBody.submissionId}`);
                         }
                     } catch (parseError) {
                         console.error('Error parsing response:', parseError);
@@ -628,35 +844,65 @@ export default function SingleProblemPage() {
                     {/* Language Selector */}
                     <div className="h-12 bg-white border-b border-gray-200 px-4 flex items-center">
                         <select
-                            className="mr-4 py-1 px-2 text-sm border border-gray-300 rounded-md text-gray-700"
+                            id="language"
                             value={selectedLanguage}
-                            onChange={e => setSelectedLanguage(e.target.value)}
+                            onChange={(e) => setSelectedLanguage(e.target.value)}
+                            className="bg-gray-700 border border-gray-600 rounded-md px-3 py-1 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500"
                         >
                             <option value="python">Python</option>
                             <option value="javascript">JavaScript</option>
-                            <option value="java">Java</option>
                             <option value="cpp">C++</option>
+                            <option value="java">Java</option>
+                            <option value="pseudocode">Pseudocode</option>
                         </select>
                     </div>
 
-                    {/* Code Editor */}
-                    <div className="flex-grow overflow-hidden border-b border-gray-200">
-                        <Editor
-                            height="100%"
-                            defaultLanguage={selectedLanguage}
-                            language={selectedLanguage}
-                            value={code}
-                            onChange={handleEditorChange}
-                            onMount={handleEditorDidMount}
-                            theme="vs-light"
-                            options={{
-                                minimap: { enabled: false },
-                                fontSize: 14,
-                                lineNumbers: 'on',
-                                scrollBeyondLastLine: false,
-                                automaticLayout: true,
-                            }}
-                        />
+                    {/* Code Editor & Converted Code Viewer Container */}
+                    <div className="flex-grow flex flex-row h-[60vh]">
+                        {/* Main Code Editor */}
+                        <div className={`h-full ${selectedLanguage === 'pseudocode' ? 'w-1/2' : 'w-full'}`}>
+                            <Editor
+                                height="100%"
+                                language={selectedLanguage}
+                                value={code}
+                                onChange={handleEditorChange}
+                                onMount={onEditorMount}
+                                theme="vs-dark"
+                                options={{
+                                    fontSize: 14,
+                                    minimap: { enabled: false },
+                                    automaticLayout: true,
+                                    quickSuggestions: true,
+                                    suggestOnTriggerCharacters: true,
+                                    inlineSuggest: {
+                                        enabled: true,
+                                        mode: 'subword'
+                                    },
+                                    // Add these options to improve the experience
+                                    tabCompletion: 'on',
+                                    snippetSuggestions: 'inline'
+                                }}
+                            />
+                        </div>
+
+                        {/* Converted Code Viewer (for Pseudocode) */}
+                        {selectedLanguage === 'pseudocode' && (
+                            <div className="w-1/2 h-full flex flex-col bg-gray-900 ml-2">
+                                <div className="flex justify-between items-center p-3 bg-gray-800 rounded-t-lg">
+                                    <h3 className="font-semibold text-white">Generated Python Code</h3>
+                                    <span className="text-xs text-gray-400">Read-only</span>
+                                </div>
+                                <div className="flex-grow">
+                                    <Editor
+                                        height="100%"
+                                        language="python"
+                                        value={convertedCode || "// Click 'Run' to see AI-generated code"}
+                                        theme="vs-dark"
+                                        options={{ readOnly: true }}
+                                    />
+                                </div>
+                            </div>
+                        )}
                     </div>
 
                     {/* Test Cases and Console */}

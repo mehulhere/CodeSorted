@@ -12,6 +12,8 @@ This is an Online Judge platform for competitive programming practice and contes
 - **Automated Evaluation**: Submit solutions to be evaluated against test cases
 - **Detailed Feedback**: Receive specific error messages and test case results
 - **Submission History**: Track your progress and review past submissions
+- **Pseudocode Support**: Convert pseudocode to Python for execution
+- **AI Code Completion**: Get intelligent code suggestions as you type.
 
 ## Getting Started
 
@@ -80,6 +82,7 @@ The platform intelligently classifies errors to provide helpful feedback:
 | Endpoint | Method | Description |
 |----------|--------|-------------|
 | `/last-code` | GET | Retrieve the most recent code draft for the authenticated user for a given `problem_id` (and optional `language`). |
+| `/convert-code` | POST | Convert pseudocode to Python code. |
 
 The frontend now uses this endpoint to repopulate the Monaco editor when you revisit a problem page, falling back to `localStorage` first.
 

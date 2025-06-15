@@ -47,6 +47,9 @@ func SubmitSolutionHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Start the submission processing queue if it's not already running
+	go startSubmissionProcessor()
+
 	// Get user ID from JWT token
 	cookie, err := r.Cookie("authToken")
 	if err != nil {
@@ -114,52 +117,81 @@ func SubmitSolutionHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Create directory for this submission
-	submissionDir := filepath.Join("./submissions", submissionID.Hex())
-	if err := os.MkdirAll(submissionDir, 0755); err != nil {
-		log.Printf("Failed to create submission directory: %v", err)
-		utils.SendJSONError(w, "Failed to process submission", http.StatusInternalServerError)
-		return
+	// If the language is pseudocode, convert it to Python before saving and processing
+	if submission.Language == "pseudocode" {
+		conversionCtx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+		defer cancel()
+
+		pythonCode, err := ai.ConvertPseudocodeToPython(conversionCtx, submissionData.Code)
+		if err != nil {
+			utils.SendJSONError(w, "Failed to convert pseudocode to Python: "+err.Error(), http.StatusInternalServerError)
+			return
+		}
+		// We'll run the Python code, but save the original pseudocode for reference
+		// The python code will be saved in a separate file in the submission directory
+		// Let's create the submission directory first.
+		submissionDir := filepath.Join("./submissions", submissionID.Hex())
+		if err := os.MkdirAll(submissionDir, 0755); err != nil {
+			log.Printf("Failed to create submission directory: %v", err)
+			utils.SendJSONError(w, "Server error during submission", http.StatusInternalServerError)
+			return
+		}
+
+		// Save the original pseudocode
+		pseudocodePath := filepath.Join(submissionDir, "code.pseudo")
+		if err := os.WriteFile(pseudocodePath, []byte(submissionData.Code), 0644); err != nil {
+			log.Printf("Failed to write pseudocode file: %v", err)
+			utils.SendJSONError(w, "Server error during submission", http.StatusInternalServerError)
+			return
+		}
+
+		// Save the converted Python code
+		pythonCodePath := filepath.Join(submissionDir, "code.py")
+		if err := os.WriteFile(pythonCodePath, []byte(pythonCode), 0644); err != nil {
+			log.Printf("Failed to write python code file: %v", err)
+			utils.SendJSONError(w, "Server error during submission", http.StatusInternalServerError)
+			return
+		}
+		// Queue the submission for processing
+		submissionQueue <- submissionID
+	} else {
+		// For other languages, save the code directly
+		submissionDir := filepath.Join("./submissions", submissionID.Hex())
+		if err := os.MkdirAll(submissionDir, 0755); err != nil {
+			log.Printf("Failed to create submission directory: %v", err)
+			utils.SendJSONError(w, "Server error during submission", http.StatusInternalServerError)
+			return
+		}
+
+		fileExtension := utils.GetFileExtension(submission.Language)
+		codeFilePath := filepath.Join(submissionDir, "code"+fileExtension)
+		if err := os.WriteFile(codeFilePath, []byte(submissionData.Code), 0644); err != nil {
+			log.Printf("Failed to write code file: %v", err)
+			utils.SendJSONError(w, "Server error during submission", http.StatusInternalServerError)
+			return
+		}
+
+		// Queue the submission for processing
+		submissionQueue <- submissionID
 	}
 
-	// Determine file extension based on language
-	var fileExtension string
-	switch strings.ToLower(submissionData.Language) {
-	case "python":
-		fileExtension = ".py"
-	case "javascript":
-		fileExtension = ".js"
-	case "cpp":
-		fileExtension = ".cpp"
-	case "java":
-		fileExtension = ".java"
-	default:
-		fileExtension = ".txt"
-	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusAccepted)
+	json.NewEncoder(w).Encode(map[string]string{
+		"message":      "Submission received and is being processed.",
+		"submissionId": result.InsertedID.(primitive.ObjectID).Hex(),
+	})
+}
 
-	// Write code to file
-	codeFilePath := filepath.Join(submissionDir, "code"+fileExtension)
-	if err := os.WriteFile(codeFilePath, []byte(submissionData.Code), 0644); err != nil {
-		log.Printf("Failed to write code file: %v", err)
-		utils.SendJSONError(w, "Failed to process submission", http.StatusInternalServerError)
-		return
-	}
-
-	// Add submission to processing queue
+// Start the submission processor if it's not already running
+func startSubmissionProcessor() {
 	submissionQueueLock.Lock()
-	submissionQueue <- submissionID
 	if !isProcessing {
 		isProcessing = true
 		go processSubmissionQueue()
+		log.Println("Submission processor started.")
 	}
 	submissionQueueLock.Unlock()
-
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(http.StatusCreated)
-	json.NewEncoder(w).Encode(map[string]interface{}{
-		"message":       "Submission received and queued for evaluation",
-		"submission_id": submissionID.Hex(),
-	})
 }
 
 // Process submissions in the queue
@@ -192,6 +224,7 @@ func processSubmission(submissionID primitive.ObjectID) {
 	err := submissionsCollection.FindOne(ctx, bson.M{"_id": submissionID}).Decode(&submission)
 	if err != nil {
 		log.Printf("Failed to retrieve submission %s: %v", submissionID.Hex(), err)
+		updateSubmissionStatus(submissionID, models.StatusRuntimeError, 0, 0, 0, 0, "", "")
 		return
 	}
 
@@ -230,22 +263,18 @@ func processSubmission(submissionID primitive.ObjectID) {
 
 	// Determine file path
 	submissionDir := filepath.Join("./submissions", submissionID.Hex())
-	var fileExtension string
-	switch strings.ToLower(submission.Language) {
-	case "python":
-		fileExtension = ".py"
-	case "javascript":
-		fileExtension = ".js"
-	case "cpp":
-		fileExtension = ".cpp"
-	case "java":
-		fileExtension = ".java"
-	default:
-		fileExtension = ".txt"
+	languageToExecute := submission.Language // Default to the submission's language
+
+	if submission.Language == "pseudocode" {
+		// For pseudocode submissions, we execute the converted Python file
+		languageToExecute = "python"
 	}
 
-	// Read code file first, as it's needed for AI analysis later
+	fileExtension := utils.GetFileExtension(languageToExecute)
 	codeFilePath := filepath.Join(submissionDir, "code"+fileExtension)
+	log.Printf("Processing submission %s: Language=%s, Executable=%s, Path=%s", submissionID.Hex(), submission.Language, languageToExecute, codeFilePath)
+
+	// Read code file first, as it's needed for AI analysis later
 	code, err := os.ReadFile(codeFilePath)
 	if err != nil {
 		log.Printf("Failed to read code file for submission %s: %v", submissionID.Hex(), err)
@@ -276,7 +305,14 @@ func processSubmission(submissionID primitive.ObjectID) {
 		defer execCancel()
 
 		// Execute code with test case input
-		result, err := executeCode(execCtx, submission.Language, codeFilePath, testCase.Input, problem.TimeLimitMs)
+		result, err := executeCode(execCtx, languageToExecute, codeFilePath, testCase.Input, problem.TimeLimitMs)
+		if err != nil {
+			log.Printf("Error executing code for submission %s: %v", submissionID.Hex(), err)
+			// Decide on a status for execution failure
+			status := "EXECUTION_FAILED"
+			testCaseStatusFile.WriteString(status + "\n\n")
+			continue
+		}
 
 		// Write test case result to file
 		outputFilePath := filepath.Join(submissionDir, fmt.Sprintf("output_%d.txt", i+1))
@@ -693,21 +729,13 @@ func GetSubmissionDetailsHandler(w http.ResponseWriter, r *http.Request) {
 
 	// Read code file
 	submissionDir := filepath.Join("./submissions", submissionID.Hex())
-	var fileExtension string
-	switch strings.ToLower(submission.Language) {
-	case "python":
-		fileExtension = ".py"
-	case "javascript":
-		fileExtension = ".js"
-	case "cpp":
-		fileExtension = ".cpp"
-	case "java":
-		fileExtension = ".java"
-	default:
-		fileExtension = ".txt"
+	var codeFilePath string
+	if submission.Language == "pseudocode" {
+		codeFilePath = filepath.Join(submissionDir, "code.py")
+	} else {
+		fileExtension := utils.GetFileExtension(submission.Language)
+		codeFilePath = filepath.Join(submissionDir, "code"+fileExtension)
 	}
-
-	codeFilePath := filepath.Join(submissionDir, "code"+fileExtension)
 	code, err := os.ReadFile(codeFilePath)
 	if err != nil {
 		log.Printf("Failed to read code file: %v", err)
