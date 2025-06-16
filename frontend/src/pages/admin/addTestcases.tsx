@@ -35,7 +35,8 @@ export default function NewTestCasePage() {
                     credentials: 'include',
                 });
                 if (!response.ok) {
-                    throw new Error(`Failed to fetch problem: ${response.status}`);
+                    setError(`Failed to fetch problem: ${response.status}`);
+                    return;
                 }
                 const data = await response.json();
                 setProblem(data);

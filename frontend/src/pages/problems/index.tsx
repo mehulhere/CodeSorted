@@ -53,7 +53,8 @@ export default function ProblemsPage() {
                 const response = await fetch('http://localhost:8080/problems');
                 if (!response.ok) {
                     const errorData: ApiError = await response.json();
-                    throw new Error(errorData.message || `Failed to fetch problems: ${response.status}`);
+                    setError(errorData.message || `Failed to fetch problems: ${response.status}`);
+                    return;
                 }
                 const data: EnhancedProblemListItemType[] = await response.json();
                 setProblems(data);

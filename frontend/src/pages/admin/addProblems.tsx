@@ -53,7 +53,8 @@ export default function NewProblemPage() {
 
             if (!response.ok) {
                 const errorData = await response.json();
-                throw new Error(errorData.message || 'Failed to create problem');
+                setError(errorData.message || 'Failed to create problem');
+                return;
             }
 
             const data = await response.json();

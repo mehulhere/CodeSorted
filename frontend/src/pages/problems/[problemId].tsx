@@ -277,7 +277,10 @@ export default function SingleProblemPage() {
             const response = await fetch(`http://localhost:8080/api/discussions/problems/${problemId}/threads`, {
                 credentials: 'include',
             });
-            if (!response.ok) throw new Error('Failed to fetch threads');
+            if (!response.ok) {
+                setError('Failed to fetch threads');
+                return;
+            }
 
             const data: ThreadsResponse = await response.json();
             setThreads(data.threads || []);
@@ -311,7 +314,8 @@ export default function SingleProblemPage() {
 
             if (!response.ok) {
                 const errorData = await response.json();
-                throw new Error(errorData.message || 'Failed to create thread');
+                setError(errorData.message || 'Failed to create thread');
+                return;
             }
 
             await fetchThreads();
@@ -332,7 +336,10 @@ export default function SingleProblemPage() {
             const response = await fetch(`http://localhost:8080/api/discussions/threads/${threadId}/comments`, {
                 credentials: 'include',
             });
-            if (!response.ok) throw new Error('Failed to fetch comments');
+            if (!response.ok) {
+                setError('Failed to fetch comments');
+                return;
+            }
 
             const data: CommentsResponse = await response.json();
             setComments(data.comments || []);
@@ -365,7 +372,8 @@ export default function SingleProblemPage() {
 
             if (!response.ok) {
                 const errorData = await response.json();
-                throw new Error(errorData.message || 'Failed to create comment');
+                setError(errorData.message || 'Failed to create comment');
+                return;
             }
 
             await loadComments(selectedThread.id);
@@ -395,7 +403,8 @@ export default function SingleProblemPage() {
 
             if (!response.ok) {
                 const errorData = await response.json();
-                throw new Error(errorData.message || 'Failed to vote');
+                setError(errorData.message || 'Failed to vote');
+                return;
             }
 
             if (type === 'thread') {
@@ -418,7 +427,8 @@ export default function SingleProblemPage() {
 
             if (!response.ok) {
                 const errorData = await response.json();
-                throw new Error(errorData.message || 'Failed to delete comment');
+                setError(errorData.message || 'Failed to delete comment');
+                return;
             }
 
             if (selectedThread) {
@@ -493,7 +503,8 @@ export default function SingleProblemPage() {
                     } catch (jsonError) {
                         errorMessage = response.statusText || errorMessage;
                     }
-                    throw new Error(errorMessage);
+                    setError(errorMessage);
+                    return;
                 }
                 const data: ProblemType = await response.json();
                 setProblem(data);
@@ -562,7 +573,8 @@ export default function SingleProblemPage() {
 
                 if (!conversionResponse.ok) {
                     const errorData = await conversionResponse.json();
-                    throw new Error(errorData.message || 'Failed to convert pseudocode');
+                    setError(errorData.message || 'Failed to convert pseudocode');
+                    return;
                 }
 
                 const conversionData = await conversionResponse.json();
@@ -672,7 +684,8 @@ export default function SingleProblemPage() {
         } catch (err) {
             console.error('Failed to execute code:', err);
             // Re-throw so the caller can handle UI state
-            throw err;
+            setError(err instanceof Error ? err.message : 'An unknown error occurred during execution.');
+            return;
         } finally {
             // Always reset isExecuting state regardless of success or failure
             setIsExecuting(false);
@@ -693,7 +706,8 @@ export default function SingleProblemPage() {
         try {
             // Ensure we have a valid problemId
             if (!problemId) {
-                throw new Error("Problem ID is missing. Cannot submit without a problem ID.");
+                setError("Problem ID is missing. Cannot submit without a problem ID.");
+                return;
             }
 
             console.log('Attempting to submit code:', {
@@ -731,7 +745,8 @@ export default function SingleProblemPage() {
                         console.log('Parsed response body:', responseBody);
 
                         if (!response.ok) {
-                            throw new Error(responseBody.message || `Request failed with status ${response.status}`);
+                            setError(responseBody.message || `Request failed with status ${response.status}`);
+                            return;
                         }
 
                         setSubmissionResult(responseBody);
@@ -742,14 +757,17 @@ export default function SingleProblemPage() {
                         }
                     } catch (parseError) {
                         console.error('Error parsing response:', parseError);
-                        throw new Error(`Failed to parse response: ${responseText}`);
+                        setError(`Failed to parse response: ${responseText}`);
+                        return;
                     }
                 } else {
-                    throw new Error('Server returned an empty response');
+                    setError('Server returned an empty response');
+                    return;
                 }
             } catch (error: any) {
                 console.error('Submission failed:', error);
-                throw new Error(`Submission failed: ${error.message}`);
+                setError(`Submission failed: ${error.message}`);
+                return;
             }
         } catch (err) {
             console.error('Error in handleSubmitCode:', err);
