@@ -7,8 +7,8 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Separator } from '@/components/ui/separator';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Textarea } from '@/components/ui/textarea';
-import { executeCode, submitSolution, convertPseudocode, getCodeCompletion } from '@/lib/api';
-import { AlertCircle, CheckCircle, ChevronDown, ChevronRight, ChevronLeft, ChevronsUpDown, Loader, Terminal, XCircle, MessageSquare, ArrowUp, ArrowDown, Trash2 } from 'lucide-react';
+import { executeCode, submitSolution, convertPseudocode, getCodeCompletion, getAIHint } from '@/lib/api';
+import { AlertCircle, CheckCircle, ChevronDown, ChevronRight, ChevronLeft, ChevronsUpDown, Loader, Terminal, XCircle, MessageSquare, ArrowUp, ArrowDown, Trash2, Lightbulb } from 'lucide-react';
 import type { editor } from 'monaco-editor';
 import { useRouter } from 'next/router';
 import { useCallback, useEffect, useRef, useState } from 'react';
@@ -42,6 +42,10 @@ interface SubmitSolutionResponse {
 
 interface ConvertPseudocodeResponse {
     python_code: string;
+}
+
+interface AIHintResponse {
+    hints: string[];
 }
 
 export default function SingleProblemPage() {
@@ -96,16 +100,16 @@ export default function SingleProblemPage() {
     const [discussionView, setDiscussionView] = useState<'list' | 'thread'>('list');
 
     const [hasMounted, setHasMounted] = useState(false);
-    useEffect(() => {
-        const MyComponent = () => {
-            document.body.style.overflow = 'hidden';
+    // useEffect(() => {
+    //     const MyComponent = () => {
+    //         document.body.style.overflow = 'hidden';
 
-            return () => {
-                document.body.style.overflow = ''; // Clean up to avoid side effects
-            };
-        };
-        MyComponent();
-    }, []);
+    //         return () => {
+    //             document.body.style.overflow = ''; // Clean up to avoid side effects
+    //         };
+    //     };
+    //     MyComponent();
+    // }, []);
 
     useEffect(() => {
         setHasMounted(true);
@@ -714,6 +718,47 @@ export default function SingleProblemPage() {
         setCustomTestCases(updatedTestCases);
     };
 
+    // AI Hints state
+    const [isLoadingHint, setIsLoadingHint] = useState<boolean>(false);
+    const [hints, setHints] = useState<string[] | null>(null);
+    const [hintError, setHintError] = useState<string | null>(null);
+    const [visibleHintIndex, setVisibleHintIndex] = useState<number>(-1);
+
+    const handleGetHint = async () => {
+        if (!editorRef.current || !problem) return;
+
+        // Get the current code from the editor
+        const currentCode = editorRef.current.getValue();
+
+        setIsLoadingHint(true);
+        setHintError(null);
+
+        try {
+            const response = await getAIHint(
+                problem.statement,
+                currentCode,
+                selectedLanguage
+            ) as AIHintResponse;
+
+            setHints(response.hints);
+            setVisibleHintIndex(0); // Show the first hint
+        } catch (error) {
+            console.error("Error getting hints:", error);
+            const errorMessage = error instanceof Error
+                ? error.message
+                : (error as ApiErrorResponse)?.message || "Failed to get hints. Please try again.";
+            setHintError(errorMessage);
+        } finally {
+            setIsLoadingHint(false);
+        }
+    };
+
+    const handleShowNextHint = () => {
+        if (hints && visibleHintIndex < hints.length - 1) {
+            setVisibleHintIndex(visibleHintIndex + 1);
+        }
+    };
+
     if (isLoading) {
         return (
             <div className="min-h-screen bg-gray-100 flex justify-center items-center">
@@ -861,6 +906,67 @@ export default function SingleProblemPage() {
                                                 ))}
                                             </div>
                                         )}
+
+                                        {/* AI Hints Section */}
+                                        <div className="mt-6">
+                                            <div className="flex items-center justify-between mb-3">
+                                                <h2 className="text-lg font-semibold text-gray-800 flex items-center">
+                                                    <Lightbulb className="w-5 h-5 mr-2 text-yellow-500" />
+                                                    Hints
+                                                </h2>
+                                                {!isLoadingHint && !hints && isLoggedIn && (
+                                                    <Button
+                                                        onClick={handleGetHint}
+                                                        className="px-3 py-1 text-sm bg-yellow-500 hover:bg-yellow-600 text-white rounded-md"
+                                                    >
+                                                        Get Hint
+                                                    </Button>
+                                                )}
+                                            </div>
+
+                                            <div className="p-3 border border-gray-200 rounded-md bg-gray-50">
+                                                {!isLoggedIn ? (
+                                                    <div className="p-3 bg-blue-50 border border-blue-200 text-blue-700 rounded-md">
+                                                        <p className="text-sm">Please <Link href="/login" className="underline font-medium">sign in</Link> to use AI hints.</p>
+                                                    </div>
+                                                ) : isLoadingHint ? (
+                                                    <div className="flex justify-center items-center p-4">
+                                                        <Loader className="w-5 h-5 mr-2 animate-spin text-yellow-500" />
+                                                        <p className="text-sm text-gray-600">Generating hints...</p>
+                                                    </div>
+                                                ) : hintError ? (
+                                                    <div className="p-3 text-sm text-red-600 bg-red-50 rounded-md">
+                                                        <AlertCircle className="w-4 h-4 inline-block mr-2" />
+                                                        {hintError}
+                                                    </div>
+                                                ) : hints && visibleHintIndex >= 0 ? (
+                                                    <div className="space-y-4">
+                                                        {hints.slice(0, visibleHintIndex + 1).map((hint, idx) => (
+                                                            <div key={idx} className={`p-3 rounded-md ${idx === visibleHintIndex ? 'bg-yellow-50 border border-yellow-200' : 'bg-white border border-gray-100'}`}>
+                                                                <div className="flex items-start">
+                                                                    <div className="bg-yellow-100 text-yellow-800 rounded-full w-6 h-6 flex items-center justify-center mr-2 flex-shrink-0">
+                                                                        {idx + 1}
+                                                                    </div>
+                                                                    <p className="text-sm text-gray-700">{hint}</p>
+                                                                </div>
+                                                            </div>
+                                                        ))}
+
+                                                        {visibleHintIndex < hints.length - 1 && (
+                                                            <Button
+                                                                onClick={handleShowNextHint}
+                                                                className="w-full mt-2 px-3 py-1 text-sm bg-yellow-100 hover:bg-yellow-200 text-yellow-800 rounded-md flex items-center justify-center"
+                                                            >
+                                                                <ArrowDown className="w-4 h-4 mr-1" />
+                                                                Show Next Hint
+                                                            </Button>
+                                                        )}
+                                                    </div>
+                                                ) : (
+                                                    <p className="text-sm text-gray-500 p-2">Click "Get Hint" if you're stuck and need some guidance. Hints are designed to help you think through the problem without giving away the solution.</p>
+                                                )}
+                                            </div>
+                                        </div>
                                     </div>
                                 )}
 

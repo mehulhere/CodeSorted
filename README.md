@@ -166,6 +166,14 @@ You'll need to create OAuth applications on the respective platforms and configu
 - Facebook: `http://localhost:8080/auth/callback/facebook`
 - GitHub: `http://localhost:8080/auth/callback/github`
 
+**Important Note for GitHub OAuth**: Ensure the "Authorization callback URL" configured in your GitHub OAuth application settings (found under "Developer settings" -> "OAuth Apps" on GitHub) *exactly matches* the `OAUTH_REDIRECT_BASE_URL` from your `.env` file combined with the `/auth/callback/github` path. A mismatch will result in a "redirect_uri is not associated with this application" error.
+
+# Frontend URL for OAuth Redirects
+FRONTEND_URL=http://localhost:3000
+```
+
+The FRONTEND_URL environment variable specifies where users should be redirected after a successful OAuth login. Make sure this points to your running frontend application.
+
 ### Security Measures
 
 - JWT tokens are stored in HTTP-only cookies to prevent JavaScript access

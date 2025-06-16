@@ -37,9 +37,10 @@ This repository contains a complete Online Judge (OJ) system where programmers c
 │ │ │ │ └── [problemId]/ # Dynamic route for individual problem admin tasks
 │ │ │ │ └── testcases/ # Test case management for a specific problem
 │ │ │ │ └── create.tsx # Page for adding test cases to a problem
-│ │ └── types/ # TypeScript type definitions
-│ ├── public/ # Static assets
-│ └── package.json # Frontend dependencies and scripts
+│ │ │ │ └── index.tsx # Problem solving page
+│ │ │ └── types/ # TypeScript type definitions
+│ │ ├── public/ # Static assets
+│ │ └── package.json # Frontend dependencies and scripts
 ```
 
 ## Backend (Go) 🔧
@@ -68,12 +69,25 @@ This repository contains a complete Online Judge (OJ) system where programmers c
     - Allows users to log in with either their username or email.
     - Compares the provided password with the stored hash using `bcrypt.CompareHashAndPassword`.
     - Issues a new JWT via an `HttpOnly` cookie upon successful authentication, which now includes the `IsAdmin` status.
+- **OAuth Authentication (`/auth/login/` and `/auth/callback/`)**:
+    - Supports social login with Google, Facebook, and GitHub.
+    - The `OAuthLoginHandler` initiates the OAuth flow by redirecting to the provider's authorization page.
+    - The `OAuthCallbackHandler` processes the provider's response and creates or updates user accounts.
+    - Uses CSRF protection via state parameters to prevent cross-site request forgery attacks.
+    - If a user with the same email already exists, it links the OAuth account to the existing user.
+    - If no user exists, it creates a new account with information from the OAuth provider.
+    - Automatically generates random passwords and usernames for new OAuth users.
+    - Sets the same secure JWT cookie as the regular login flow.
 
 #### Middleware (`middleware/middleware.go`)
 - **`WithCORS`**: Handles Cross-Origin Resource Sharing, allowing frontend requests from `http://localhost:3000`.
 - **`JWTAuthMiddleware`**: Validates the JWT token from the `authToken` HTTP-only cookie. If valid, it allows access to protected routes.
 - **`AdminAuthMiddleware`**: Wraps `JWTAuthMiddleware`. In addition to JWT validation, it extracts user claims from the request context and verifies if the `IsAdmin` flag is `true`. If not, it returns a `403 Forbidden` error. This ensures only authenticated admin users can access specific routes.
 - **`CacheControlMiddleware`**: A new middleware that sets `Cache-Control` headers for API responses. It sets `Cache-Control: public, max-age=300` (5 minutes) and `Vary: Origin, Accept-Encoding` to optimize client-side caching for non-dynamic data. This middleware is applied selectively to improve performance on specific read-only endpoints.
+- **`OAuthCallbackHandler`: Handles OAuth provider callbacks
+- **`GuestLoginHandler`: Creates temporary guest accounts
+
+**Important Note for GitHub OAuth**: When configuring your GitHub OAuth application, ensure that the "Authorization callback URL" in your GitHub OAuth app settings (under "Developer settings" -> "OAuth Apps") *exactly matches* the `OAUTH_REDIRECT_BASE_URL` from your backend's `.env` file appended with the specific callback path (e.g., `http://localhost:8080/auth/callback/github`). Any discrepancy will lead to a "redirect_uri is not associated with this application" error.
 
 #### Code Execution (`handlers/execute.go`)
 - **`ExecuteCodeHandler`**: Handles POST requests to `/execute` endpoint.

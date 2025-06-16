@@ -136,6 +136,10 @@ export const getCodeCompletion = async (prefix: string, currentLine: string, lan
   return post('/autocomplete', { prefix, currentLine, language });
 };
 
+export const getAIHint = async (problemStatement: string, code: string, language: string) => {
+  return post('/api/ai-hint', { problem_statement: problemStatement, code, language });
+};
+
 export const getRateLimits = async () => {
   return get('/api/rate-limits');
 };

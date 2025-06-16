@@ -279,3 +279,129 @@ func GetCodeCompletion(prefix, currentLine, language string) (string, error) {
 
 	return "", nil
 }
+
+// GenerateHintContent uses the AI model to generate a hint based on the provided prompt
+func GenerateHintContent(ctx context.Context, prompt string) (*genai.GenerateContentResponse, error) {
+	if client == nil {
+		return nil, fmt.Errorf("AI client not initialized")
+	}
+
+	resp, err := client.GenerateContent(ctx, genai.Text(prompt))
+	if err != nil {
+		return nil, fmt.Errorf("failed to generate content for hint: %w", err)
+	}
+
+	return resp, nil
+}
+
+// GenerateProgressiveHints generates a set of 3 progressive hints for a problem
+// Each hint provides more guidance than the previous one
+func GenerateProgressiveHints(ctx context.Context, problemStatement, code, language string) ([]string, error) {
+	if client == nil {
+		return nil, fmt.Errorf("AI client not initialized")
+	}
+
+	// Create a prompt for the AI to generate progressive hints
+	prompt := fmt.Sprintf(`
+You are an expert programming tutor who specializes in giving helpful hints without revealing full solutions.
+Based on the problem statement and the user's current code, provide THREE progressive hints that will guide them 
+toward the solution without giving away the complete answer.
+
+Problem Statement:
+"""
+%s
+"""
+
+User's Current Code (%s):
+"""
+%s
+"""
+
+Please provide 3 progressive hints, each building on the previous one:
+
+1. Hint 1: A subtle clue about the approach or a gentle nudge toward the key insight needed.
+   This should be vague but useful, focusing on conceptual understanding.
+
+2. Hint 2: A more specific suggestion that builds on the first hint, possibly pointing out
+   a particular algorithm or data structure that might be helpful.
+
+3. Hint 3: A more detailed hint that gives clearer direction without providing the full solution.
+   This may include a specific approach or technique but still leaves implementation details for the user.
+
+Format your response as a JSON array with exactly 3 strings (no additional text):
+["Hint 1 text", "Hint 2 text", "Hint 3 text"]
+`, problemStatement, language, code)
+
+	resp, err := client.GenerateContent(ctx, genai.Text(prompt))
+	if err != nil {
+		if err.Error() == "AI client not initialized" {
+			return []string{
+				"AI service is not available at the moment. Please try again later.",
+				"AI service is not available at the moment. Please try again later.",
+				"AI service is not available at the moment. Please try again later.",
+			}, nil
+		}
+		return nil, err
+	}
+
+	if len(resp.Candidates) == 0 || len(resp.Candidates[0].Content.Parts) == 0 {
+		return []string{
+			"Sorry, I couldn't generate hints at this time. Please try again later.",
+			"Sorry, I couldn't generate hints at this time. Please try again later.",
+			"Sorry, I couldn't generate hints at this time. Please try again later.",
+		}, nil
+	}
+
+	// Extract the hint from the response
+	hintsText, ok := resp.Candidates[0].Content.Parts[0].(genai.Text)
+	if !ok {
+		return []string{
+			"Sorry, I couldn't generate hints at this time. Please try again later.",
+			"Sorry, I couldn't generate hints at this time. Please try again later.",
+			"Sorry, I couldn't generate hints at this time. Please try again later.",
+		}, nil
+	}
+
+	// Clean the response: trim markdown and whitespace
+	cleanedJSON := strings.TrimSpace(string(hintsText))
+	cleanedJSON = strings.TrimPrefix(cleanedJSON, "```json")
+	cleanedJSON = strings.TrimPrefix(cleanedJSON, "```")
+	cleanedJSON = strings.TrimSuffix(cleanedJSON, "```")
+	cleanedJSON = strings.TrimSpace(cleanedJSON)
+
+	// Parse the JSON array
+	var hints []string
+	if err := json.Unmarshal([]byte(cleanedJSON), &hints); err != nil {
+		log.Printf("Failed to unmarshal AI hints response: %s", cleanedJSON)
+
+		// Fallback: if not valid JSON, try to extract hints by line splitting
+		lines := strings.Split(string(hintsText), "\n")
+		hints = []string{}
+
+		for _, line := range lines {
+			line = strings.TrimSpace(line)
+			if line != "" && !strings.HasPrefix(line, "[") && !strings.HasPrefix(line, "]") {
+				hints = append(hints, line)
+			}
+			if len(hints) >= 3 {
+				break
+			}
+		}
+
+		// If we still don't have 3 hints, fill with defaults
+		for len(hints) < 3 {
+			hints = append(hints, "Sorry, I couldn't generate a proper hint. Try a different approach.")
+		}
+
+		return hints[:3], nil
+	}
+
+	// Make sure we have exactly 3 hints
+	if len(hints) < 3 {
+		for len(hints) < 3 {
+			hints = append(hints, "Sorry, I couldn't generate a complete set of hints. Try a different approach.")
+		}
+	}
+
+	return hints[:3], nil
+}

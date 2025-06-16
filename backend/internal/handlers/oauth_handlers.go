@@ -10,6 +10,7 @@ import (
 	"fmt"
 	"log"
 	"net/http"
+	"os"
 	"strings"
 	"time"
 
@@ -174,7 +175,10 @@ func OAuthCallbackHandler(w http.ResponseWriter, r *http.Request) {
 	})
 
 	// Redirect to frontend
-	frontendURL := "http://localhost:3000"
+	frontendURL := os.Getenv("FRONTEND_URL")
+	if frontendURL == "" {
+		frontendURL = "http://localhost:3000"
+	}
 	http.Redirect(w, r, frontendURL, http.StatusFound)
 }
 
