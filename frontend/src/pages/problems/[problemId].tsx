@@ -7,15 +7,42 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Separator } from '@/components/ui/separator';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Textarea } from '@/components/ui/textarea';
-import axios from 'axios';
+import { executeCode, submitSolution, convertPseudocode, getCodeCompletion } from '@/lib/api';
 import { AlertCircle, CheckCircle, ChevronDown, ChevronRight, ChevronLeft, ChevronsUpDown, Loader, Terminal, XCircle, MessageSquare, ArrowUp, ArrowDown, Trash2 } from 'lucide-react';
 import type { editor } from 'monaco-editor';
 import { useRouter } from 'next/router';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import Head from 'next/head';
 import Link from 'next/link';
-import Navbar from '@/components/layout/Navbar'; // Import the new Navbar component
 import type { ProblemType, ApiError, ThreadType, CommentType, ThreadsResponse, CommentsResponse, CreateThreadPayload, CreateCommentPayload, VotePayload } from '@/types/problem'; // Adjust path
+import { useNotification } from '@/components/ui/notification';
+import { ApiErrorResponse } from '@/lib/api';
+
+// Type definitions for API responses
+interface CodeCompletionResponse {
+    suggestion: string;
+}
+
+interface ExecuteCodeResponse {
+    results: Array<{
+        stdout: string;
+        stderr: string;
+        status: string;
+        execution_time_ms: number;
+    }>;
+    stdout: string;
+    stderr: string;
+    status: string;
+    execution_time_ms: number;
+}
+
+interface SubmitSolutionResponse {
+    submission_id: string;
+}
+
+interface ConvertPseudocodeResponse {
+    python_code: string;
+}
 
 export default function SingleProblemPage() {
     const router = useRouter();
@@ -152,26 +179,22 @@ export default function SingleProblemPage() {
                         endLineNumber: position.lineNumber, endColumn: position.column
                     });
 
-                    const res = await axios.post(
-                        `http://localhost:8080/autocomplete`,
-                        { prefix, currentLine: model.getLineContent(position.lineNumber).substring(0, position.column - 1), language: selectedLanguage },
-                        { withCredentials: true }
-                    );
+                    const currentLine = model.getLineContent(position.lineNumber).substring(0, position.column - 1);
 
-                    if (token.isCancellationRequested || !res.data.suggestion) {
+                    const res = await getCodeCompletion(prefix, currentLine, selectedLanguage) as CodeCompletionResponse;
+
+                    if (token.isCancellationRequested || !res.suggestion) {
                         return { items: [] };
                     }
 
-                    const suggestion = res.data.suggestion;
-
-                    // The backend now provides correctly formatted suggestions, so the
-                    // frontend heuristic for adding newlines is no longer needed and has been removed.
-
-                    // Check if this is a multi-line suggestion
-                    const isMultiLine = suggestion.includes('\n');
+                    const suggestion = res.suggestion;
 
                     // Store the suggestion in state for Tab key handler to access
                     lastSuggestionRef.current = suggestion;
+
+                    // The rest of the completion handling remains the same
+                    // Check if this is a multi-line suggestion
+                    const isMultiLine = suggestion.includes('\n');
 
                     let replaceRange;
 
@@ -199,6 +222,7 @@ export default function SingleProblemPage() {
 
                     return { items: [{ insertText: suggestion, range: replaceRange }] };
                 } catch (error) {
+                    console.error("Error getting code completion:", error);
                     return { items: [] }; // Silently fail
                 }
             },
@@ -546,235 +570,119 @@ export default function SingleProblemPage() {
     }
 
     const handleRunCode = async () => {
-        if (isExecuting) return;
+        if (!editorRef.current) return;
 
-        setIsExecuting(true);
-        setExecutionError(null);
+        // Get the current code from the editor
+        const currentCode = editorRef.current.getValue();
+        if (!currentCode.trim()) {
+            setExecutionError("Code cannot be empty");
+            return;
+        }
+
+        // Reset previous results
         setOutput(null);
+        setExecutionError(null);
+        setIsExecuting(true);
         setTestCaseResults([]);
 
         try {
-            const testCases = customTestCases.map(tc => tc.input);
-            const languageToExecute = selectedLanguage === 'pseudocode' ? 'python' : selectedLanguage;
+            // Prepare test cases (use the selected one if it has content, otherwise use all with content)
+            const testCasesToRun = customTestCases
+                .filter(tc => tc.input.trim() !== '')
+                .map(tc => tc.input);
 
-            let codeToExecute = code;
-            if (selectedLanguage === 'pseudocode') {
-                // Convert pseudocode to Python before execution
-                const conversionResponse = await fetch('http://localhost:8080/convert-code', {
-                    method: 'POST',
-                    headers: {
-                        'Content-Type': 'application/json',
-                    },
-                    credentials: 'include',
-                    body: JSON.stringify({
-                        pseudocode: code,
-                    }),
-                });
+            if (testCasesToRun.length === 0) {
+                testCasesToRun.push(''); // Use empty input if no test cases defined
+            }
 
-                if (!conversionResponse.ok) {
-                    const errorData = await conversionResponse.json();
-                    setError(errorData.message || 'Failed to convert pseudocode');
+            // Handle pseudocode conversion if needed
+            let codeToRun = currentCode;
+            let languageToRun = selectedLanguage;
+
+            if (selectedLanguage === "pseudocode") {
+                try {
+                    const response = await convertPseudocode(currentCode) as ConvertPseudocodeResponse;
+                    codeToRun = response.python_code;
+                    languageToRun = "python";
+                    setConvertedCode(codeToRun); // Save the converted code
+                } catch (error) {
+                    console.error("Error converting pseudocode:", error);
+                    setExecutionError("Failed to convert pseudocode to Python. Please check your syntax.");
+                    setIsExecuting(false);
                     return;
                 }
-
-                const conversionData = await conversionResponse.json();
-                codeToExecute = conversionData.python_code;
-                setConvertedCode(codeToExecute);
             }
 
-            const controller = new AbortController();
-            const timeoutId = setTimeout(() => controller.abort(), 30000);
+            // Execute the code
+            const response = await executeCode(languageToRun, codeToRun, testCasesToRun) as ExecuteCodeResponse;
 
-            const response = await fetch('http://localhost:8080/execute', {
-                method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json',
-                },
-                credentials: 'include',
-                body: JSON.stringify({
-                    language: languageToExecute,
-                    code: codeToExecute,
-                    testCases: testCases,
-                }),
-                signal: controller.signal
-            });
+            // Log the response to see what we're getting
+            console.log("Execute code response:", response);
 
-            clearTimeout(timeoutId);
+            // Process results
+            setOutput(response);
 
-            const text = await response.text();
-            const responseBody = JSON.parse(text);
+            // Map the results to our test case results format
+            const results = response.results.map((result, index: number) => ({
+                stdout: result.stdout || '',
+                stderr: result.stderr || '',
+                status: result.status || 'success',
+                executionTimeMs: result.execution_time_ms || 0,
+                error: result.stderr, // Make sure stderr is properly assigned to error
+                testCase: customTestCases[index] || { input: testCasesToRun[index] },
+            }));
 
-            if (!response.ok) {
-                setExecutionError(responseBody.message || responseBody.error || `Request failed with status ${response.status}`);
-                return;
-            }
-
-            // Process results from the backend
-            const results = [];
-
-            if (responseBody.results && responseBody.results.length > 0) {
-                // Process multiple test case results
-                for (let i = 0; i < responseBody.results.length; i++) {
-                    const result = responseBody.results[i];
-                    const testCase = customTestCases[i] || { input: testCases[i], expected: '' };
-
-                    // Determine if the test case passed by comparing with expected output
-                    let status = result.status;
-                    if (status === 'success' && testCase.expected) {
-                        // Clean outputs for comparison (trim whitespace, normalize line endings)
-                        const cleanedActual = result.stdout.trim().replace(/\r\n/g, '\n');
-                        const cleanedExpected = testCase.expected.trim().replace(/\r\n/g, '\n');
-
-                        // Update status based on output comparison
-                        if (cleanedActual !== cleanedExpected) {
-                            status = 'wrong_answer';
-                        }
-                    }
-
-                    results.push({
-                        stdout: result.stdout || '',
-                        stderr: result.stderr || '',
-                        status: status,
-                        executionTimeMs: result.execution_time_ms || 0,
-                        error: result.error || '',
-                        testCase: testCase
-                    });
-                }
-            } else {
-                // Fallback for backward compatibility
-                const testCase = customTestCases[0] || { input: testCases[0], expected: '' };
-
-                // Determine if the test case passed by comparing with expected output
-                let status = responseBody.status;
-                if (status === 'success' && testCase.expected) {
-                    // Clean outputs for comparison
-                    const cleanedActual = responseBody.stdout.trim().replace(/\r\n/g, '\n');
-                    const cleanedExpected = testCase.expected.trim().replace(/\r\n/g, '\n');
-
-                    // Update status based on output comparison
-                    if (cleanedActual !== cleanedExpected) {
-                        status = 'wrong_answer';
-                    }
-                }
-
-                results.push({
-                    stdout: responseBody.stdout || '',
-                    stderr: responseBody.stderr || '',
-                    status: status,
-                    executionTimeMs: responseBody.execution_time_ms || 0,
-                    error: responseBody.error || '',
-                    testCase: testCase
-                });
-            }
-
-            // Update state with all results
             setTestCaseResults(results);
-
-            // If there's at least one result, set it as the current output for backward compatibility
-            if (results.length > 0) {
-                setOutput({
-                    stdout: results[0].stdout,
-                    stderr: results[0].stderr,
-                    status: results[0].status,
-                    execution_time_ms: results[0].executionTimeMs,
-                    error: results[0].error
-                });
-            }
-
-        } catch (err) {
-            console.error('Failed to execute code:', err);
-            // Re-throw so the caller can handle UI state
-            setError(err instanceof Error ? err.message : 'An unknown error occurred during execution.');
-            return;
+            setActiveResultTab(0); // Show the first result tab
+        } catch (error: unknown) {
+            console.error("Error executing code:", error);
+            const errorMessage = error instanceof Error
+                ? error.message
+                : (error as ApiErrorResponse)?.message || "Failed to execute code. Please try again.";
+            setExecutionError(errorMessage);
         } finally {
-            // Always reset isExecuting state regardless of success or failure
             setIsExecuting(false);
         }
     };
 
     const handleSubmitCode = async () => {
-        if (!isLoggedIn) {
-            alert('Please log in to submit your solution');
+        if (!editorRef.current) return;
+
+        // Get the current code from the editor
+        const currentCode = editorRef.current.getValue();
+        if (!currentCode.trim()) {
+            setExecutionError("Code cannot be empty");
             return;
         }
 
-        if (isSubmitting) return;
-
-        setIsSubmitting(true);
+        // Clear previous results
         setSubmissionResult(null);
+        setExecutionError(null);
+        setIsSubmitting(true);
 
         try {
-            // Ensure we have a valid problemId
-            if (!problemId) {
-                setError("Problem ID is missing. Cannot submit without a problem ID.");
-                return;
+            // Submit the code
+            const response = await submitSolution(
+                problem?.problem_id || String(problemId),
+                selectedLanguage,
+                currentCode
+            ) as SubmitSolutionResponse;
+
+            // Get the submission ID from the response
+            const submissionId = response.submission_id;
+
+            // Redirect to the submission details page only if submissionId is valid
+            if (submissionId) {
+                router.push(`/submissions/${submissionId}`);
+            } else {
+                setExecutionError("Submission ID was not returned. Please try again.");
             }
-
-            console.log('Attempting to submit code:', {
-                problem_id: problemId,
-                language: selectedLanguage,
-                codeLength: code.length
-            });
-
-            try {
-                // Simple fetch approach
-                const response = await fetch('http://localhost:8080/submit', {
-                    method: 'POST',
-                    headers: {
-                        'Content-Type': 'application/json',
-                    },
-                    credentials: 'include',
-                    body: JSON.stringify({
-                        problem_id: problemId,
-                        language: selectedLanguage,
-                        code: code,
-                    }),
-                });
-
-                console.log('Response received:', {
-                    status: response.status,
-                    statusText: response.statusText
-                });
-
-                const responseText = await response.text();
-                console.log('Raw response text:', responseText);
-
-                if (responseText) {
-                    try {
-                        const responseBody = JSON.parse(responseText);
-                        console.log('Parsed response body:', responseBody);
-
-                        if (!response.ok) {
-                            setError(responseBody.message || `Request failed with status ${response.status}`);
-                            return;
-                        }
-
-                        setSubmissionResult(responseBody);
-
-                        // Navigate to submission detail page
-                        if (responseBody.submissionId) {
-                            router.push(`/submissions/${responseBody.submissionId}`);
-                        }
-                    } catch (parseError) {
-                        console.error('Error parsing response:', parseError);
-                        setError(`Failed to parse response: ${responseText}`);
-                        return;
-                    }
-                } else {
-                    setError('Server returned an empty response');
-                    return;
-                }
-            } catch (error: any) {
-                console.error('Submission failed:', error);
-                setError(`Submission failed: ${error.message}`);
-                return;
-            }
-        } catch (err) {
-            console.error('Error in handleSubmitCode:', err);
-            setSubmissionResult({
-                error: err instanceof Error ? err.message : 'An unknown error occurred during submission.'
-            });
-        } finally {
+        } catch (error: unknown) {
+            console.error("Error submitting code:", error);
+            const errorMessage = error instanceof Error
+                ? error.message
+                : (error as ApiErrorResponse)?.message || "Failed to submit solution. Please try again.";
+            setExecutionError(errorMessage);
             setIsSubmitting(false);
         }
     };
@@ -1399,7 +1307,7 @@ export default function SingleProblemPage() {
                                                 {/* Output */}
                                                 <div className="flex flex-col min-h-[20px]">
                                                     <p className="text-xs font-medium text-gray-700 mb-1">Output:</p>
-                                                    <div className="h-[20px] flex-grow p-2  text-sm font-mono border border-gray-300 rounded-md bg-gray-50 overflow-hidden whitespace-pre-wrap text-gray-800">
+                                                    <div className="h-[200px] flex-grow p-2 text-sm font-mono border border-gray-300 rounded-md bg-gray-50 overflow-auto whitespace-pre-wrap text-gray-800">
                                                         {isExecuting ? (
                                                             <div className="text-gray-600">Running code against all test cases...</div>
                                                         ) : executionError ? (
@@ -1416,7 +1324,9 @@ export default function SingleProblemPage() {
                                                                         <span className="font-medium">
                                                                             {testCaseResults.every(r => r.status === 'success')
                                                                                 ? 'Accepted'
-                                                                                : 'Failed'}
+                                                                                : testCaseResults.some(r => r.status === 'runtime_error')
+                                                                                    ? 'Runtime Error'
+                                                                                    : 'Failed'}
                                                                         </span>
                                                                     </div>
                                                                     <div className="ml-4 text-xs text-gray-300">
@@ -1482,6 +1392,13 @@ export default function SingleProblemPage() {
                                                                             {testCaseResults[activeResultTab].status === 'wrong_answer' && (
                                                                                 <div className="mt-1 text-xs text-red-600">
                                                                                     Your output does not match the expected output.
+                                                                                </div>
+                                                                            )}
+
+                                                                            {/* Runtime Error Message */}
+                                                                            {testCaseResults[activeResultTab].status === 'runtime_error' && (
+                                                                                <div className="mt-1 text-xs text-red-600">
+                                                                                    Runtime Error: Your code threw an exception during execution.
                                                                                 </div>
                                                                             )}
                                                                         </div>

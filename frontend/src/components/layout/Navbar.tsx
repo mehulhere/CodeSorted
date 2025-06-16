@@ -1,50 +1,14 @@
 import { useState, useEffect } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/router';
-import axios from 'axios';
 import { User, ChevronDown, LogOut, User as UserIcon } from 'lucide-react';
 import { Menu, Transition } from '@headlessui/react';
 import { Fragment } from 'react';
-
-interface AuthUser {
-    username: string;
-    isAdmin: boolean;
-}
+import { useAuth } from '@/lib/useAuth';
 
 const Navbar = () => {
     const router = useRouter();
-    const [isLoggedIn, setIsLoggedIn] = useState(false);
-    const [currentUser, setCurrentUser] = useState<AuthUser | null>(null);
-
-    useEffect(() => {
-        const checkLoginStatus = async () => {
-            try {
-                const response = await axios.get('http://localhost:8080/api/auth-status', {
-                    withCredentials: true,
-                });
-
-                if (response.data.isLoggedIn) {
-                    setIsLoggedIn(true);
-                    setCurrentUser(response.data.user);
-                } else {
-                    setIsLoggedIn(false);
-                    setCurrentUser(null);
-                }
-            } catch (err) {
-                setIsLoggedIn(false);
-                setCurrentUser(null);
-            }
-        };
-
-        checkLoginStatus();
-    }, []);
-
-    const handleLogout = () => {
-        document.cookie = 'authToken=; expires=Thu, 01 Jan 1970 00:00:00 UTC; path=/;';
-        setIsLoggedIn(false);
-        setCurrentUser(null);
-        router.push('/login');
-    };
+    const { isLoggedIn, user, logout, loading } = useAuth();
 
     return (
         <header className="bg-white shadow-md">
@@ -65,7 +29,7 @@ const Navbar = () => {
                                 Submissions
                             </Link>
                         )}
-                        {currentUser?.isAdmin && (
+                        {user?.isAdmin && (
                             <Link href="/admin/problems/create" className="text-gray-500 hover:text-indigo-600 font-medium">
                                 Add Problem
                             </Link>
@@ -73,7 +37,7 @@ const Navbar = () => {
                     </nav>
                 </div>
                 <div className="flex items-center space-x-4">
-                    {isLoggedIn && currentUser ? (
+                    {isLoggedIn && user ? (
                         <>
                             <Menu as="div" className="relative">
                                 <Menu.Button className="flex items-center space-x-1 focus:outline-none">
@@ -81,7 +45,7 @@ const Navbar = () => {
                                         <div className="h-8 w-8 rounded-full bg-gray-200 flex items-center justify-center text-gray-600">
                                             <UserIcon className="h-5 w-5" />
                                         </div>
-                                        <span className="text-sm font-medium text-gray-700">{currentUser.username}</span>
+                                        <span className="text-sm font-medium text-gray-700">{user.username}</span>
                                         <ChevronDown className="h-4 w-4 text-gray-500" />
                                     </div>
                                 </Menu.Button>
@@ -99,7 +63,7 @@ const Navbar = () => {
                                             <Menu.Item>
                                                 {({ active }: { active: boolean }) => (
                                                     <Link
-                                                        href={`/profile/${currentUser.username}`}
+                                                        href={`/profile/${user.username}`}
                                                         className={`${active ? 'bg-indigo-50 text-indigo-900' : 'text-gray-900'
                                                             } group flex w-full items-center rounded-md px-4 py-2 text-sm`}
                                                     >
@@ -111,7 +75,7 @@ const Navbar = () => {
                                             <Menu.Item>
                                                 {({ active }: { active: boolean }) => (
                                                     <button
-                                                        onClick={handleLogout}
+                                                        onClick={logout}
                                                         className={`${active ? 'bg-red-50 text-red-900' : 'text-red-700'
                                                             } group flex w-full items-center rounded-md px-4 py-2 text-sm`}
                                                     >

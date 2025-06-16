@@ -9,6 +9,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"log"
+	"math/rand"
 	"net/http"
 	"os"
 	"regexp"
@@ -325,15 +326,145 @@ func AuthStatusHandler(w http.ResponseWriter, r *http.Request) {
 }
 
 func LogoutHandler(w http.ResponseWriter, r *http.Request) {
+	// Allow POST (for action) and OPTIONS (for CORS)
+	if r.Method != http.MethodPost && r.Method != http.MethodOptions {
+		utils.SendJSONError(w, "Method not allowed. Only POST is accepted.", http.StatusMethodNotAllowed)
+		return
+	}
+
+	// For OPTIONS requests, just return OK
+	if r.Method == http.MethodOptions {
+		w.WriteHeader(http.StatusOK)
+		return
+	}
+
+	// Create an expired cookie with the same attributes as the login cookie
+	// Important: Use the exact same settings (Path, Domain, Secure, HttpOnly, SameSite)
+	// that were used when creating the cookie
 	http.SetCookie(w, &http.Cookie{
 		Name:     "authToken",
-		Value:    "",
-		Expires:  time.Now().Add(-time.Hour),
-		HttpOnly: true,
-		Path:     "/",
-		SameSite: http.SameSiteNoneMode,
-		Secure:   true,
+		Value:    "",                              // Empty value
+		Expires:  time.Now().Add(-24 * time.Hour), // Set to past time
+		MaxAge:   -1,                              // Immediate expiration
+		HttpOnly: true,                            // Same as login
+		Secure:   true,                            // Same as login
+		SameSite: http.SameSiteNoneMode,           // Same as login
+		Path:     "/",                             // Same as login
 	})
+
+	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)
 	json.NewEncoder(w).Encode(map[string]string{"message": "Logged out successfully"})
+
+	log.Println("User logged out successfully")
+}
+
+// GuestLoginHandler creates a temporary guest account and logs the user in
+func GuestLoginHandler(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		utils.SendJSONError(w, "Method not allowed. Only POST is accepted.", http.StatusMethodNotAllowed)
+		return
+	}
+
+	// Generate a random guest username and default password
+	rand.Seed(time.Now().UnixNano())
+	guestNumber := rand.Intn(1000000)
+	username := fmt.Sprintf("guest_%06d", guestNumber)
+	password := fmt.Sprintf("guest_%06d_pwd", guestNumber)
+	email := fmt.Sprintf("guest_%06d@example.com", guestNumber)
+
+	// Hash the password
+	hashedPassword, err := bcrypt.GenerateFromPassword([]byte(password), bcrypt.DefaultCost)
+	if err != nil {
+		log.Println("Failed to hash password for guest account:", err)
+		utils.SendJSONError(w, "Failed to create guest account.", http.StatusInternalServerError)
+		return
+	}
+
+	// Create a new guest user
+	newUser := models.User{
+		Firstname: "Guest",
+		Lastname:  "User",
+		Username:  username,
+		Email:     email,
+		Password:  string(hashedPassword),
+		CreatedAt: time.Now(),
+		UpdatedAt: time.Now(),
+	}
+
+	// Save to database
+	usersCollection := database.GetCollection("OJ", "users")
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
+	result, err := usersCollection.InsertOne(ctx, newUser)
+	if err != nil {
+		log.Printf("Failed to create guest user in DB: %v\n", err)
+		utils.SendJSONError(w, fmt.Sprintf("Failed to create guest account: %v", err), http.StatusInternalServerError)
+		return
+	}
+
+	var userIDHex string
+	if oid, ok := result.InsertedID.(primitive.ObjectID); ok {
+		userIDHex = oid.Hex()
+	} else {
+		log.Println("Failed to retrieve generated user ID for guest token")
+		utils.SendJSONError(w, "Failed to create guest account", http.StatusInternalServerError)
+		return
+	}
+
+	// Create a JWT token for the guest user
+	expirationTime := time.Now().Add(24 * time.Hour)
+	claims := &types.Claims{
+		UserID:    userIDHex,
+		Username:  newUser.Username,
+		Email:     newUser.Email,
+		Firstname: newUser.Firstname,
+		Lastname:  newUser.Lastname,
+		IsAdmin:   false,
+		RegisteredClaims: jwt.RegisteredClaims{
+			ExpiresAt: jwt.NewNumericDate(expirationTime),
+			IssuedAt:  jwt.NewNumericDate(time.Now()),
+		},
+	}
+
+	token := jwt.NewWithClaims(jwt.SigningMethodHS256, claims)
+	tokenString, err := token.SignedString(jwtKey)
+	if err != nil {
+		log.Printf("Failed to sign JWT token for guest: %v\n", err)
+		utils.SendJSONError(w, "Guest account created, but server configuration error prevented token generation.", http.StatusInternalServerError)
+		return
+	}
+
+	// Set the JWT as an HTTP-only cookie
+	http.SetCookie(w, &http.Cookie{
+		Name:     "authToken",
+		Value:    tokenString,
+		Expires:  expirationTime,
+		HttpOnly: true,
+		Secure:   true,
+		SameSite: http.SameSiteNoneMode,
+		Path:     "/",
+	})
+
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusCreated)
+
+	// Send a success message with user data
+	response := map[string]interface{}{
+		"message":    "Guest Login Successful",
+		"isLoggedIn": true,
+		"expiresAt":  expirationTime.Unix(),
+		"user": map[string]interface{}{
+			"id":        userIDHex,
+			"username":  newUser.Username,
+			"email":     newUser.Email,
+			"firstname": newUser.Firstname,
+			"lastname":  newUser.Lastname,
+			"isAdmin":   false,
+		},
+	}
+
+	json.NewEncoder(w).Encode(response)
+	log.Printf("Guest user created and logged in: %s (ID: %s)\n", newUser.Username, userIDHex)
 }

@@ -178,8 +178,8 @@ func SubmitSolutionHandler(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusAccepted)
 	json.NewEncoder(w).Encode(map[string]string{
-		"message":      "Submission received and is being processed.",
-		"submissionId": result.InsertedID.(primitive.ObjectID).Hex(),
+		"message":       "Submission received and is being processed.",
+		"submission_id": result.InsertedID.(primitive.ObjectID).Hex(),
 	})
 }
 
@@ -608,16 +608,38 @@ func GetSubmissionsHandler(w http.ResponseWriter, r *http.Request) {
 
 	// Parse query parameters
 	query := r.URL.Query()
-	problemID := query.Get("problem_id")
+	problemName := query.Get("problem_name")
 	userIDParam := query.Get("user_id")
 	filterByUser := query.Get("my_submissions") == "true"
+	status := query.Get("status")
+	language := query.Get("language")
+
+	// Set up pagination
+	limit := 50
+	if limitStr := query.Get("limit"); limitStr != "" {
+		if limitNum, err := utils.ParseInt(limitStr); err == nil && limitNum > 0 {
+			limit = limitNum
+		}
+	}
+
+	page := 0
+	if pageStr := query.Get("page"); pageStr != "" {
+		if pageNum, err := utils.ParseInt(pageStr); err == nil && pageNum > 0 {
+			page = pageNum - 1 // Convert to 0-indexed
+		}
+	}
 
 	// Build the filter
 	filter := bson.M{}
 
-	// Filter by problem ID if provided
-	if problemID != "" {
-		filter["problem_id"] = problemID
+	// Filter by status if provided
+	if status != "" && status != "all" {
+		filter["status"] = status
+	}
+
+	// Filter by language if provided
+	if language != "" && language != "all" {
+		filter["language"] = language
 	}
 
 	// Filter by user ID if provided or if "my_submissions" is true
@@ -632,18 +654,6 @@ func GetSubmissionsHandler(w http.ResponseWriter, r *http.Request) {
 		filter["user_id"] = userID
 	}
 
-	// If not admin and not filtering by own submissions, only show public submissions
-	// (In a real system, you might have a "public" flag on submissions)
-
-	// Set up pagination
-	limit := 50
-	page := 0
-	if pageStr := query.Get("page"); pageStr != "" {
-		if pageNum, err := utils.ParseInt(pageStr); err == nil && pageNum > 0 {
-			page = pageNum - 1 // Convert to 0-indexed
-		}
-	}
-
 	// Query database
 	submissionsCollection := database.GetCollection("OJ", "submissions")
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
@@ -655,6 +665,57 @@ func GetSubmissionsHandler(w http.ResponseWriter, r *http.Request) {
 		SetSkip(int64(page * limit)).
 		SetLimit(int64(limit))
 
+	// We need to handle problem name search separately
+	var submissions []models.Submission
+	var submissionItems []models.SubmissionListItem
+	var totalCount int64
+
+	if problemName != "" {
+		// First get all problem IDs matching the name search
+		problemsCollection := database.GetCollection("OJ", "problems")
+		problemFilter := bson.M{"title": bson.M{"$regex": problemName, "$options": "i"}} // Case-insensitive search
+
+		problemCursor, err := problemsCollection.Find(ctx, problemFilter)
+		if err != nil {
+			log.Printf("Failed to query problems by name: %v", err)
+			utils.SendJSONError(w, "Failed to search by problem name", http.StatusInternalServerError)
+			return
+		}
+		defer problemCursor.Close(ctx)
+
+		var matchingProblems []models.Problem
+		if err := problemCursor.All(ctx, &matchingProblems); err != nil {
+			log.Printf("Failed to decode problems: %v", err)
+			utils.SendJSONError(w, "Failed to process problem data", http.StatusInternalServerError)
+			return
+		}
+
+		if len(matchingProblems) > 0 {
+			// Get problem IDs from matching problems
+			var problemIDs []string
+			for _, problem := range matchingProblems {
+				problemIDs = append(problemIDs, problem.ProblemID)
+			}
+
+			// Add problem IDs to filter
+			filter["problem_id"] = bson.M{"$in": problemIDs}
+		} else {
+			// If no problems match, return empty results
+			w.Header().Set("Content-Type", "application/json")
+			json.NewEncoder(w).Encode(map[string]interface{}{
+				"submissions": []models.SubmissionListItem{},
+				"pagination": map[string]interface{}{
+					"total":       0,
+					"page":        page + 1,
+					"limit":       limit,
+					"total_pages": 0,
+				},
+			})
+			return
+		}
+	}
+
+	// Execute the query
 	cursor, err := submissionsCollection.Find(ctx, filter, findOptions)
 	if err != nil {
 		log.Printf("Failed to query submissions: %v", err)
@@ -664,7 +725,6 @@ func GetSubmissionsHandler(w http.ResponseWriter, r *http.Request) {
 	defer cursor.Close(ctx)
 
 	// Decode submissions
-	var submissions []models.Submission
 	if err := cursor.All(ctx, &submissions); err != nil {
 		log.Printf("Failed to decode submissions: %v", err)
 		utils.SendJSONError(w, "Failed to process submissions data", http.StatusInternalServerError)
@@ -672,7 +732,6 @@ func GetSubmissionsHandler(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Fetch user and problem details to create list items
-	var submissionItems []models.SubmissionListItem
 	userCache := make(map[primitive.ObjectID]string)
 	problemCache := make(map[string]string)
 
@@ -716,7 +775,7 @@ func GetSubmissionsHandler(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Count total submissions for pagination info
-	totalCount, err := submissionsCollection.CountDocuments(ctx, filter)
+	totalCount, err = submissionsCollection.CountDocuments(ctx, filter)
 	if err != nil {
 		log.Printf("Failed to count submissions: %v", err)
 		// Continue anyway, just won't have accurate pagination info

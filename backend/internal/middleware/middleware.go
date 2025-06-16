@@ -2,6 +2,7 @@ package middleware
 
 import (
 	"context"
+	"fmt"
 	"log"
 	"net/http"
 	"os"
@@ -160,5 +161,13 @@ func AdminAuthMiddleware(next http.HandlerFunc) http.HandlerFunc {
 
 		// Token is valid and user is admin, call the next handler
 		next.ServeHTTP(w, r.WithContext(ctx))
+	}
+}
+
+func CacheControlMiddleware(next http.HandlerFunc, maxAge int) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Cache-Control", fmt.Sprintf("public, max-age=%d", maxAge))
+		w.Header().Set("Vary", "Origin, Accept-Encoding") // Vary on Origin for CORS, Accept-Encoding for compression
+		next(w, r)
 	}
 }

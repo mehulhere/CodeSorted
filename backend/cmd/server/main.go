@@ -89,17 +89,22 @@ func main() {
 		w.Write([]byte("Online Judge API Server"))
 	})
 
+	// OAuth routes
+	http.HandleFunc("/auth/login/", middleware.WithCORS(handlers.OAuthLoginHandler))
+	http.HandleFunc("/auth/callback/", middleware.WithCORS(handlers.OAuthCallbackHandler))
+
 	http.HandleFunc("/register", middleware.WithCORS(handlers.RegisterHandler))
 	http.HandleFunc("/login", middleware.WithCORS(handlers.LoginHandler))
 	http.HandleFunc("/logout", middleware.WithCORS(handlers.LogoutHandler))
+	http.HandleFunc("/guest-login", middleware.WithCORS(middleware.IPRateLimitMiddleware(3, 60)(handlers.GuestLoginHandler))) // Rate limit: 3 req/hour
 	http.HandleFunc("/autocomplete", middleware.WithCORS(middleware.JWTAuthMiddleware(middleware.RateLimitMiddleware(models.ServiceCodeCompletion)(handlers.AutocompleteHandler))))
 	http.HandleFunc("/api/auth-status", middleware.WithCORS(handlers.AuthStatusHandler))
-	http.HandleFunc("/problems", middleware.WithCORS(handlers.GetProblemsHandler))
+	http.HandleFunc("/problems", middleware.WithCORS(middleware.CacheControlMiddleware(handlers.GetProblemsHandler, 300)))
 	http.HandleFunc("/problems/", middleware.WithCORS(func(w http.ResponseWriter, r *http.Request) {
 		if strings.HasSuffix(r.URL.Path, "/stats") {
-			handlers.GetProblemStatsHandler(w, r)
+			middleware.CacheControlMiddleware(handlers.GetProblemStatsHandler, 300)(w, r) // Cache problem stats
 		} else {
-			handlers.GetProblemHandler(w, r)
+			middleware.CacheControlMiddleware(handlers.GetProblemHandler, 300)(w, r) // Cache individual problem
 		}
 	}))
 	http.HandleFunc("/execute", middleware.WithCORS(middleware.JWTAuthMiddleware(middleware.RateLimitMiddleware(models.ServiceCodeExecution)(handlers.ExecuteCodeHandler))))

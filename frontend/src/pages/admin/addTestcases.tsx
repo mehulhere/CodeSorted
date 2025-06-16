@@ -82,7 +82,8 @@ export default function NewTestCasePage() {
 
             if (!response.ok) {
                 const errorData = await response.json();
-                throw new Error(errorData.message || 'Failed to create test case');
+                setSubmitError(errorData.message || 'Failed to create test case');
+                return;
             }
 
             // Redirect back to the problem page

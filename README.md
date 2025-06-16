@@ -5,6 +5,8 @@ This is an Online Judge platform for competitive programming practice and contes
 ## Features
 
 - **User Authentication**: Register, login, and manage your account
+- **Social Login**: Sign in using Google, Facebook, or GitHub accounts
+- **Guest Access**: Try the platform without registration using a guest account
 - **Problem Solving**: Browse problems by difficulty and topic
 - **Code Editor**: Built-in Monaco editor with syntax highlighting
 - **Multiple Languages**: Support for Python, JavaScript, C++, and Java
@@ -97,6 +99,7 @@ The platform includes rate limiting for resource-intensive services:
 - **Pseudocode Conversion**: Limits on pseudocode to Python conversion 
 - **Code Execution**: Limits on code execution requests
 - **Code Submission**: Limits on solution submissions
+- **Guest Account Creation**: Limited to 3 accounts per hour per IP address
 
 Rate limits are set per service and reset hourly. Regular users and administrators have different limit thresholds. The API returns appropriate HTTP headers to track usage:
 
@@ -109,3 +112,75 @@ When a rate limit is exceeded, the API returns a 429 Too Many Requests status co
 ## Contribution
 
 Contributions are welcome! Please feel free to submit a Pull Request.
+
+## Authentication System
+
+The authentication system uses JWT tokens stored in HTTP-only cookies for secure user sessions.
+
+### Authentication Flow
+
+1. **Login/Registration**: When a user logs in or registers, the server generates a JWT token and sets it as an HTTP-only cookie.
+2. **Social Login**: Users can sign in with Google, Facebook, or GitHub accounts.
+3. **Guest Access**: Users can create temporary guest accounts for trying the platform.
+4. **Auth Status**: The client can check the user's authentication status using the `/api/auth-status` endpoint.
+5. **Logout**: Logout properly invalidates the cookie both on the server and client side.
+
+### Authentication Components
+
+- **Backend Handlers**: 
+  - `LoginHandler`: Validates credentials and sets JWT cookie
+  - `LogoutHandler`: Invalidates JWT cookie
+  - `AuthStatusHandler`: Checks JWT validity and returns user info
+  - `OAuthLoginHandler`: Initiates OAuth flow with providers
+  - `OAuthCallbackHandler`: Handles OAuth provider callbacks
+  - `GuestLoginHandler`: Creates temporary guest accounts
+  
+- **Frontend Components**:
+  - `useAuth` hook: Centralized auth state management
+  - `AuthContext`: React context for sharing auth state
+  - `AuthProvider`: Provider component that wraps the application
+  
+### OAuth Configuration
+
+To enable social login, set the following environment variables in the backend `.env` file:
+
+```
+# Google OAuth
+GOOGLE_CLIENT_ID=your_google_client_id
+GOOGLE_CLIENT_SECRET=your_google_client_secret
+
+# Facebook OAuth
+FACEBOOK_CLIENT_ID=your_facebook_client_id
+FACEBOOK_CLIENT_SECRET=your_facebook_client_secret
+
+# GitHub OAuth
+GITHUB_CLIENT_ID=your_github_client_id
+GITHUB_CLIENT_SECRET=your_github_client_secret
+
+# Base URL for OAuth redirects
+OAUTH_REDIRECT_BASE_URL=http://localhost:8080
+```
+
+You'll need to create OAuth applications on the respective platforms and configure the callback URLs as:
+- Google: `http://localhost:8080/auth/callback/google`
+- Facebook: `http://localhost:8080/auth/callback/facebook`
+- GitHub: `http://localhost:8080/auth/callback/github`
+
+### Security Measures
+
+- JWT tokens are stored in HTTP-only cookies to prevent JavaScript access
+- Secure flag ensures cookies are only sent over HTTPS
+- SameSite policy for CSRF protection
+- Proper cookie expiration handling
+- CSRF protection for OAuth flows using state parameters
+- Rate limiting for guest account creation (3 per hour per IP)
+
+### Recent Fixes
+
+- Fixed logout functionality to properly invalidate cookies
+- Implemented client-side cookie clearing as a fallback
+- Added route change detection to refresh auth status on navigation
+- Centralized auth state management using React Context
+- Improved submissions search functionality to include problem name and fixed filtering issues
+- Removed problem ID search, only problem name search is available for submissions
+- Implemented client-side caching for responses from `/problems`, `/problems/{id}`, and `/problems/{id}/stats` endpoints, with a cache lifetime of 5 minutes.

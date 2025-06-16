@@ -19,6 +19,11 @@ type User struct {
 	Password  string `bson:"password" json:"-"`
 	IsAdmin   bool   `bson:"is_admin" json:"is_admin"` // Flag to identify admin users
 
+	// OAuth fields
+	OAuthProvider  string `bson:"oauth_provider,omitempty" json:"oauth_provider,omitempty"`
+	OAuthID        string `bson:"oauth_id,omitempty" json:"oauth_id,omitempty"`
+	ProfilePicture string `bson:"profile_picture,omitempty" json:"profile_picture,omitempty"`
+
 	CreatedAt time.Time `bson:"created_at" json:"created_at"`
 	UpdatedAt time.Time `bson:"updated_at" json:"updated_at"`
 }

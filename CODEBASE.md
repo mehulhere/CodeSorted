@@ -73,6 +73,7 @@ This repository contains a complete Online Judge (OJ) system where programmers c
 - **`WithCORS`**: Handles Cross-Origin Resource Sharing, allowing frontend requests from `http://localhost:3000`.
 - **`JWTAuthMiddleware`**: Validates the JWT token from the `authToken` HTTP-only cookie. If valid, it allows access to protected routes.
 - **`AdminAuthMiddleware`**: Wraps `JWTAuthMiddleware`. In addition to JWT validation, it extracts user claims from the request context and verifies if the `IsAdmin` flag is `true`. If not, it returns a `403 Forbidden` error. This ensures only authenticated admin users can access specific routes.
+- **`CacheControlMiddleware`**: A new middleware that sets `Cache-Control` headers for API responses. It sets `Cache-Control: public, max-age=300` (5 minutes) and `Vary: Origin, Accept-Encoding` to optimize client-side caching for non-dynamic data. This middleware is applied selectively to improve performance on specific read-only endpoints.
 
 #### Code Execution (`handlers/execute.go`)
 - **`ExecuteCodeHandler`**: Handles POST requests to `/execute` endpoint.
@@ -109,6 +110,7 @@ This repository contains a complete Online Judge (OJ) system where programmers c
 - **`updateSubmissionStatus`**: Updates the submission status and metrics in the database.
 - **`executeCode`**: Wrapper around the utils.ExecuteCode function for submission-specific execution.
 - **`GetSubmissionsHandler`**: Retrieves a list of submissions with filtering and pagination.
+  - **Filtering**: Now supports filtering by `problem_name` (case-insensitive regex search), `status`, `language`, and `my_submissions` (user's own submissions). The `problem_id` search has been removed.
 - **`GetSubmissionDetailsHandler`**: Retrieves detailed information about a specific submission.
   - Includes code, test case results, and execution metrics.
   - Implements permission checks to ensure users can only view their own submissions unless they're an admin.
@@ -345,13 +347,14 @@ Below is a detailed schema of the MongoDB collections used in the application:
   - `/login`: Authenticate and receive JWT token
   - `/api/auth-status`: Check current authentication status
 - **Problems**:
-  - `/problems`: Get list of available coding problems
-  - `/problems/{id}`: Get details of a specific problem
+  - `/problems`: Get list of available coding problems (Cached for 5 minutes)
+  - `/problems/{id}`: Get details of a specific problem (Cached for 5 minutes)
+  - `/problems/{id}/stats`: Retrieve AI-powered time and memory complexity analysis for a problem (Cached for 5 minutes)
 - **Execution & Submission**:
   - `/execute`: Execute user-submitted code with custom input
   - `/submit`: Submit solution for evaluation against test cases
-  - `/submissions`: Get user's submission history
-  - `/submissions/{id}`: Get detailed submission results
+  - `/submissions`: Get user's submission history (No cache)
+  - `/submissions/{id}`: Get detailed submission results (No cache)
 - **Admin**:
   - `/admin/problems` (POST): Create a new coding problem
   - `/admin/testcases` (POST): Add test cases to a problem
@@ -359,7 +362,6 @@ Below is a detailed schema of the MongoDB collections used in the application:
   - `/last-code` (GET): Return the authenticated user's most recent code draft for a given `problem_id` (and optional `language`). Used by the frontend to restore editor state.
 - **AI Features**:
   - `/convert-code` (POST): Convert pseudocode to Python code.
-  - `/problems/{id}/stats` (GET): Retrieve AI-powered time and memory complexity analysis for a problem.
 
 #### Configuration (`.env`)
 The backend is configured using the following environment variables:

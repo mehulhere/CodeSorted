@@ -15,6 +15,7 @@ const (
 	ServiceCodeExecution    RateLimitedService = "code_execution"
 	ServiceCodeSubmission   RateLimitedService = "code_submission"
 	ServiceAIAnalysis       RateLimitedService = "ai_analysis"
+	ServiceGuestCreation    RateLimitedService = "guest_creation"
 )
 
 // ServiceLimit defines the rate limits for a specific service

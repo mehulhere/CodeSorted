@@ -10,6 +10,7 @@ import (
 	"log"
 	"net/http"
 	"strconv"
+	"sync"
 	"time"
 
 	"github.com/golang-jwt/jwt/v5"
@@ -220,6 +221,7 @@ func RateLimitMiddleware(service models.RateLimitedService) func(http.HandlerFun
 				w.Header().Set("X-RateLimit-Limit", strconv.Itoa(stats.LimitPerHour))
 				w.Header().Set("X-RateLimit-Remaining", strconv.Itoa(stats.RemainingUse))
 				w.Header().Set("X-RateLimit-Reset", stats.ResetAt.Format(time.RFC3339))
+				w.Header().Set("X-RateLimit-Service", stats.Service)
 
 				utils.SendJSONError(w, "Rate limit exceeded for "+string(service)+". Please try again after "+stats.ResetAt.Format(time.RFC3339), http.StatusTooManyRequests)
 				return
@@ -229,6 +231,7 @@ func RateLimitMiddleware(service models.RateLimitedService) func(http.HandlerFun
 			w.Header().Set("X-RateLimit-Limit", strconv.Itoa(stats.LimitPerHour))
 			w.Header().Set("X-RateLimit-Remaining", strconv.Itoa(stats.RemainingUse))
 			w.Header().Set("X-RateLimit-Reset", stats.ResetAt.Format(time.RFC3339))
+			w.Header().Set("X-RateLimit-Service", stats.Service)
 
 			// Call the next handler
 			next(w, r)
@@ -413,4 +416,90 @@ func AdminUpdateRateLimitsHandler(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)
 	json.NewEncoder(w).Encode(map[string]string{"message": "Rate limit updated successfully"})
+}
+
+// Structure to store IP-based rate limits in memory
+type ipRateLimit struct {
+	count     int
+	resetTime time.Time
+	mutex     sync.Mutex
+}
+
+// Map to store IP-based rate limits
+var ipRateLimits = struct {
+	limits map[string]*ipRateLimit
+	mutex  sync.RWMutex
+}{
+	limits: make(map[string]*ipRateLimit),
+}
+
+// IP-based rate limiting middleware for guest account creation
+func IPRateLimitMiddleware(maxRequests int, windowMinutes int) func(http.HandlerFunc) http.HandlerFunc {
+	return func(next http.HandlerFunc) http.HandlerFunc {
+		return func(w http.ResponseWriter, r *http.Request) {
+			// Get the client's IP address
+			ip := r.Header.Get("X-Forwarded-For")
+			if ip == "" {
+				ip = r.RemoteAddr
+			}
+
+			// Get current time
+			now := time.Now()
+
+			// Calculate window duration
+			windowDuration := time.Duration(windowMinutes) * time.Minute
+
+			// Check if the IP has rate limit info
+			ipRateLimits.mutex.RLock()
+			limit, exists := ipRateLimits.limits[ip]
+			ipRateLimits.mutex.RUnlock()
+
+			if !exists {
+				// Create a new rate limit entry for this IP
+				limit = &ipRateLimit{
+					count:     0,
+					resetTime: now.Add(windowDuration),
+					mutex:     sync.Mutex{},
+				}
+
+				ipRateLimits.mutex.Lock()
+				ipRateLimits.limits[ip] = limit
+				ipRateLimits.mutex.Unlock()
+			}
+
+			// Lock the specific IP's rate limit for update
+			limit.mutex.Lock()
+			defer limit.mutex.Unlock()
+
+			// Check if we need to reset the window
+			if now.After(limit.resetTime) {
+				limit.count = 0
+				limit.resetTime = now.Add(windowDuration)
+			}
+
+			// Check if the IP has exceeded its limit
+			if limit.count >= maxRequests {
+				// Set rate limit headers
+				w.Header().Set("X-RateLimit-Limit", strconv.Itoa(maxRequests))
+				w.Header().Set("X-RateLimit-Remaining", "0")
+				w.Header().Set("X-RateLimit-Reset", limit.resetTime.Format(time.RFC3339))
+				w.Header().Set("X-RateLimit-Service", string(models.ServiceGuestCreation))
+
+				utils.SendJSONError(w, "Rate limit exceeded for guest account creation. Please try again after "+limit.resetTime.Format(time.RFC3339), http.StatusTooManyRequests)
+				return
+			}
+
+			// Increment the counter
+			limit.count++
+
+			// Set rate limit headers
+			w.Header().Set("X-RateLimit-Limit", strconv.Itoa(maxRequests))
+			w.Header().Set("X-RateLimit-Remaining", strconv.Itoa(maxRequests-limit.count))
+			w.Header().Set("X-RateLimit-Reset", limit.resetTime.Format(time.RFC3339))
+			w.Header().Set("X-RateLimit-Service", string(models.ServiceGuestCreation))
+
+			// Call the next handler
+			next(w, r)
+		}
+	}
 }
