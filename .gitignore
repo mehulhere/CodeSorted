@@ -6,3 +6,5 @@ twosum_solution.js
 submissions/
 learnings.md
 .cursor/
+node_modules
+codebase.md

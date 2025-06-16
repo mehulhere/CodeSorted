@@ -5,6 +5,7 @@ export interface ProblemListItemType {
   title: string;
   difficulty: string;
   tags?: string[];
+  acceptance_rate?: number; // Percentage of successful submissions
 }
 
 // Corresponds to backend's full Problem struct

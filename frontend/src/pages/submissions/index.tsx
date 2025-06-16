@@ -182,56 +182,6 @@ export default function SubmissionsPage() {
                 <meta name="description" content="View code submissions" />
             </Head>
 
-            {/* Header/Navigation */}
-            <header className="bg-white shadow-md">
-                <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4 flex justify-between items-center">
-                    <div className="flex items-center">
-                        <h1 className="text-2xl font-bold text-indigo-600">OJ</h1>
-                        <nav className="ml-10 flex space-x-8">
-                            <Link href="/" className="text-gray-500 hover:text-indigo-600 font-medium">
-                                Home
-                            </Link>
-                            <Link href="/problems" className="text-gray-500 hover:text-indigo-600 font-medium">
-                                Problems
-                            </Link>
-                            {isLoggedIn && (
-                                <Link href="/submissions" className="text-gray-900 hover:text-indigo-600 font-medium">
-                                    Submissions
-                                </Link>
-                            )}
-                            {isAdmin && (
-                                <Link href="/admin/problems/create" className="text-gray-500 hover:text-indigo-600 font-medium">
-                                    Add Problem
-                                </Link>
-                            )}
-                        </nav>
-                    </div>
-                    <div className="flex items-center space-x-4">
-                        {isLoggedIn ? (
-                            <button
-                                className="bg-gray-200 hover:bg-gray-300 text-gray-800 font-semibold py-2 px-4 rounded"
-                                onClick={() => {
-                                    document.cookie = "authToken=; expires=Thu, 01 Jan 1970 00:00:00 UTC; path=/;";
-                                    setIsLoggedIn(false);
-                                    router.push('/');
-                                }}
-                            >
-                                Logout
-                            </button>
-                        ) : (
-                            <>
-                                <Link href="/login" className="text-indigo-600 hover:text-indigo-800 font-medium">
-                                    Sign In
-                                </Link>
-                                <Link href="/register" className="bg-indigo-600 hover:bg-indigo-700 text-white font-semibold py-2 px-4 rounded">
-                                    Sign Up
-                                </Link>
-                            </>
-                        )}
-                    </div>
-                </div>
-            </header>
-
             <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
                 <div className="flex justify-between items-center mb-6">
                     <h1 className="text-3xl font-bold text-gray-900">Submissions</h1>
@@ -365,7 +315,9 @@ export default function SubmissionsPage() {
                                                 </Link>
                                             </td>
                                             <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">
-                                                {submission.username}
+                                                <Link href={`/profile/${submission.username}`} className="text-indigo-600 hover:text-indigo-900">
+                                                    {submission.username}
+                                                </Link>
                                             </td>
                                             <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
                                                 <Link href={`/problems/${submission.problem_id}`} className="text-indigo-600 hover:text-indigo-900">

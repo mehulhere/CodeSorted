@@ -99,6 +99,43 @@ func main() {
 	http.HandleFunc("/execute", middleware.WithCORS(middleware.JWTAuthMiddleware(handlers.ExecuteCodeHandler)))
 	http.HandleFunc("/testcases", middleware.WithCORS(middleware.JWTAuthMiddleware(handlers.AddTestCaseHandler))) // Only for admins
 
+	// Profile routes
+	http.HandleFunc("/api/users/", middleware.WithCORS(func(w http.ResponseWriter, r *http.Request) {
+		pathParts := strings.Split(strings.Trim(r.URL.Path, "/"), "/")
+		if len(pathParts) >= 4 && pathParts[3] == "profile" {
+			handlers.GetProfile(w, r)
+		} else if len(pathParts) >= 4 && pathParts[3] == "stats" {
+			handlers.GetUserStats(w, r)
+		} else if len(pathParts) >= 4 && pathParts[3] == "checkins" {
+			handlers.GetUserCheckinHistory(w, r)
+		} else if len(pathParts) >= 4 && pathParts[3] == "languages" {
+			handlers.GetUserLanguages(w, r)
+		} else if len(pathParts) >= 4 && pathParts[3] == "skills" {
+			handlers.GetUserSkills(w, r)
+		} else if len(pathParts) >= 4 && pathParts[3] == "submissions" {
+			handlers.GetUserRecentSubmissions(w, r)
+		} else if len(pathParts) >= 4 && pathParts[3] == "discussion-count" {
+			handlers.GetUserDiscussionCount(w, r)
+		} else if len(pathParts) >= 3 {
+			// Handle /api/users/{username} endpoint
+			handlers.GetUser(w, r)
+		} else {
+			http.NotFound(w, r)
+		}
+	}))
+	http.HandleFunc("/api/profile", middleware.WithCORS(middleware.JWTAuthMiddleware(handlers.UpdateProfile)))
+	http.HandleFunc("/api/checkin", middleware.WithCORS(middleware.JWTAuthMiddleware(handlers.RecordCheckin)))
+
+	// Admin routes for stats
+	http.HandleFunc("/api/admin/rankings/update", middleware.WithCORS(middleware.JWTAuthMiddleware(handlers.UpdateAllRankings)))
+	http.HandleFunc("/api/admin/checkins/generate", middleware.WithCORS(middleware.JWTAuthMiddleware(handlers.AdminGenerateTestCheckins)))
+	http.HandleFunc("/api/admin/languages/generate", middleware.WithCORS(middleware.JWTAuthMiddleware(handlers.AdminGenerateLanguageStats)))
+	http.HandleFunc("/api/admin/skills/generate", middleware.WithCORS(middleware.JWTAuthMiddleware(handlers.AdminGenerateSkillStats)))
+
+	// Rankings endpoint
+	http.HandleFunc("/api/rankings", middleware.WithCORS(handlers.GetRankingsHandler))
+	http.HandleFunc("/api/rankings/update", middleware.WithCORS(handlers.ForceUpdateRankings))
+
 	// Submission routes
 	http.HandleFunc("/submissions", middleware.WithCORS(handlers.GetSubmissionsHandler))
 	http.HandleFunc("/submissions/", middleware.WithCORS(handlers.GetSubmissionDetailsHandler))

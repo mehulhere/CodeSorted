@@ -416,6 +416,47 @@ func processSubmission(submissionID primitive.ObjectID) {
 
 	// Persist the final status to the database
 	updateSubmissionStatus(submissionID, finalStatus, maxExecutionTime, maxMemoryUsed, passedCount, totalCount, timeComplexity, memoryComplexity)
+
+	// Update user statistics when a submission is processed
+	go func() {
+		// Update all user statistics in separate goroutines to avoid blocking the submission processing
+
+		// Update user problem-solving stats
+		if err := UpdateUserStats(submission.UserID); err != nil {
+			log.Printf("Failed to update user stats for submission %s: %v", submissionID.Hex(), err)
+		} else {
+			log.Printf("Successfully updated user stats for submission %s", submissionID.Hex())
+		}
+
+		// Update user language statistics
+		if err := UpdateUserLanguageStats(submission.UserID, submission.Language, finalStatus); err != nil {
+			log.Printf("Failed to update language stats for submission %s: %v", submissionID.Hex(), err)
+		} else {
+			log.Printf("Successfully updated language stats for submission %s", submissionID.Hex())
+		}
+
+		// Update user skills based on problem tags (only for accepted solutions)
+		if finalStatus == models.StatusAccepted {
+			problemObjID := problem.ID // Use the actual problem's ObjectID
+			fmt.Println("Problem ObjectID:", problemObjID)
+			fmt.Println("Problem ObjectID Hex:", problemObjID.Hex())
+			fmt.Println("Actual problem_id in submission:", submission.ProblemID)
+			fmt.Println("User ID:", submission.UserID)
+
+			if err := UpdateUserSkill(submission.UserID, submission.ProblemID, problem.Tags, problem.Difficulty, true); err != nil {
+				log.Printf("Failed to update skills for submission %s: %v", submissionID.Hex(), err)
+			} else {
+				log.Printf("Successfully updated skills for submission %s", submissionID.Hex())
+			}
+
+			// Record daily check-in if submission was accepted
+			if _, err := recordCheckinInternal(context.Background(), submission.UserID); err != nil {
+				log.Printf("Failed to record check-in for submission %s: %v", submissionID.Hex(), err)
+			} else {
+				log.Printf("Successfully recorded check-in for submission %s", submissionID.Hex())
+			}
+		}
+	}()
 }
 
 // Update submission status in database
@@ -426,6 +467,15 @@ func updateSubmissionStatus(submissionID primitive.ObjectID, status models.Submi
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 
+	// First get the submission to know the problem ID
+	var submission models.Submission
+	err := submissionsCollection.FindOne(ctx, bson.M{"_id": submissionID}).Decode(&submission)
+	if err != nil {
+		log.Printf("Failed to get submission %s: %v", submissionID.Hex(), err)
+		return
+	}
+
+	// Update the submission status
 	update := bson.M{
 		"$set": bson.M{
 			"status":            status,
@@ -444,10 +494,42 @@ func updateSubmissionStatus(submissionID primitive.ObjectID, status models.Submi
 		update["$set"].(bson.M)["memory_complexity"] = memoryComplexity
 	}
 
-	_, err := submissionsCollection.UpdateOne(ctx, bson.M{"_id": submissionID}, update)
+	_, err = submissionsCollection.UpdateOne(ctx, bson.M{"_id": submissionID}, update)
 	if err != nil {
 		log.Printf("Failed to update submission status: %v", err)
+		return
 	}
+
+	// Now recalculate the problem's acceptance rate
+	problemID := submission.ProblemID
+	// This function updates the problem stats, now we need to update the acceptance rate
+	updateProblemAcceptanceRate(ctx, problemID)
+}
+
+// updateProblemAcceptanceRate recalculates and updates the acceptance rate for a problem
+func updateProblemAcceptanceRate(ctx context.Context, problemID string) {
+	submissionsCollection := database.GetCollection("OJ", "submissions")
+	problemsCollection := database.GetCollection("OJ", "problems")
+
+	// Calculate acceptance rate using the utility function
+	acceptanceRate, err := utils.CalculateAcceptanceRate(ctx, submissionsCollection, problemID)
+	if err != nil {
+		log.Printf("Failed to calculate acceptance rate for problem %s: %v", problemID, err)
+		return
+	}
+
+	// Update the problem with the new acceptance rate
+	_, err = problemsCollection.UpdateOne(
+		ctx,
+		bson.M{"problem_id": problemID},
+		bson.M{"$set": bson.M{"acceptance_rate": acceptanceRate}},
+	)
+	if err != nil {
+		log.Printf("Failed to update problem acceptance rate for %s: %v", problemID, err)
+		return
+	}
+
+	log.Printf("Updated acceptance rate for problem %s: %.2f%%", problemID, acceptanceRate)
 }
 
 // updateProblemStats updates the aggregated complexity statistics for a problem.

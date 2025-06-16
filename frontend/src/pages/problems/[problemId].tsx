@@ -14,6 +14,7 @@ import { useRouter } from 'next/router';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import Head from 'next/head';
 import Link from 'next/link';
+import Navbar from '@/components/layout/Navbar'; // Import the new Navbar component
 import type { ProblemType, ApiError, ThreadType, CommentType, ThreadsResponse, CommentsResponse, CreateThreadPayload, CreateCommentPayload, VotePayload } from '@/types/problem'; // Adjust path
 
 export default function SingleProblemPage() {
@@ -66,6 +67,11 @@ export default function SingleProblemPage() {
     const [newCommentContent, setNewCommentContent] = useState<string>('');
     const [isCreatingComment, setIsCreatingComment] = useState<boolean>(false);
     const [discussionView, setDiscussionView] = useState<'list' | 'thread'>('list');
+
+    const [hasMounted, setHasMounted] = useState(false);
+    useEffect(() => {
+        setHasMounted(true);
+    }, []);
 
     const [activeTab, setActiveTab] = useState('pseudocode');
     const debounceTimeoutRef = useRef<NodeJS.Timeout | null>(null);
@@ -1019,8 +1025,7 @@ export default function SingleProblemPage() {
                                                                         {thread.content}
                                                                     </p>
                                                                     <div className="flex justify-between items-center text-xs text-gray-500">
-                                                                        <span>by {thread.username}</span>
-                                                                        <span>{new Date(thread.created_at).toLocaleDateString()}</span>
+                                                                        <p className="text-sm text-gray-500">Posted by <Link href={`/profile/${thread.username}`} className="hover:underline">{thread.username}</Link> &middot; {hasMounted ? new Date(thread.created_at).toLocaleDateString() : null}</p>
                                                                     </div>
                                                                 </div>
                                                             ))}
@@ -1057,10 +1062,8 @@ export default function SingleProblemPage() {
                                                         <div className="mb-6 p-4 bg-gray-50 rounded-lg">
                                                             <div className="flex justify-between items-start mb-3">
                                                                 <div className="flex items-center gap-2">
-                                                                    <span className="font-medium text-gray-900">{selectedThread.username}</span>
-                                                                    <span className="text-sm text-gray-500">
-                                                                        {new Date(selectedThread.created_at).toLocaleString()}
-                                                                    </span>
+                                                                    <p className="font-semibold"><Link href={`/profile/${selectedThread.username}`} className="hover:underline">{selectedThread.username}</Link></p>
+                                                                    <p className="text-xs text-gray-500">{hasMounted ? new Date(selectedThread.created_at).toLocaleString() : null}</p>
                                                                 </div>
                                                                 <div className="flex items-center space-x-3">
                                                                     {isLoggedIn && (
@@ -1124,11 +1127,9 @@ export default function SingleProblemPage() {
                                                                     {comments.map((comment) => (
                                                                         <div key={comment.id} className="border-l-4 border-gray-200 pl-4">
                                                                             <div className="flex justify-between items-start mb-2">
-                                                                                <div className="flex items-center gap-2">
-                                                                                    <span className="font-medium text-gray-900">{comment.username}</span>
-                                                                                    <span className="text-sm text-gray-500">
-                                                                                        {new Date(comment.created_at).toLocaleString()}
-                                                                                    </span>
+                                                                                <div className="flex items-center space-x-2">
+                                                                                    <p className="font-semibold"><Link href={`/profile/${comment.username}`} className="hover:underline">{comment.username}</Link></p>
+                                                                                    <p className="text-xs text-gray-500">{hasMounted ? new Date(comment.created_at).toLocaleString() : null}</p>
                                                                                 </div>
                                                                                 <div className="flex items-center space-x-2">
                                                                                     {isLoggedIn && (
@@ -1308,7 +1309,7 @@ export default function SingleProblemPage() {
                                     <ResizableHandle withHandle />
 
                                     {/* Test Cases and Console */}
-                                    <ResizablePanel defaultSize={25} minSize={10}>
+                                    <ResizablePanel defaultSize={35} minSize={20}>
                                         <div className="h-full flex flex-col bg-white">
                                             {/* Tabs */}
                                             <div className="h-10 bg-white border-b border-gray-200 flex items-center px-4">
@@ -1337,7 +1338,7 @@ export default function SingleProblemPage() {
                                             </div>
 
                                             {/* Input/Output Area */}
-                                            <div className="flex-grow grid grid-cols-2 gap-4 p-4 overflow-hidden min-h-[200px]">
+                                            <div className="flex-grow grid grid-cols-2 gap-4 p-4 overflow-hidden min-h-[260px]">
                                                 <div className="space-y-4">
                                                     {/* Input */}
                                                     <div className="flex flex-col">

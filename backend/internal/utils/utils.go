@@ -18,6 +18,13 @@ func SendJSONError(w http.ResponseWriter, message string, statusCode int) {
 	json.NewEncoder(w).Encode(map[string]string{"message": message})
 }
 
+// Helper function to send JSON responses
+func SendJSONResponse(w http.ResponseWriter, statusCode int, data interface{}) {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(statusCode)
+	json.NewEncoder(w).Encode(data)
+}
+
 // ParseInt parses a string to an integer with error handling
 func ParseInt(s string) (int, error) {
 	return strconv.Atoi(s)

@@ -2,6 +2,7 @@ import Head from 'next/head';
 import { useState, useEffect } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/router';
+import axios from 'axios';
 import '@/app/globals.css';
 
 // Define problem type
@@ -14,6 +15,13 @@ interface Problem {
     solved?: boolean; // Optional, for logged-in users
 }
 
+interface UserStats {
+    total_solved: number;
+    easy_solved: number;
+    medium_solved: number;
+    hard_solved: number;
+}
+
 export default function HomePage() {
     const router = useRouter();
     const [problems, setProblems] = useState<Problem[]>([]);
@@ -21,7 +29,8 @@ export default function HomePage() {
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState<string | null>(null);
     const [isLoggedIn, setIsLoggedIn] = useState(false);
-    const [isAdmin, setIsAdmin] = useState(false);
+    const [userStats, setUserStats] = useState<UserStats | null>(null);
+    const [username, setUsername] = useState<string | null>(null);
 
     // Filter states
     const [selectedDifficulty, setSelectedDifficulty] = useState<string>('all');
@@ -59,52 +68,35 @@ export default function HomePage() {
             }
         };
 
-        // Check if user is logged in by calling our new backend endpoint
-        const checkLoginStatus = async () => {
-            const maxRetries = 3;
-            let retries = 0;
+        // Check auth status and fetch user stats if logged in
+        const checkAuthAndFetchStats = async () => {
+            try {
+                const authResponse = await axios.get('http://localhost:8080/api/auth-status', {
+                    withCredentials: true,
+                });
 
-            const attemptFetch = async () => {
-                try {
-                    console.log("Attempting to fetch auth status...");
-                    const response = await fetch('http://localhost:8080/api/auth-status', {
-                        method: 'GET',
-                        credentials: 'include', // This is crucial to send the HttpOnly cookie
-                        headers: {
-                            'Accept': 'application/json',
-                            'Content-Type': 'application/json'
-                        },
-                    });
+                if (authResponse.data.isLoggedIn) {
+                    setIsLoggedIn(true);
+                    setUsername(authResponse.data.user.username);
 
-                    console.log("Auth status response:", response.status);
-                    if (response.ok) {
-                        const data = await response.json();
-                        console.log("Auth data:", data);
-                        setIsLoggedIn(data.isLoggedIn);
-                        setIsAdmin(data.user?.isAdmin || false);
-                    } else {
-                        setIsLoggedIn(false);
-                        setIsAdmin(false);
-                        console.error("Auth status response not OK:", response.status);
-                    }
-                } catch (err) {
-                    console.error("Could not fetch auth status:", err);
-                    if (retries < maxRetries) {
-                        retries++;
-                        console.log(`Retrying auth status fetch (${retries}/${maxRetries})...`);
-                        setTimeout(attemptFetch, 1000); // Wait 1 second before retrying
-                    } else {
-                        setIsLoggedIn(false);
-                        setIsAdmin(false);
-                    }
+                    // Fetch user stats
+                    const statsResponse = await axios.get(`http://localhost:8080/api/users/${authResponse.data.user.username}/stats`);
+                    setUserStats(statsResponse.data);
+                } else {
+                    setIsLoggedIn(false);
+                    setUsername(null);
+                    setUserStats(null);
                 }
-            };
-
-            await attemptFetch();
+            } catch (err) {
+                console.error('Error checking auth status or fetching stats:', err);
+                setIsLoggedIn(false);
+                setUsername(null);
+                setUserStats(null);
+            }
         };
 
         fetchProblems();
-        checkLoginStatus();
+        checkAuthAndFetchStats();
     }, []);
 
     // Apply filters whenever any filter changes
@@ -116,8 +108,9 @@ export default function HomePage() {
             result = result.filter(problem => problem.difficulty.toLowerCase() === selectedDifficulty.toLowerCase());
         }
 
-        // Filter by status (only if logged in)
-        if (isLoggedIn && selectedStatus !== 'all') {
+        // Filter by status
+        // Server will handle the actual filtering based on user's solved problems
+        if (selectedStatus !== 'all') {
             result = result.filter(problem => {
                 if (selectedStatus === 'solved') return problem.solved;
                 if (selectedStatus === 'unsolved') return !problem.solved;
@@ -140,7 +133,7 @@ export default function HomePage() {
         }
 
         setFilteredProblems(result);
-    }, [selectedDifficulty, selectedStatus, selectedTag, searchQuery, problems, isLoggedIn]);
+    }, [selectedDifficulty, selectedStatus, selectedTag, searchQuery, problems]);
 
     const difficultyColor = (difficulty: string) => {
         switch (difficulty.toLowerCase()) {
@@ -157,56 +150,6 @@ export default function HomePage() {
                 <title>OJ - Online Judge</title>
                 <meta name="description" content="Practice coding problems and improve your skills" />
             </Head>
-
-            {/* Header/Navigation */}
-            <header className="bg-white shadow-md">
-                <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4 flex justify-between items-center">
-                    <div className="flex items-center">
-                        <h1 className="text-2xl font-bold text-indigo-600">OJ</h1>
-                        <nav className="ml-10 flex space-x-8">
-                            <Link href="/" className="text-gray-900 hover:text-indigo-600 font-medium">
-                                Home
-                            </Link>
-                            <Link href="/problems" className="text-gray-500 hover:text-indigo-600 font-medium">
-                                Problems
-                            </Link>
-                            {isLoggedIn && (
-                                <Link href="/submissions" className="text-gray-500 hover:text-indigo-600 font-medium">
-                                    Submissions
-                                </Link>
-                            )}
-                            {isAdmin && (
-                                <Link href="/admin/problems/create" className="text-gray-500 hover:text-indigo-600 font-medium">
-                                    Add Problem
-                                </Link>
-                            )}
-                        </nav>
-                    </div>
-                    <div className="flex items-center space-x-4">
-                        {isLoggedIn ? (
-                            <button
-                                className="bg-gray-200 hover:bg-gray-300 text-gray-800 font-semibold py-2 px-4 rounded"
-                                onClick={() => {
-                                    document.cookie = "authToken=; expires=Thu, 01 Jan 1970 00:00:00 UTC; path=/;";
-                                    setIsLoggedIn(false);
-                                    router.push('/');
-                                }}
-                            >
-                                Logout
-                            </button>
-                        ) : (
-                            <>
-                                <Link href="/login" className="text-indigo-600 hover:text-indigo-800 font-medium">
-                                    Sign In
-                                </Link>
-                                <Link href="/register" className="bg-indigo-600 hover:bg-indigo-700 text-white font-semibold py-2 px-4 rounded">
-                                    Sign Up
-                                </Link>
-                            </>
-                        )}
-                    </div>
-                </div>
-            </header>
 
             <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
                 {/* Hero Section */}
@@ -258,22 +201,20 @@ export default function HomePage() {
                             </select>
                         </div>
 
-                        {/* Status Filter (only if logged in) */}
-                        {isLoggedIn && (
-                            <div>
-                                <label htmlFor="status" className="block text-sm font-medium text-gray-700 mb-1">Status</label>
-                                <select
-                                    id="status"
-                                    className="shadow-sm focus:ring-indigo-500 focus:border-indigo-500 block w-full sm:text-sm border border-gray-300 rounded-md p-2 text-black"
-                                    value={selectedStatus}
-                                    onChange={(e) => setSelectedStatus(e.target.value)}
-                                >
-                                    <option value="all">All Problems</option>
-                                    <option value="solved">Solved</option>
-                                    <option value="unsolved">Unsolved</option>
-                                </select>
-                            </div>
-                        )}
+                        {/* Status Filter - Always show but will only show results if user is logged in */}
+                        <div>
+                            <label htmlFor="status" className="block text-sm font-medium text-gray-700 mb-1">Status</label>
+                            <select
+                                id="status"
+                                className="shadow-sm focus:ring-indigo-500 focus:border-indigo-500 block w-full sm:text-sm border border-gray-300 rounded-md p-2 text-black"
+                                value={selectedStatus}
+                                onChange={(e) => setSelectedStatus(e.target.value)}
+                            >
+                                <option value="all">All Problems</option>
+                                <option value="solved">Solved</option>
+                                <option value="unsolved">Unsolved</option>
+                            </select>
+                        </div>
 
                         {/* Tag Filter */}
                         <div>
@@ -328,14 +269,10 @@ export default function HomePage() {
                                     {filteredProblems.slice(0, 5).map((problem) => (
                                         <tr key={problem.id} className="hover:bg-gray-50">
                                             <td className="px-6 py-4 whitespace-nowrap">
-                                                {isLoggedIn ? (
-                                                    problem.solved ? (
-                                                        <span className="text-green-500">✓</span>
-                                                    ) : (
-                                                        <span className="text-gray-300">○</span>
-                                                    )
+                                                {problem.solved ? (
+                                                    <span className="text-green-500">✓</span>
                                                 ) : (
-                                                    <span className="text-gray-300">-</span>
+                                                    <span className="text-gray-300">○</span>
                                                 )}
                                             </td>
                                             <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">
@@ -388,9 +325,11 @@ export default function HomePage() {
                     </div>
                     <div className="bg-white rounded-lg shadow p-6 text-center">
                         <p className="text-4xl font-bold text-indigo-600">
-                            {isLoggedIn ? problems.filter(p => p.solved).length : '-'}
+                            {isLoggedIn && userStats ? userStats.total_solved : '-'}
                         </p>
-                        <p className="text-gray-500 mt-2">Problems Solved</p>
+                        <p className="text-gray-500 mt-2">
+                            {isLoggedIn ? 'Problems Solved' : 'Sign In to Track Progress'}
+                        </p>
                     </div>
                 </div>
             </main>

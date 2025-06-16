@@ -12,6 +12,7 @@ import (
 
 	"github.com/golang-jwt/jwt/v5"
 	"github.com/joho/godotenv"
+	"go.mongodb.org/mongo-driver/bson/primitive"
 )
 
 var jwtKey []byte
@@ -158,8 +159,18 @@ func JWTAuthMiddleware(next http.HandlerFunc) http.HandlerFunc {
 			return
 		}
 
-		// Token is valid, call the next handler
-		next.ServeHTTP(w, r)
+		// Convert the user ID string to ObjectID
+		userID, err := primitive.ObjectIDFromHex(claims.UserID)
+		if err != nil {
+			utils.SendJSONError(w, "Invalid user ID in token.", http.StatusBadRequest)
+			return
+		}
+
+		// Add userID to the request context
+		ctx := context.WithValue(r.Context(), "userID", userID)
+
+		// Token is valid, call the next handler with the modified context
+		next.ServeHTTP(w, r.WithContext(ctx))
 	}
 }
 

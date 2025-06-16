@@ -25,6 +25,7 @@ func GetProblemsHandler(w http.ResponseWriter, r *http.Request) {
 	}
 
 	problemsCollection := database.GetCollection("OJ", "problems")
+	submissionsCollection := database.GetCollection("OJ", "submissions")
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 
@@ -43,13 +44,40 @@ func GetProblemsHandler(w http.ResponseWriter, r *http.Request) {
 			log.Println("Error decoding problem:", err)
 			continue
 		}
-		problems = append(problems, models.ProblemListItem{
+
+		// Create the problem list item
+		problemItem := models.ProblemListItem{
 			ID:         problem.ID,
 			ProblemID:  problem.ProblemID,
 			Title:      problem.Title,
 			Difficulty: problem.Difficulty,
 			Tags:       problem.Tags,
-		})
+		}
+
+		// Use stored acceptance rate if available, otherwise calculate it
+		if problem.AcceptanceRate > 0 {
+			problemItem.AcceptanceRate = problem.AcceptanceRate
+		} else {
+			// Calculate acceptance rate
+			acceptanceRate, err := utils.CalculateAcceptanceRate(ctx, submissionsCollection, problem.ProblemID)
+			if err != nil {
+				log.Printf("Error calculating acceptance rate for problem %s: %v", problem.ProblemID, err)
+				// Continue even if acceptance rate calculation fails
+			} else {
+				problemItem.AcceptanceRate = acceptanceRate
+				// Update the problem with the calculated rate
+				_, updateErr := problemsCollection.UpdateOne(
+					ctx,
+					bson.M{"problem_id": problem.ProblemID},
+					bson.M{"$set": bson.M{"acceptance_rate": acceptanceRate}},
+				)
+				if updateErr != nil {
+					log.Printf("Error updating acceptance rate for problem %s: %v", problem.ProblemID, updateErr)
+				}
+			}
+		}
+
+		problems = append(problems, problemItem)
 	}
 
 	if err := cursor.Err(); err != nil {
