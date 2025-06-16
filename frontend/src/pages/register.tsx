@@ -72,7 +72,8 @@ export default function Register() {
             const data = await response.json();
 
             if (!response.ok) {
-                throw new Error(data.message || 'Registration failed.');
+                setError(data.message || 'Registration failed.');
+                return;
             }
 
             // On successful registration, the backend logs the user in

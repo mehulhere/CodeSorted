@@ -25,6 +25,11 @@ func SendJSONResponse(w http.ResponseWriter, statusCode int, data interface{}) {
 	json.NewEncoder(w).Encode(data)
 }
 
+// ParseJSON parses JSON from request body into the target struct
+func ParseJSON(r *http.Request, target interface{}) error {
+	return json.NewDecoder(r.Body).Decode(target)
+}
+
 // ParseInt parses a string to an integer with error handling
 func ParseInt(s string) (int, error) {
 	return strconv.Atoi(s)

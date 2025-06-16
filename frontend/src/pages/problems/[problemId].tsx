@@ -70,8 +70,20 @@ export default function SingleProblemPage() {
 
     const [hasMounted, setHasMounted] = useState(false);
     useEffect(() => {
+        const MyComponent = () => {
+            document.body.style.overflow = 'hidden';
+
+            return () => {
+                document.body.style.overflow = ''; // Clean up to avoid side effects
+            };
+        };
+        MyComponent();
+    }, []);
+
+    useEffect(() => {
         setHasMounted(true);
     }, []);
+
 
     const [activeTab, setActiveTab] = useState('pseudocode');
     const debounceTimeoutRef = useRef<NodeJS.Timeout | null>(null);
@@ -581,7 +593,8 @@ export default function SingleProblemPage() {
             const responseBody = JSON.parse(text);
 
             if (!response.ok) {
-                throw new Error(responseBody.message || responseBody.error || `Request failed with status ${response.status}`);
+                setExecutionError(responseBody.message || responseBody.error || `Request failed with status ${response.status}`);
+                return;
             }
 
             // Process results from the backend

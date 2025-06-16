@@ -14,6 +14,7 @@ This is an Online Judge platform for competitive programming practice and contes
 - **Submission History**: Track your progress and review past submissions
 - **Pseudocode Support**: Convert pseudocode to Python for execution
 - **AI Code Completion**: Get intelligent code suggestions as you type.
+- **Rate Limiting**: Protection against excessive usage of AI-powered and resource-intensive services
 
 ## Getting Started
 
@@ -83,8 +84,27 @@ The platform intelligently classifies errors to provide helpful feedback:
 |----------|--------|-------------|
 | `/last-code` | GET | Retrieve the most recent code draft for the authenticated user for a given `problem_id` (and optional `language`). |
 | `/convert-code` | POST | Convert pseudocode to Python code. |
+| `/api/rate-limits` | GET | Get current rate limit status and remaining usage for the authenticated user. |
+| `/api/admin/rate-limits` | PUT/POST | Admin endpoint to update rate limits for a specific user. |
 
 The frontend now uses this endpoint to repopulate the Monaco editor when you revisit a problem page, falling back to `localStorage` first.
+
+## Rate Limiting
+
+The platform includes rate limiting for resource-intensive services:
+
+- **Code Completion**: Limits on AI-powered code suggestion requests
+- **Pseudocode Conversion**: Limits on pseudocode to Python conversion 
+- **Code Execution**: Limits on code execution requests
+- **Code Submission**: Limits on solution submissions
+
+Rate limits are set per service and reset hourly. Regular users and administrators have different limit thresholds. The API returns appropriate HTTP headers to track usage:
+
+- `X-RateLimit-Limit`: Maximum requests allowed per hour
+- `X-RateLimit-Remaining`: Remaining requests in the current window
+- `X-RateLimit-Reset`: Time when the rate limit window resets (ISO 8601 format)
+
+When a rate limit is exceeded, the API returns a 429 Too Many Requests status code.
 
 ## Contribution
 

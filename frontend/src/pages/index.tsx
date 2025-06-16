@@ -48,7 +48,8 @@ export default function HomePage() {
             try {
                 const response = await fetch('http://localhost:8080/problems');
                 if (!response.ok) {
-                    throw new Error(`Error: ${response.status}`);
+                    setError(`Error: ${response.status}`);
+                    return;
                 }
                 const data = await response.json();
                 setProblems(data);

@@ -10,6 +10,7 @@ import (
 	"backend/internal/database"
 	"backend/internal/handlers"
 	"backend/internal/middleware"
+	"backend/internal/models"
 	"context"
 
 	"github.com/joho/godotenv"
@@ -38,6 +39,11 @@ func main() {
 	// Initialize AI Client
 	if err := ai.InitAIClient(context.Background()); err != nil {
 		log.Fatalf("Failed to initialize AI client: %v", err)
+	}
+
+	// Initialize rate limit collection
+	if err := middleware.InitRateLimitCollection(); err != nil {
+		log.Fatalf("Failed to initialize rate limit collection: %v", err)
 	}
 
 	// Set JWT key
@@ -86,7 +92,7 @@ func main() {
 	http.HandleFunc("/register", middleware.WithCORS(handlers.RegisterHandler))
 	http.HandleFunc("/login", middleware.WithCORS(handlers.LoginHandler))
 	http.HandleFunc("/logout", middleware.WithCORS(handlers.LogoutHandler))
-	http.HandleFunc("/autocomplete", middleware.WithCORS(middleware.JWTAuthMiddleware(handlers.AutocompleteHandler)))
+	http.HandleFunc("/autocomplete", middleware.WithCORS(middleware.JWTAuthMiddleware(middleware.RateLimitMiddleware(models.ServiceCodeCompletion)(handlers.AutocompleteHandler))))
 	http.HandleFunc("/api/auth-status", middleware.WithCORS(handlers.AuthStatusHandler))
 	http.HandleFunc("/problems", middleware.WithCORS(handlers.GetProblemsHandler))
 	http.HandleFunc("/problems/", middleware.WithCORS(func(w http.ResponseWriter, r *http.Request) {
@@ -96,7 +102,7 @@ func main() {
 			handlers.GetProblemHandler(w, r)
 		}
 	}))
-	http.HandleFunc("/execute", middleware.WithCORS(middleware.JWTAuthMiddleware(handlers.ExecuteCodeHandler)))
+	http.HandleFunc("/execute", middleware.WithCORS(middleware.JWTAuthMiddleware(middleware.RateLimitMiddleware(models.ServiceCodeExecution)(handlers.ExecuteCodeHandler))))
 	http.HandleFunc("/testcases", middleware.WithCORS(middleware.JWTAuthMiddleware(handlers.AddTestCaseHandler))) // Only for admins
 
 	// Profile routes
@@ -127,10 +133,14 @@ func main() {
 	http.HandleFunc("/api/checkin", middleware.WithCORS(middleware.JWTAuthMiddleware(handlers.RecordCheckin)))
 
 	// Admin routes for stats
-	http.HandleFunc("/api/admin/rankings/update", middleware.WithCORS(middleware.JWTAuthMiddleware(handlers.UpdateAllRankings)))
-	http.HandleFunc("/api/admin/checkins/generate", middleware.WithCORS(middleware.JWTAuthMiddleware(handlers.AdminGenerateTestCheckins)))
-	http.HandleFunc("/api/admin/languages/generate", middleware.WithCORS(middleware.JWTAuthMiddleware(handlers.AdminGenerateLanguageStats)))
-	http.HandleFunc("/api/admin/skills/generate", middleware.WithCORS(middleware.JWTAuthMiddleware(handlers.AdminGenerateSkillStats)))
+	http.HandleFunc("/api/admin/rankings/update", middleware.WithCORS(middleware.JWTAuthMiddleware(middleware.AdminAuthMiddleware(handlers.UpdateAllRankings))))
+	http.HandleFunc("/api/admin/checkins/generate", middleware.WithCORS(middleware.JWTAuthMiddleware(middleware.AdminAuthMiddleware(handlers.AdminGenerateTestCheckins))))
+	http.HandleFunc("/api/admin/languages/generate", middleware.WithCORS(middleware.JWTAuthMiddleware(middleware.AdminAuthMiddleware(handlers.AdminGenerateLanguageStats))))
+	http.HandleFunc("/api/admin/skills/generate", middleware.WithCORS(middleware.JWTAuthMiddleware(middleware.AdminAuthMiddleware(handlers.AdminGenerateSkillStats))))
+
+	// Rate limit administration routes
+	http.HandleFunc("/api/rate-limits", middleware.WithCORS(middleware.JWTAuthMiddleware(handlers.GetUserRateLimitsHandler)))
+	http.HandleFunc("/api/admin/rate-limits", middleware.WithCORS(middleware.JWTAuthMiddleware(middleware.AdminAuthMiddleware(handlers.AdminUpdateUserRateLimitsHandler))))
 
 	// Rankings endpoint
 	http.HandleFunc("/api/rankings", middleware.WithCORS(handlers.GetRankingsHandler))
@@ -139,8 +149,8 @@ func main() {
 	// Submission routes
 	http.HandleFunc("/submissions", middleware.WithCORS(handlers.GetSubmissionsHandler))
 	http.HandleFunc("/submissions/", middleware.WithCORS(handlers.GetSubmissionDetailsHandler))
-	http.HandleFunc("/submit", middleware.WithCORS(middleware.JWTAuthMiddleware(handlers.SubmitSolutionHandler)))
-	http.HandleFunc("/convert-code", middleware.WithCORS(middleware.JWTAuthMiddleware(handlers.ConvertCodeHandler)))
+	http.HandleFunc("/submit", middleware.WithCORS(middleware.JWTAuthMiddleware(middleware.RateLimitMiddleware(models.ServiceCodeSubmission)(handlers.SubmitSolutionHandler))))
+	http.HandleFunc("/convert-code", middleware.WithCORS(middleware.JWTAuthMiddleware(middleware.RateLimitMiddleware(models.ServicePseudocodeToCode)(handlers.ConvertCodeHandler))))
 
 	// Last code retrieval route
 	http.HandleFunc("/last-code", middleware.WithCORS(middleware.JWTAuthMiddleware(handlers.GetLastCodeHandler)))
