@@ -142,10 +142,10 @@ func RegisterHandler(w http.ResponseWriter, r *http.Request) {
 		Name:     "authToken", // Name of the cookie
 		Value:    tokenString, // The JWT token string
 		Expires:  expirationTime,
-		HttpOnly: true,                 // Make it HTTP-only
-		Secure:   false,                // Set to true in production with HTTPS
-		SameSite: http.SameSiteLaxMode, // Recommended for CSRF protection
-		Path:     "/",                  // Make the cookie available to all paths
+		HttpOnly: true,                  // Make it HTTP-only
+		Secure:   true,                  // Set to true in production with HTTPS
+		SameSite: http.SameSiteNoneMode, // Recommended for CSRF protection
+		Path:     "/",                   // Make the cookie available to all paths
 	})
 
 	w.Header().Set("Content-Type", "application/json")
@@ -255,10 +255,10 @@ func LoginHandler(w http.ResponseWriter, r *http.Request) {
 		Name:     "authToken", // Name of the cookie
 		Value:    tokenString, // The JWT token string
 		Expires:  expirationTime,
-		HttpOnly: true,                 // Make it HTTP-only
-		Secure:   false,                // Set to true in production with HTTPS
-		SameSite: http.SameSiteLaxMode, // Recommended for CSRF protection
-		Path:     "/",                  // Make the cookie available to all paths
+		HttpOnly: true,                  // Make it HTTP-only
+		Secure:   true,                  // Set to true in production with HTTPS
+		SameSite: http.SameSiteNoneMode, // Recommended for CSRF protection
+		Path:     "/",                   // Make the cookie available to all paths
 	})
 
 	w.Header().Set("Content-Type", "application/json")
@@ -331,7 +331,7 @@ func LogoutHandler(w http.ResponseWriter, r *http.Request) {
 		Expires:  time.Now().Add(-time.Hour),
 		HttpOnly: true,
 		Path:     "/",
-		SameSite: http.SameSiteLaxMode,
+		SameSite: http.SameSiteNoneMode,
 		Secure:   true,
 	})
 	w.WriteHeader(http.StatusOK)

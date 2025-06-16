@@ -50,9 +50,19 @@ func main() {
 	// Define routes
 
 	// Handle OPTIONS requests globally
+	// List of allowed origins
+	allowedOrigins := map[string]bool{
+		"http://localhost:3000":  true,
+		"http://localhost:33921": true,
+		"http://127.0.0.1:33921": true,
+	}
+
 	http.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
 		// Set CORS headers for all responses
-		w.Header().Set("Access-Control-Allow-Origin", "http://localhost:3000")
+		origin := r.Header.Get("Origin")
+		if allowedOrigins[origin] {
+			w.Header().Set("Access-Control-Allow-Origin", origin)
+		}
 		w.Header().Set("Access-Control-Allow-Methods", "POST, GET, OPTIONS, PUT, DELETE")
 		w.Header().Set("Access-Control-Allow-Headers", "Accept, Content-Type, Content-Length, Accept-Encoding, X-CSRF-Token, Authorization")
 		w.Header().Set("Access-Control-Allow-Credentials", "true")
@@ -97,6 +107,36 @@ func main() {
 
 	// Last code retrieval route
 	http.HandleFunc("/last-code", middleware.WithCORS(middleware.JWTAuthMiddleware(handlers.GetLastCodeHandler)))
+
+	// Discussion routes
+	http.HandleFunc("/api/discussions/", middleware.WithCORS(func(w http.ResponseWriter, r *http.Request) {
+		pathParts := strings.Split(r.URL.Path, "/")
+		if len(pathParts) >= 4 && pathParts[3] == "problems" && len(pathParts) >= 6 && pathParts[5] == "threads" {
+			// /api/discussions/problems/{problemId}/threads
+			if r.Method == http.MethodGet {
+				handlers.GetThreadsHandler(w, r)
+			} else if r.Method == http.MethodPost {
+				middleware.JWTAuthMiddleware(handlers.CreateThreadHandler)(w, r)
+			} else {
+				http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+			}
+		} else if len(pathParts) >= 4 && pathParts[3] == "threads" && len(pathParts) >= 6 && pathParts[5] == "comments" {
+			// /api/discussions/threads/{threadId}/comments
+			if r.Method == http.MethodGet {
+				handlers.GetCommentsHandler(w, r)
+			} else if r.Method == http.MethodPost {
+				middleware.JWTAuthMiddleware(handlers.CreateCommentHandler)(w, r)
+			} else {
+				http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+			}
+		} else if len(pathParts) >= 4 && pathParts[3] == "comments" {
+			// /api/discussions/comments/{commentId}
+			middleware.JWTAuthMiddleware(handlers.DeleteCommentHandler)(w, r)
+		} else {
+			http.NotFound(w, r)
+		}
+	}))
+	http.HandleFunc("/api/vote", middleware.WithCORS(middleware.JWTAuthMiddleware(handlers.VoteHandler)))
 
 	// Start server
 	port := os.Getenv("PORT")

@@ -8,13 +8,13 @@ import { Separator } from '@/components/ui/separator';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Textarea } from '@/components/ui/textarea';
 import axios from 'axios';
-import { AlertCircle, CheckCircle, ChevronDown, ChevronRight, ChevronsUpDown, Loader, Terminal, XCircle } from 'lucide-react';
+import { AlertCircle, CheckCircle, ChevronDown, ChevronRight, ChevronLeft, ChevronsUpDown, Loader, Terminal, XCircle, MessageSquare, ArrowUp, ArrowDown, Trash2 } from 'lucide-react';
 import type { editor } from 'monaco-editor';
 import { useRouter } from 'next/router';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import Head from 'next/head';
 import Link from 'next/link';
-import type { ProblemType, ApiError } from '@/types/problem'; // Adjust path
+import type { ProblemType, ApiError, ThreadType, CommentType, ThreadsResponse, CommentsResponse, CreateThreadPayload, CreateCommentPayload, VotePayload } from '@/types/problem'; // Adjust path
 
 export default function SingleProblemPage() {
     const router = useRouter();
@@ -52,6 +52,20 @@ export default function SingleProblemPage() {
     const [customTestCases, setCustomTestCases] = useState<{ input: string, expected?: string }[]>([{ input: '', expected: '' }]);
     const [activeTestCase, setActiveTestCase] = useState<number>(0);
     const [testCaseInput, setTestCaseInput] = useState<string>('');
+
+    // Discussion state
+    const [threads, setThreads] = useState<ThreadType[]>([]);
+    const [isLoadingThreads, setIsLoadingThreads] = useState<boolean>(false);
+    const [showCreateThread, setShowCreateThread] = useState<boolean>(false);
+    const [newThreadTitle, setNewThreadTitle] = useState<string>('');
+    const [newThreadContent, setNewThreadContent] = useState<string>('');
+    const [isCreatingThread, setIsCreatingThread] = useState<boolean>(false);
+    const [selectedThread, setSelectedThread] = useState<ThreadType | null>(null);
+    const [comments, setComments] = useState<CommentType[]>([]);
+    const [isLoadingComments, setIsLoadingComments] = useState<boolean>(false);
+    const [newCommentContent, setNewCommentContent] = useState<string>('');
+    const [isCreatingComment, setIsCreatingComment] = useState<boolean>(false);
+    const [discussionView, setDiscussionView] = useState<'list' | 'thread'>('list');
 
     const [activeTab, setActiveTab] = useState('pseudocode');
     const debounceTimeoutRef = useRef<NodeJS.Timeout | null>(null);
@@ -237,56 +251,198 @@ export default function SingleProblemPage() {
         };
     }, [monacoInstance, editorInstance, selectedLanguage]);
 
-    const handleLanguageChange = (value: string) => {
-        if (code.trim() !== '' && code.trim() !== 'Start coding here...') {
-            setSelectedLanguage(value);
+    // Fetch threads for the discussion tab
+    const fetchThreads = useCallback(async () => {
+        if (!problemId) return;
+        setIsLoadingThreads(true);
+        try {
+            const response = await fetch(`http://localhost:8080/api/discussions/problems/${problemId}/threads`, {
+                credentials: 'include',
+            });
+            if (!response.ok) throw new Error('Failed to fetch threads');
+
+            const data: ThreadsResponse = await response.json();
+            setThreads(data.threads || []);
+        } catch (err) {
+            console.error('Error fetching threads:', err);
+        } finally {
+            setIsLoadingThreads(false);
+        }
+    }, [problemId]);
+
+    // Create a new thread
+    const handleCreateThread = async () => {
+        if (!newThreadTitle.trim() || !newThreadContent.trim()) {
+            return;
+        }
+
+        setIsCreatingThread(true);
+        try {
+            const response = await fetch(`http://localhost:8080/api/discussions/problems/${problemId}/threads`, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                },
+                credentials: 'include',
+                body: JSON.stringify({
+                    problem_id: problemId,
+                    title: newThreadTitle,
+                    content: newThreadContent,
+                }),
+            });
+
+            if (!response.ok) {
+                const errorData = await response.json();
+                throw new Error(errorData.message || 'Failed to create thread');
+            }
+
+            await fetchThreads();
+            setNewThreadTitle('');
+            setNewThreadContent('');
+            setShowCreateThread(false);
+        } catch (err) {
+            console.error('Error creating thread:', err);
+        } finally {
+            setIsCreatingThread(false);
         }
     };
 
-    // Persist code only after user changes or after remote fetch
-    const persistCode = (newCode: string) => {
-        if (!problemId) return;
-        const storageKey = `code_${problemId}_${selectedLanguage}`;
-        localStorage.setItem(storageKey, newCode);
+    // Load comments for a thread
+    const loadComments = useCallback(async (threadId: string) => {
+        setIsLoadingComments(true);
+        try {
+            const response = await fetch(`http://localhost:8080/api/discussions/threads/${threadId}/comments`, {
+                credentials: 'include',
+            });
+            if (!response.ok) throw new Error('Failed to fetch comments');
+
+            const data: CommentsResponse = await response.json();
+            setComments(data.comments || []);
+        } catch (err) {
+            console.error('Error fetching comments:', err);
+        } finally {
+            setIsLoadingComments(false);
+        }
+    }, []);
+
+    // Create a new comment
+    const handleCreateComment = async () => {
+        if (!newCommentContent.trim() || !selectedThread) {
+            return;
+        }
+
+        setIsCreatingComment(true);
+        try {
+            const response = await fetch(`http://localhost:8080/api/discussions/threads/${selectedThread.id}/comments`, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                },
+                credentials: 'include',
+                body: JSON.stringify({
+                    thread_id: selectedThread.id,
+                    content: newCommentContent,
+                }),
+            });
+
+            if (!response.ok) {
+                const errorData = await response.json();
+                throw new Error(errorData.message || 'Failed to create comment');
+            }
+
+            await loadComments(selectedThread.id);
+            setNewCommentContent('');
+        } catch (err) {
+            console.error('Error creating comment:', err);
+        } finally {
+            setIsCreatingComment(false);
+        }
     };
 
-    // Helper: fetch last submitted code for this problem (user-specific)
-    const fetchLastSubmittedCode = useCallback(async () => {
-        if (!problemId || !isLoggedIn) return;
+    // Handle voting
+    const handleVote = async (targetId: string, type: 'thread' | 'comment', value: -1 | 0 | 1) => {
         try {
-            const url = `http://localhost:8080/last-code?problem_id=${problemId}&language=${selectedLanguage}`;
-            const res = await fetch(url, { credentials: 'include' });
-            if (!res.ok) return;
-            const json = await res.json();
-            if (json.code) {
-                persistCode(json.code);
-                setCode(json.code);
+            const response = await fetch('http://localhost:8080/api/vote', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                },
+                credentials: 'include',
+                body: JSON.stringify({
+                    target_id: targetId,
+                    type: type,
+                    value: value,
+                }),
+            });
+
+            if (!response.ok) {
+                const errorData = await response.json();
+                throw new Error(errorData.message || 'Failed to vote');
+            }
+
+            if (type === 'thread') {
+                await fetchThreads();
+            } else if (selectedThread) {
+                await loadComments(selectedThread.id);
             }
         } catch (err) {
-            console.error('Failed fetching last code', err);
+            console.error('Error voting:', err);
         }
-    }, [problemId, isLoggedIn, selectedLanguage]);
+    };
 
-    // On component mount / language change: load code from localStorage or backend
-    useEffect(() => {
-        if (!problemId) return;
-        const storageKey = `code_${problemId}_${selectedLanguage}`;
-        const savedCode = localStorage.getItem(storageKey);
-        if (savedCode !== null) {
-            setCode(savedCode);
-            // Already persisted
-        } else {
-            // Attempt to fetch from backend if user is logged in
-            fetchLastSubmittedCode();
+    // Handle deleting a comment
+    const handleDeleteComment = async (commentId: string) => {
+        try {
+            const response = await fetch(`http://localhost:8080/api/discussions/comments/${commentId}`, {
+                method: 'DELETE',
+                credentials: 'include',
+            });
+
+            if (!response.ok) {
+                const errorData = await response.json();
+                throw new Error(errorData.message || 'Failed to delete comment');
+            }
+
+            if (selectedThread) {
+                await loadComments(selectedThread.id);
+            }
+        } catch (err) {
+            console.error('Error deleting comment:', err);
         }
-    }, [problemId, selectedLanguage, fetchLastSubmittedCode]);
+    };
+
+    // Switch to thread view
+    const handleThreadClick = (thread: ThreadType) => {
+        setSelectedThread(thread);
+        setDiscussionView('thread');
+        loadComments(thread.id);
+    };
+
+    // Back to thread list view
+    const handleBackToList = () => {
+        setSelectedThread(null);
+        setDiscussionView('list');
+        setComments([]);
+        setNewCommentContent('');
+    };
+
+    const handleLanguageChange = (value: string) => {
+        if (code.trim() !== '' && code.trim() !== 'Start coding here...') {
+            // Check for specific language confirmation
+            const confirmMessage = `You have existing code. Switching to ${value} will clear your current code. Continue?`;
+            if (!confirm(confirmMessage)) {
+                return; // Don't change if user cancels
+            }
+        }
+        setSelectedLanguage(value);
+        setCode('// Start coding here...');
+        setConvertedCode('');
+    };
 
     useEffect(() => {
-        // Check login status
         const checkLoginStatus = async () => {
             try {
                 const response = await fetch('http://localhost:8080/api/auth-status', {
-                    method: 'GET',
                     credentials: 'include',
                 });
                 if (response.ok) {
@@ -352,16 +508,12 @@ export default function SingleProblemPage() {
     }, [activeTestCase, customTestCases]);
 
     function handleEditorDidMount(editor: any, monaco: Monaco) {
-        editorRef.current = editor;
+        onEditorMount(editor, monaco);
+        monacoRef.current = monaco;
     }
 
     function handleEditorChange(value: string | undefined) {
-        const newVal = value || '';
-        setCode(newVal);
-        persistCode(newVal);
-        if (selectedLanguage === 'pseudocode') {
-            setConvertedCode(''); // Clear converted code on edit
-        }
+        setCode(value || '');
     }
 
     const handleRunCode = async () => {
@@ -369,55 +521,39 @@ export default function SingleProblemPage() {
 
         setIsExecuting(true);
         setExecutionError(null);
-        setTestCaseResults([]);
         setOutput(null);
-        setActiveResultTab(0);
+        setTestCaseResults([]);
 
         try {
-            let codeToExecute = code;
-            let languageToExecute = selectedLanguage;
+            const testCases = customTestCases.map(tc => tc.input);
+            const languageToExecute = selectedLanguage === 'pseudocode' ? 'python' : selectedLanguage;
 
-            // Handle pseudocode conversion
+            let codeToExecute = code;
             if (selectedLanguage === 'pseudocode') {
-                const convertRes = await fetch('http://localhost:8080/convert-code', {
+                // Convert pseudocode to Python before execution
+                const conversionResponse = await fetch('http://localhost:8080/convert-code', {
                     method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
                     credentials: 'include',
-                    body: JSON.stringify({ pseudocode: code }),
+                    body: JSON.stringify({
+                        pseudocode: code,
+                    }),
                 });
 
-                if (!convertRes.ok) {
-                    const errData = await convertRes.json();
-                    throw new Error(errData.message || 'Failed to convert pseudocode');
+                if (!conversionResponse.ok) {
+                    const errorData = await conversionResponse.json();
+                    throw new Error(errorData.message || 'Failed to convert pseudocode');
                 }
 
-                const convertData = await convertRes.json();
-                if (convertData.python_code) {
-                    setConvertedCode(convertData.python_code);
-                    codeToExecute = convertData.python_code;
-                    languageToExecute = 'python';
-                } else {
-                    throw new Error("Conversion successful but no Python code was returned.");
-                }
+                const conversionData = await conversionResponse.json();
+                codeToExecute = conversionData.python_code;
+                setConvertedCode(codeToExecute);
             }
 
-            await executeCode(codeToExecute, languageToExecute, customTestCases.map(tc => tc.input.trim()).filter(input => input.length > 0));
-
-        } catch (err) {
-            setExecutionError(err instanceof Error ? err.message : 'An unknown error occurred during conversion or execution.');
-            setOutput(null); // Clear output on error
-        } finally {
-            setIsExecuting(false);
-        }
-    };
-
-    // Helper function to abstract the actual execution call
-    const executeCode = async (codeToExecute: string, languageToExecute: string, testCases: string[]) => {
-        // This function no longer manages isExecuting or executionError state.
-        // It will throw an error to be caught by the caller.
-        try {
             const controller = new AbortController();
-            const timeoutId = setTimeout(() => controller.abort(), 15000);
+            const timeoutId = setTimeout(() => controller.abort(), 30000);
 
             const response = await fetch('http://localhost:8080/execute', {
                 method: 'POST',
@@ -518,6 +654,9 @@ export default function SingleProblemPage() {
             console.error('Failed to execute code:', err);
             // Re-throw so the caller can handle UI state
             throw err;
+        } finally {
+            // Always reset isExecuting state regardless of success or failure
+            setIsExecuting(false);
         }
     };
 
@@ -669,420 +808,680 @@ export default function SingleProblemPage() {
             <Head>
                 <title>{problem.title} - Online Judge</title>
             </Head>
-
-            {/* Navigation Bar */}
-            <nav className="bg-white shadow-sm">
-                <div className="max-w-screen-2xl mx-auto px-4 sm:px-6 lg:px-8">
-                    <div className="flex justify-between h-16">
-                        <div className="flex">
-                            <div className="flex-shrink-0 flex items-center">
-                                <Link href="/" legacyBehavior>
-                                    <a className="text-xl font-bold text-indigo-600">OJ</a>
-                                </Link>
-                            </div>
-                            <div className="ml-6 flex items-center space-x-4">
-                                <Link href="/problems" legacyBehavior>
-                                    <a className="px-3 py-2 text-sm font-medium text-gray-700 hover:text-gray-900">
-                                        Problems
-                                    </a>
-                                </Link>
-                                <Link href="/submissions" legacyBehavior>
-                                    <a className="px-3 py-2 text-sm font-medium text-gray-700 hover:text-gray-900">
-                                        Submissions
-                                    </a>
-                                </Link>
-                            </div>
-                        </div>
-                        <div className="flex items-center">
-                            {isLoggedIn ? (
-                                <button
-                                    className="ml-4 px-3 py-2 text-sm font-medium text-indigo-600 hover:text-indigo-800"
-                                    onClick={() => {
-                                        document.cookie = "authToken=; expires=Thu, 01 Jan 1970 00:00:00 UTC; path=/;";
-                                        setIsLoggedIn(false);
-                                        router.push('/');
-                                    }}
-                                >
-                                    Logout
-                                </button>
-                            ) : (
-                                <>
-                                    <Link href="/login" legacyBehavior>
-                                        <a className="px-3 py-2 text-sm font-medium text-indigo-600 hover:text-indigo-800">
-                                            Sign In
-                                        </a>
-                                    </Link>
-                                    <Link href="/register" legacyBehavior>
-                                        <a className="ml-4 px-4 py-2 text-sm font-medium text-white bg-indigo-600 hover:bg-indigo-700 rounded-md">
-                                            Sign Up
-                                        </a>
-                                    </Link>
-                                </>
-                            )}
-                        </div>
-                    </div>
-                </div>
-            </nav>
-
-            {/* Problem Title Bar */}
-            <div className="bg-white shadow-sm border-b border-gray-200">
-                <div className="max-w-screen-2xl mx-auto px-4 sm:px-6 lg:px-8">
-                    <div className="py-4">
-                        <div className="flex items-center justify-between">
-                            <h1 className="text-2xl font-bold text-gray-900">
-                                {problem.problem_id ? `${problem.problem_id}. ` : ''}{problem.title}
-                            </h1>
-                            <div className="flex items-center">
-                                <span className={`px-2.5 py-1 rounded-md text-sm font-medium ${problem.difficulty?.toLowerCase() === 'easy' ? 'bg-green-100 text-green-800' :
-                                    problem.difficulty?.toLowerCase() === 'medium' ? 'bg-yellow-100 text-yellow-800' :
-                                        'bg-red-100 text-red-800'
-                                    }`}>
-                                    {problem.difficulty || 'N/A'}
-                                </span>
-                            </div>
-                        </div>
-                    </div>
-                </div>
-            </div>
-
-            {/* Main Content */}
-            <div className="flex flex-col md:flex-row h-[calc(100vh-128px)] bg-white">
-                {/* Left Panel: Problem Description */}
-                <div className="w-full md:w-1/2 lg:w-5/12 border-r border-gray-200 flex flex-col">
-                    <div className="border-b border-gray-200">
-                        <div className="flex">
-                            <button
-                                className={`px-4 py-2 text-sm font-medium ${currentTab === 'description' ? 'text-indigo-600 border-b-2 border-indigo-600' : 'text-gray-700 hover:text-gray-900'}`}
-                                onClick={() => setCurrentTab('description')}
-                            >
-                                Description
-                            </button>
-                            <button
-                                className={`px-4 py-2 text-sm font-medium ${currentTab === 'submissions' ? 'text-indigo-600 border-b-2 border-indigo-600' : 'text-gray-700 hover:text-gray-900'}`}
-                                onClick={() => setCurrentTab('submissions')}
-                            >
-                                Submissions
-                            </button>
-                        </div>
-                    </div>
-
-                    <div className="overflow-y-auto flex-grow">
-                        {currentTab === 'description' && (
-                            <div className="p-4">
-                                {/* Problem Statement */}
-                                <div className="mb-6">
-                                    <div className="prose prose-indigo max-w-none text-gray-800"
-                                        dangerouslySetInnerHTML={{ __html: problem.statement.replace(/\n/g, '<br />') }}
-                                    />
-                                </div>
-
-                                {/* Constraints */}
-                                <div className="mb-6">
-                                    <h2 className="text-lg font-semibold text-gray-800 mb-2">Constraints</h2>
-                                    <div className="prose prose-indigo max-w-none text-gray-800"
-                                        dangerouslySetInnerHTML={{ __html: problem.constraints_text?.replace(/\n/g, '<br />') || 'N/A' }}
-                                    />
-                                    <div className="mt-3 grid grid-cols-2 gap-4">
-                                        <div>
-                                            <p className="text-sm font-medium text-gray-700">Time Limit</p>
-                                            <p className="text-sm text-gray-900">{problem.time_limit_ms / 1000} seconds</p>
-                                        </div>
-                                        <div>
-                                            <p className="text-sm font-medium text-gray-700">Memory Limit</p>
-                                            <p className="text-sm text-gray-900">{problem.memory_limit_mb} MB</p>
-                                        </div>
-                                    </div>
-                                </div>
-
-                                {/* Sample Test Cases */}
-                                {problem.sample_test_cases && problem.sample_test_cases.length > 0 && (
-                                    <div>
-                                        <h2 className="text-lg font-semibold text-gray-800 mb-3">Examples</h2>
-                                        {problem.sample_test_cases.map((tc, index) => (
-                                            <div key={index} className="mb-5 last:mb-0">
-                                                <h3 className="text-md font-medium text-gray-700 mb-2">Example {index + 1}</h3>
-                                                <div className="bg-gray-50 border border-gray-200 rounded-md p-3 mb-2">
-                                                    <p className="text-xs font-medium text-gray-700 uppercase mb-1">Input:</p>
-                                                    <pre className="text-sm text-gray-800 whitespace-pre-wrap">{tc.input}</pre>
-                                                </div>
-                                                <div className="bg-gray-50 border border-gray-200 rounded-md p-3">
-                                                    <p className="text-xs font-medium text-gray-700 uppercase mb-1">Output:</p>
-                                                    <pre className="text-sm text-gray-800 whitespace-pre-wrap">{tc.expected_output}</pre>
-                                                </div>
-                                                {tc.notes && (
-                                                    <div className="mt-2 text-sm text-gray-700">
-                                                        <p className="font-medium">Explanation:</p>
-                                                        <p>{tc.notes}</p>
-                                                    </div>
-                                                )}
-                                            </div>
+            <div className="min-h-screen bg-gray-100">
+                <ResizablePanelGroup direction="horizontal" className="min-h-screen">
+                    {/* Left Panel: Problem Description */}
+                    <ResizablePanel defaultSize={40} minSize={30}>
+                        <div className="h-screen flex flex-col bg-white border-r border-gray-200">
+                            {/* Header */}
+                            <div className="p-4 border-b border-gray-200">
+                                <div className="flex items-center justify-between mb-2">
+                                    <h1 className="text-xl font-bold text-gray-900">{problem.title}</h1>
+                                    <div className="flex items-center space-x-2">
+                                        <span className={`px-2 py-1 text-xs font-medium rounded-full ${problem.difficulty === 'Easy' ? 'bg-green-100 text-green-800' :
+                                            problem.difficulty === 'Medium' ? 'bg-yellow-100 text-yellow-800' :
+                                                'bg-red-100 text-red-800'
+                                            }`}>
+                                            {problem.difficulty}
+                                        </span>
+                                        {problem.tags && problem.tags.map((tag, index) => (
+                                            <span key={index} className="px-2 py-1 text-xs font-medium bg-indigo-100 text-indigo-800 rounded-full">
+                                                {tag}
+                                            </span>
                                         ))}
                                     </div>
-                                )}
-                            </div>
-                        )}
-
-                        {currentTab === 'submissions' && (
-                            <div className="p-4">
-                                <div>
-                                    <h2 className="text-lg font-semibold text-gray-800 mb-3">Your Submissions</h2>
-                                    {isLoggedIn ? (
-                                        <p className="text-gray-700 text-sm">View your submissions history for this problem.</p>
-                                    ) : (
-                                        <div className="bg-blue-50 border border-blue-200 text-blue-700 p-3 rounded-md">
-                                            <p>Please <Link href="/login" className="underline">sign in</Link> to view your submissions.</p>
-                                        </div>
-                                    )}
                                 </div>
                             </div>
-                        )}
-                    </div>
-                </div>
 
-                {/* Right Panel: Code Editor */}
-                <div className="w-full md:w-1/2 lg:w-7/12 flex flex-col">
-                    {/* Language Selector */}
-                    <div className="h-12 bg-white border-b border-gray-200 px-4 flex items-center">
-                        <select
-                            id="language"
-                            value={selectedLanguage}
-                            onChange={(e) => setSelectedLanguage(e.target.value)}
-                            className="bg-gray-700 border border-gray-600 rounded-md px-3 py-1 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500"
-                        >
-                            <option value="python">Python</option>
-                            <option value="javascript">JavaScript</option>
-                            <option value="cpp">C++</option>
-                            <option value="java">Java</option>
-                            <option value="pseudocode">Pseudocode</option>
-                        </select>
-                    </div>
-
-                    {/* Code Editor & Converted Code Viewer Container */}
-                    <div className="flex-grow flex flex-row h-[60vh]">
-                        {/* Main Code Editor */}
-                        <div className={`h-full ${selectedLanguage === 'pseudocode' ? 'w-1/2' : 'w-full'}`}>
-                            <Editor
-                                height="100%"
-                                language={selectedLanguage}
-                                value={code}
-                                onChange={handleEditorChange}
-                                onMount={onEditorMount}
-                                theme="vs-dark"
-                                options={{
-                                    fontSize: 14,
-                                    minimap: { enabled: false },
-                                    automaticLayout: true,
-                                    quickSuggestions: true,
-                                    suggestOnTriggerCharacters: true,
-                                    inlineSuggest: {
-                                        enabled: true,
-                                        mode: 'subword'
-                                    },
-                                    // Add these options to improve the experience
-                                    tabCompletion: 'on',
-                                    snippetSuggestions: 'inline'
-                                }}
-                            />
-                        </div>
-
-                        {/* Converted Code Viewer (for Pseudocode) */}
-                        {selectedLanguage === 'pseudocode' && (
-                            <div className="w-1/2 h-full flex flex-col bg-gray-900 ml-2">
-                                <div className="flex justify-between items-center p-3 bg-gray-800 rounded-t-lg">
-                                    <h3 className="font-semibold text-white">Generated Python Code</h3>
-                                    <span className="text-xs text-gray-400">Read-only</span>
-                                </div>
-                                <div className="flex-grow">
-                                    <Editor
-                                        height="100%"
-                                        language="python"
-                                        value={convertedCode || "// Click 'Run' to see AI-generated code"}
-                                        theme="vs-dark"
-                                        options={{ readOnly: true }}
-                                    />
-                                </div>
-                            </div>
-                        )}
-                    </div>
-
-                    {/* Test Cases and Console */}
-                    <div className="h-64 flex flex-col bg-white">
-                        {/* Tabs */}
-                        <div className="h-10 bg-white border-b border-gray-200 flex items-center px-4">
-                            <div className="flex">
-                                <div className="flex items-center mr-4">
-                                    {customTestCases.map((_, index) => (
-                                        <button
-                                            key={index}
-                                            className={`px-3 py-1 text-xs mr-2 rounded-full ${activeTestCase === index
-                                                ? 'bg-indigo-600 text-white'
-                                                : 'bg-gray-200 text-gray-700 hover:bg-gray-300'
-                                                }`}
-                                            onClick={() => setActiveTestCase(index)}
-                                        >
-                                            Case {index + 1}
-                                        </button>
-                                    ))}
+                            {/* Tab Navigation */}
+                            <div className="border-b border-gray-200">
+                                <div className="flex">
                                     <button
-                                        className="px-3 py-1 text-xs bg-gray-200 text-gray-700 hover:bg-gray-300 rounded-full"
-                                        onClick={handleAddTestCase}
+                                        className={`px-4 py-2 text-sm font-medium ${currentTab === 'description' ? 'text-indigo-600 border-b-2 border-indigo-600' : 'text-gray-700 hover:text-gray-900'}`}
+                                        onClick={() => setCurrentTab('description')}
                                     >
-                                        +
+                                        Description
+                                    </button>
+                                    <button
+                                        className={`px-4 py-2 text-sm font-medium ${currentTab === 'discussion' ? 'text-indigo-600 border-b-2 border-indigo-600' : 'text-gray-700 hover:text-gray-900'}`}
+                                        onClick={() => {
+                                            setCurrentTab('discussion');
+                                            if (threads.length === 0) {
+                                                fetchThreads();
+                                            }
+                                        }}
+                                    >
+                                        <MessageSquare className="inline-block w-4 h-4 mr-1" />
+                                        Discussion
+                                    </button>
+                                    <button
+                                        className={`px-4 py-2 text-sm font-medium ${currentTab === 'submissions' ? 'text-indigo-600 border-b-2 border-indigo-600' : 'text-gray-700 hover:text-gray-900'}`}
+                                        onClick={() => setCurrentTab('submissions')}
+                                    >
+                                        Submissions
                                     </button>
                                 </div>
                             </div>
-                        </div>
 
-                        {/* Input/Output Area */}
-                        <div className="flex-grow grid grid-cols-2 gap-4 p-4 overflow-auto">
-                            <div className="space-y-4">
-                                {/* Input */}
-                                <div className="flex flex-col">
-                                    <p className="text-xs font-medium text-gray-700 mb-1">Input:</p>
-                                    <textarea
-                                        className="flex-grow p-2 text-sm font-mono border border-gray-300 rounded-md focus:outline-none focus:ring-1 focus:ring-indigo-500 text-gray-800"
-                                        value={testCaseInput}
-                                        onChange={(e) => handleTestCaseInputChange(e.target.value)}
-                                        placeholder="Enter input for this test case..."
-                                        rows={3}
-                                    />
-                                </div>
+                            <div className="overflow-y-auto flex-grow">
+                                {currentTab === 'description' && (
+                                    <div className="p-4">
+                                        {/* Problem Statement */}
+                                        <div className="mb-6">
+                                            <div className="prose prose-indigo max-w-none text-gray-800"
+                                                dangerouslySetInnerHTML={{ __html: problem.statement.replace(/\n/g, '<br />') }}
+                                            />
+                                        </div>
 
-                                {/* Expected Output */}
-                                <div className="flex flex-col">
-                                    <p className="text-xs font-medium text-gray-700 mb-1">Expected Output:</p>
-                                    <textarea
-                                        className="flex-grow p-2 text-sm font-mono border border-gray-300 rounded-md focus:outline-none focus:ring-1 focus:ring-indigo-500 text-gray-800"
-                                        value={customTestCases[activeTestCase]?.expected || ''}
-                                        onChange={(e) => handleTestCaseExpectedChange(e.target.value)}
-                                        placeholder="Enter expected output for verification..."
-                                        rows={3}
-                                    />
-                                </div>
-                            </div>
-
-                            {/* Output */}
-                            <div className="flex flex-col">
-                                <p className="text-xs font-medium text-gray-700 mb-1">Output:</p>
-                                <div className="flex-grow p-2 text-sm font-mono border border-gray-300 rounded-md bg-gray-50 overflow-auto whitespace-pre-wrap text-gray-800">
-                                    {isExecuting ? (
-                                        <div className="text-gray-600">Running code against all test cases...</div>
-                                    ) : executionError ? (
-                                        <div className="text-red-600">{executionError}</div>
-                                    ) : testCaseResults.length > 0 ? (
-                                        <>
-                                            {/* Test Result Header */}
-                                            <div className="bg-gray-800 text-white p-2 flex items-center">
-                                                <div className="flex items-center">
-                                                    <span className={`w-2 h-2 rounded-full mr-2 ${testCaseResults.every(r => r.status === 'success')
-                                                        ? 'bg-green-500'
-                                                        : 'bg-red-500'
-                                                        }`}></span>
-                                                    <span className="font-medium">
-                                                        {testCaseResults.every(r => r.status === 'success')
-                                                            ? 'Accepted'
-                                                            : 'Failed'}
-                                                    </span>
+                                        {/* Constraints */}
+                                        <div className="mb-6">
+                                            <h2 className="text-lg font-semibold text-gray-800 mb-2">Constraints</h2>
+                                            <div className="prose prose-indigo max-w-none text-gray-800"
+                                                dangerouslySetInnerHTML={{ __html: problem.constraints_text?.replace(/\n/g, '<br />') || 'N/A' }}
+                                            />
+                                            <div className="mt-3 grid grid-cols-2 gap-4">
+                                                <div>
+                                                    <p className="text-sm font-medium text-gray-700">Time Limit</p>
+                                                    <p className="text-sm text-gray-900">{problem.time_limit_ms / 1000} seconds</p>
                                                 </div>
-                                                <div className="ml-4 text-xs text-gray-300">
-                                                    Runtime: {testCaseResults[activeResultTab]?.executionTimeMs || 0} ms
+                                                <div>
+                                                    <p className="text-sm font-medium text-gray-700">Memory Limit</p>
+                                                    <p className="text-sm text-gray-900">{problem.memory_limit_mb} MB</p>
                                                 </div>
                                             </div>
+                                        </div>
 
-                                            {/* Test Case Tabs */}
-                                            <div className="bg-gray-700 text-white px-2 pt-1 flex">
-                                                {testCaseResults.map((_, index) => (
-                                                    <button
-                                                        key={index}
-                                                        className={`px-3 py-1 text-xs mr-1 rounded-t ${activeResultTab === index
-                                                            ? 'bg-gray-50 text-gray-800'
-                                                            : 'bg-gray-600 text-gray-200 hover:bg-gray-500'
-                                                            }`}
-                                                        onClick={() => setActiveResultTab(index)}
-                                                    >
-                                                        <span className={`w-2 h-2 rounded-full inline-block mr-1 ${testCaseResults[index].status === 'success'
-                                                            ? 'bg-green-500'
-                                                            : 'bg-red-500'
-                                                            }`}></span>
-                                                        Case {index + 1}
-                                                    </button>
-                                                ))}
-                                            </div>
-
-                                            {/* Current Test Case Result */}
-                                            <div className="p-2 text-sm font-mono whitespace-pre-wrap flex-grow">
-                                                {testCaseResults[activeResultTab] && (
-                                                    <div className="space-y-2">
-                                                        {/* Output */}
-                                                        {testCaseResults[activeResultTab].stdout && (
-                                                            <div>
-                                                                <div className="font-semibold text-xs text-gray-700 mb-1">Your Output:</div>
-                                                                <div className="pl-2 border-l-2 border-green-400">
-                                                                    {testCaseResults[activeResultTab].stdout}
-                                                                </div>
-                                                            </div>
-                                                        )}
-
-                                                        {/* Error */}
-                                                        {(testCaseResults[activeResultTab].stderr || testCaseResults[activeResultTab].error) && (
-                                                            <div>
-                                                                <div className="font-semibold text-xs text-red-700 mb-1">Error:</div>
-                                                                <div className="pl-2 border-l-2 border-red-400 text-red-600">
-                                                                    {testCaseResults[activeResultTab].stderr || testCaseResults[activeResultTab].error}
-                                                                </div>
-                                                            </div>
-                                                        )}
-
-                                                        {/* Comparison Result */}
-                                                        {testCaseResults[activeResultTab].status === 'wrong_answer' && (
-                                                            <div className="mt-1 text-xs text-red-600">
-                                                                Your output does not match the expected output.
+                                        {/* Sample Test Cases */}
+                                        {problem.sample_test_cases && problem.sample_test_cases.length > 0 && (
+                                            <div>
+                                                <h2 className="text-lg font-semibold text-gray-800 mb-3">Examples</h2>
+                                                {problem.sample_test_cases.map((tc, index) => (
+                                                    <div key={index} className="mb-4 p-3 border border-gray-200 rounded-md bg-gray-50">
+                                                        <h3 className="text-sm font-medium text-gray-700 mb-2">Example {index + 1}</h3>
+                                                        <div className="mb-2">
+                                                            <p className="text-xs font-medium text-gray-600">Input:</p>
+                                                            <pre className="text-xs bg-white p-2 rounded border">{tc.input}</pre>
+                                                        </div>
+                                                        <div>
+                                                            <p className="text-xs font-medium text-gray-600">Output:</p>
+                                                            <pre className="text-xs bg-white p-2 rounded border">{tc.expected_output}</pre>
+                                                        </div>
+                                                        {tc.notes && (
+                                                            <div className="mt-2">
+                                                                <p className="text-xs font-medium text-gray-600">Explanation:</p>
+                                                                <p className="text-xs text-gray-700">{tc.notes}</p>
                                                             </div>
                                                         )}
                                                     </div>
-                                                )}
+                                                ))}
                                             </div>
-                                        </>
-                                    ) : submissionResult?.error ? (
-                                        <div className="text-red-600">Submission error: {submissionResult.error}</div>
-                                    ) : (
-                                        <div className="text-gray-500">
-                                            Click "Run" to execute your code against all test cases.
+                                        )}
+                                    </div>
+                                )}
+
+                                {currentTab === 'discussion' && (
+                                    <div className="p-4 h-full flex flex-col">
+                                        {discussionView === 'list' ? (
+                                            // Thread List View
+                                            <>
+                                                <div className="flex items-center justify-between mb-4">
+                                                    <h2 className="text-lg font-semibold text-gray-800">Discussion</h2>
+                                                    {isLoggedIn && (
+                                                        <button
+                                                            onClick={() => setShowCreateThread(!showCreateThread)}
+                                                            className="px-3 py-1 text-sm font-medium text-white bg-indigo-600 hover:bg-indigo-700 rounded-md"
+                                                        >
+                                                            {showCreateThread ? 'Cancel' : 'New Thread'}
+                                                        </button>
+                                                    )}
+                                                </div>
+
+                                                {/* Create Thread Form */}
+                                                {showCreateThread && (
+                                                    <div className="mb-4 p-4 border rounded-md bg-gray-50">
+                                                        <h3 className="text-md font-medium text-gray-700 mb-2">Create a New Thread</h3>
+                                                        <div className="mb-3">
+                                                            <input
+                                                                type="text"
+                                                                value={newThreadTitle}
+                                                                onChange={(e) => setNewThreadTitle(e.target.value)}
+                                                                className="w-full p-2 text-sm border rounded-md focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                                                                placeholder="Thread title..."
+                                                            />
+                                                        </div>
+                                                        <div className="mb-4">
+                                                            <textarea
+                                                                value={newThreadContent}
+                                                                onChange={(e) => setNewThreadContent(e.target.value)}
+                                                                className="w-full p-2 text-sm border rounded-md focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                                                                placeholder="What would you like to discuss about this problem?"
+                                                                rows={3}
+                                                            />
+                                                        </div>
+                                                        <div className="flex gap-2">
+                                                            <button
+                                                                onClick={handleCreateThread}
+                                                                disabled={isCreatingThread || !newThreadTitle.trim() || !newThreadContent.trim()}
+                                                                className="px-4 py-2 text-sm font-medium text-white bg-indigo-600 hover:bg-indigo-700 rounded-md disabled:opacity-50"
+                                                            >
+                                                                {isCreatingThread ? 'Creating...' : 'Create Thread'}
+                                                            </button>
+                                                            <button
+                                                                onClick={() => {
+                                                                    setShowCreateThread(false);
+                                                                    setNewThreadTitle('');
+                                                                    setNewThreadContent('');
+                                                                }}
+                                                                className="px-4 py-2 text-sm font-medium text-gray-600 bg-gray-200 hover:bg-gray-300 rounded-md"
+                                                            >
+                                                                Cancel
+                                                            </button>
+                                                        </div>
+                                                    </div>
+                                                )}
+
+                                                {/* Thread List */}
+                                                <div className="flex-1 overflow-y-auto">
+                                                    {isLoadingThreads ? (
+                                                        <div className="text-center py-8">
+                                                            <Loader className="animate-spin h-6 w-6 mx-auto text-indigo-600" />
+                                                            <p className="text-gray-600 mt-2">Loading discussions...</p>
+                                                        </div>
+                                                    ) : threads.length === 0 ? (
+                                                        <div className="text-center py-8">
+                                                            <MessageSquare className="h-12 w-12 mx-auto text-gray-400 mb-4" />
+                                                            <p className="text-gray-600">No discussions yet. Be the first to start a conversation!</p>
+                                                        </div>
+                                                    ) : (
+                                                        <div className="space-y-3">
+                                                            {threads.map((thread) => (
+                                                                <div
+                                                                    key={thread.id}
+                                                                    className="border border-gray-200 rounded-lg p-4 hover:bg-gray-50 cursor-pointer transition-colors"
+                                                                    onClick={() => handleThreadClick(thread)}
+                                                                >
+                                                                    <div className="flex justify-between items-start mb-2">
+                                                                        <h3 className="text-md font-medium text-gray-900 hover:text-indigo-600">
+                                                                            {thread.title}
+                                                                        </h3>
+                                                                        <div className="flex items-center space-x-2 text-sm text-gray-500">
+                                                                            <span className="flex items-center">
+                                                                                <ArrowUp className="h-4 w-4 mr-1" />
+                                                                                {thread.upvotes}
+                                                                            </span>
+                                                                            <span className="flex items-center">
+                                                                                <MessageSquare className="h-4 w-4 mr-1" />
+                                                                                {thread.comment_count}
+                                                                            </span>
+                                                                        </div>
+                                                                    </div>
+                                                                    <p className="text-gray-700 text-sm mb-2 line-clamp-2">
+                                                                        {thread.content}
+                                                                    </p>
+                                                                    <div className="flex justify-between items-center text-xs text-gray-500">
+                                                                        <span>by {thread.username}</span>
+                                                                        <span>{new Date(thread.created_at).toLocaleDateString()}</span>
+                                                                    </div>
+                                                                </div>
+                                                            ))}
+                                                        </div>
+                                                    )}
+                                                </div>
+
+                                                {!isLoggedIn && (
+                                                    <div className="mt-4 p-3 bg-blue-50 border border-blue-200 text-blue-700 rounded-md">
+                                                        <p>Please <Link href="/login" className="underline">sign in</Link> to participate in discussions.</p>
+                                                    </div>
+                                                )}
+                                            </>
+                                        ) : (
+                                            // Single Thread View
+                                            selectedThread && (
+                                                <div className="h-full flex flex-col">
+                                                    {/* Thread Header */}
+                                                    <div className="flex items-center gap-2 mb-4 pb-4 border-b border-gray-200">
+                                                        <button
+                                                            onClick={handleBackToList}
+                                                            className="flex items-center gap-1 px-3 py-1 text-sm text-gray-600 hover:text-gray-800 border border-gray-300 rounded-md"
+                                                        >
+                                                            <ChevronLeft className="h-4 w-4" />
+                                                            Back
+                                                        </button>
+                                                        <h2 className="text-lg font-semibold text-gray-800 flex-1">
+                                                            {selectedThread.title}
+                                                        </h2>
+                                                    </div>
+
+                                                    {/* Thread Content */}
+                                                    <div className="flex-1 overflow-y-auto">
+                                                        <div className="mb-6 p-4 bg-gray-50 rounded-lg">
+                                                            <div className="flex justify-between items-start mb-3">
+                                                                <div className="flex items-center gap-2">
+                                                                    <span className="font-medium text-gray-900">{selectedThread.username}</span>
+                                                                    <span className="text-sm text-gray-500">
+                                                                        {new Date(selectedThread.created_at).toLocaleString()}
+                                                                    </span>
+                                                                </div>
+                                                                <div className="flex items-center space-x-3">
+                                                                    {isLoggedIn && (
+                                                                        <>
+                                                                            <button
+                                                                                onClick={() => handleVote(selectedThread.id, 'thread', 1)}
+                                                                                className="flex items-center text-gray-600 hover:text-green-600"
+                                                                            >
+                                                                                <ArrowUp className="h-4 w-4 mr-1" />
+                                                                                {selectedThread.upvotes}
+                                                                            </button>
+                                                                            <button
+                                                                                onClick={() => handleVote(selectedThread.id, 'thread', -1)}
+                                                                                className="flex items-center text-gray-600 hover:text-red-600"
+                                                                            >
+                                                                                <ArrowDown className="h-4 w-4 mr-1" />
+                                                                                {selectedThread.downvotes}
+                                                                            </button>
+                                                                        </>
+                                                                    )}
+                                                                </div>
+                                                            </div>
+                                                            <div className="text-gray-800 whitespace-pre-wrap">
+                                                                {selectedThread.content}
+                                                            </div>
+                                                        </div>
+
+                                                        {/* Comments Section */}
+                                                        <div>
+                                                            <h3 className="text-md font-medium text-gray-800 mb-4">
+                                                                Comments ({comments.length})
+                                                            </h3>
+
+                                                            {isLoggedIn && !selectedThread.is_locked && (
+                                                                <div className="mb-6 p-4 border border-gray-200 rounded-lg">
+                                                                    <textarea
+                                                                        placeholder="Add a comment..."
+                                                                        value={newCommentContent}
+                                                                        onChange={(e) => setNewCommentContent(e.target.value)}
+                                                                        rows={3}
+                                                                        className="w-full p-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-indigo-500 mb-2"
+                                                                    />
+                                                                    <button
+                                                                        onClick={handleCreateComment}
+                                                                        disabled={isCreatingComment || !newCommentContent.trim()}
+                                                                        className="px-4 py-2 text-sm font-medium text-white bg-indigo-600 hover:bg-indigo-700 rounded-md disabled:opacity-50"
+                                                                    >
+                                                                        {isCreatingComment ? 'Posting...' : 'Post Comment'}
+                                                                    </button>
+                                                                </div>
+                                                            )}
+
+                                                            {isLoadingComments ? (
+                                                                <div className="text-center py-4">
+                                                                    <Loader className="animate-spin h-6 w-6 mx-auto text-indigo-600" />
+                                                                </div>
+                                                            ) : comments.length === 0 ? (
+                                                                <p className="text-gray-600 text-center py-4">No comments yet.</p>
+                                                            ) : (
+                                                                <div className="space-y-4">
+                                                                    {comments.map((comment) => (
+                                                                        <div key={comment.id} className="border-l-4 border-gray-200 pl-4">
+                                                                            <div className="flex justify-between items-start mb-2">
+                                                                                <div className="flex items-center gap-2">
+                                                                                    <span className="font-medium text-gray-900">{comment.username}</span>
+                                                                                    <span className="text-sm text-gray-500">
+                                                                                        {new Date(comment.created_at).toLocaleString()}
+                                                                                    </span>
+                                                                                </div>
+                                                                                <div className="flex items-center space-x-2">
+                                                                                    {isLoggedIn && (
+                                                                                        <>
+                                                                                            <button
+                                                                                                onClick={() => handleVote(comment.id, 'comment', 1)}
+                                                                                                className="flex items-center text-gray-600 hover:text-green-600 text-sm"
+                                                                                            >
+                                                                                                <ArrowUp className="h-3 w-3 mr-1" />
+                                                                                                {comment.upvotes}
+                                                                                            </button>
+                                                                                            <button
+                                                                                                onClick={() => handleVote(comment.id, 'comment', -1)}
+                                                                                                className="flex items-center text-gray-600 hover:text-red-600 text-sm"
+                                                                                            >
+                                                                                                <ArrowDown className="h-3 w-3 mr-1" />
+                                                                                                {comment.downvotes}
+                                                                                            </button>
+                                                                                            <button
+                                                                                                onClick={() => handleDeleteComment(comment.id)}
+                                                                                                className="text-gray-600 hover:text-red-600"
+                                                                                            >
+                                                                                                <Trash2 className="h-3 w-3" />
+                                                                                            </button>
+                                                                                        </>
+                                                                                    )}
+                                                                                </div>
+                                                                            </div>
+                                                                            <div className="text-gray-800 whitespace-pre-wrap">
+                                                                                {comment.content}
+                                                                            </div>
+                                                                        </div>
+                                                                    ))}
+                                                                </div>
+                                                            )}
+                                                        </div>
+                                                    </div>
+                                                </div>
+                                            )
+                                        )}
+                                    </div>
+                                )}
+
+                                {currentTab === 'submissions' && (
+                                    <div className="p-4">
+                                        <div>
+                                            <h2 className="text-lg font-semibold text-gray-800 mb-3">Your Submissions</h2>
+                                            {isLoggedIn ? (
+                                                <p className="text-gray-700 text-sm">View your submissions history for this problem.</p>
+                                            ) : (
+                                                <div className="bg-blue-50 border border-blue-200 text-blue-700 p-3 rounded-md">
+                                                    <p>Please <Link href="/login" className="underline">sign in</Link> to view your submissions.</p>
+                                                </div>
+                                            )}
                                         </div>
-                                    )}
+                                    </div>
+                                )}
+                            </div>
+                        </div>
+                    </ResizablePanel>
+
+                    <ResizableHandle withHandle />
+
+                    {/* Right Panel: Code Editor */}
+                    <ResizablePanel defaultSize={60} minSize={40}>
+                        <div className="h-screen flex flex-col bg-white">
+                            {/* Language Selector */}
+                            <div className="p-4 border-b border-gray-200 bg-gray-50">
+                                <div className="flex items-center justify-between">
+                                    <Select value={selectedLanguage} onValueChange={handleLanguageChange}>
+                                        <SelectTrigger className="w-48">
+                                            <SelectValue placeholder="Select Language" />
+                                        </SelectTrigger>
+                                        <SelectContent>
+                                            <SelectItem value="python">Python</SelectItem>
+                                            <SelectItem value="javascript">JavaScript</SelectItem>
+                                            <SelectItem value="cpp">C++</SelectItem>
+                                            <SelectItem value="java">Java</SelectItem>
+                                            <SelectItem value="pseudocode">Pseudocode</SelectItem>
+                                        </SelectContent>
+                                    </Select>
+                                    <div className="flex space-x-2">
+                                        <button
+                                            onClick={async () => {
+                                                try {
+                                                    setExecutionError(null);
+                                                    await handleRunCode();
+                                                } catch (err) {
+                                                    setExecutionError(err instanceof Error ? err.message : 'An unknown error occurred.');
+                                                }
+                                            }}
+                                            disabled={isExecuting}
+                                            className="px-4 py-2 text-sm font-medium text-white bg-green-600 border border-transparent rounded-md shadow-sm hover:bg-green-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-green-500 disabled:opacity-50"
+                                        >
+                                            {isExecuting ? 'Running...' : 'Run'}
+                                        </button>
+                                        <button
+                                            className="px-4 py-2 text-sm font-medium text-white bg-indigo-600 border border-transparent rounded-md shadow-sm hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500"
+                                            onClick={handleSubmitCode}
+                                            disabled={isSubmitting || !isLoggedIn}
+                                        >
+                                            {isSubmitting ? 'Submitting...' : 'Submit'}
+                                        </button>
+                                    </div>
                                 </div>
                             </div>
-                        </div>
 
-                        {/* Authentication Banner - shown when not logged in */}
-                        {!isLoggedIn && (
-                            <div className="mx-4 mb-2 p-2 bg-yellow-50 border border-yellow-200 rounded text-yellow-800 text-sm">
-                                <p className="font-medium">Authentication Required</p>
-                                <p>Please <Link href="/login" className="text-blue-600 underline">sign in</Link> to run or submit code.</p>
+                            {/* Editor Area */}
+                            <div className="flex-grow">
+                                <ResizablePanelGroup direction="vertical">
+                                    {/* Code Editor Panel */}
+                                    <ResizablePanel defaultSize={60} minSize={30}>
+                                        <div className="h-full flex flex-col">
+                                            <div className="flex items-center px-4 py-2 bg-gray-50 border-b">
+                                                <div className="flex">
+                                                    <button
+                                                        className={`px-3 py-1 text-xs rounded-tl rounded-bl ${activeTab === 'pseudocode' ? 'bg-white border border-gray-300 border-b-white' : 'bg-gray-200 text-gray-700'
+                                                            }`}
+                                                        onClick={() => setActiveTab('pseudocode')}
+                                                    >
+                                                        Editor
+                                                    </button>
+                                                    {selectedLanguage === 'pseudocode' && convertedCode && (
+                                                        <button
+                                                            className={`px-3 py-1 text-xs rounded-tr rounded-br ${activeTab === 'converted' ? 'bg-white border border-gray-300 border-b-white' : 'bg-gray-200 text-gray-700'
+                                                                }`}
+                                                            onClick={() => setActiveTab('converted')}
+                                                        >
+                                                            Converted
+                                                        </button>
+                                                    )}
+                                                </div>
+                                            </div>
+
+                                            {activeTab === 'pseudocode' ? (
+                                                <div className="flex-grow">
+                                                    <Editor
+                                                        height="100%"
+                                                        language={selectedLanguage === 'cpp' ? 'cpp' : selectedLanguage}
+                                                        value={code}
+                                                        onChange={handleEditorChange}
+                                                        onMount={handleEditorDidMount}
+                                                        theme="vs-dark"
+                                                        options={{
+                                                            minimap: { enabled: false },
+                                                            scrollBeyondLastLine: false,
+                                                            fontSize: 14,
+                                                            lineNumbers: 'on',
+                                                            roundedSelection: false,
+                                                            scrollbar: {
+                                                                vertical: 'visible',
+                                                                horizontal: 'visible',
+                                                            },
+                                                            automaticLayout: true,
+                                                        }}
+                                                    />
+                                                </div>
+                                            ) : (
+                                                <div className="flex-grow flex flex-col">
+                                                    <div className="px-4 py-2 bg-gray-100 text-xs text-gray-600 border-b">
+                                                        <span className="text-xs text-gray-400">Read-only</span>
+                                                    </div>
+                                                    <div className="flex-grow">
+                                                        <Editor
+                                                            height="100%"
+                                                            language="python"
+                                                            value={convertedCode || "// Click 'Run' to see AI-generated code"}
+                                                            theme="vs-dark"
+                                                            options={{ readOnly: true }}
+                                                        />
+                                                    </div>
+                                                </div>
+                                            )}
+                                        </div>
+                                    </ResizablePanel>
+
+                                    <ResizableHandle withHandle />
+
+                                    {/* Test Cases and Console */}
+                                    <ResizablePanel defaultSize={25} minSize={10}>
+                                        <div className="h-full flex flex-col bg-white">
+                                            {/* Tabs */}
+                                            <div className="h-10 bg-white border-b border-gray-200 flex items-center px-4">
+                                                <div className="flex">
+                                                    <div className="flex items-center mr-4">
+                                                        {customTestCases.map((_, index) => (
+                                                            <button
+                                                                key={index}
+                                                                className={`px-3 py-1 text-xs mr-2 rounded-full ${activeTestCase === index
+                                                                    ? 'bg-indigo-600 text-white'
+                                                                    : 'bg-gray-200 text-gray-700 hover:bg-gray-300'
+                                                                    }`}
+                                                                onClick={() => setActiveTestCase(index)}
+                                                            >
+                                                                Case {index + 1}
+                                                            </button>
+                                                        ))}
+                                                        <button
+                                                            className="px-3 py-1 text-xs bg-gray-200 text-gray-700 hover:bg-gray-300 rounded-full"
+                                                            onClick={handleAddTestCase}
+                                                        >
+                                                            +
+                                                        </button>
+                                                    </div>
+                                                </div>
+                                            </div>
+
+                                            {/* Input/Output Area */}
+                                            <div className="flex-grow grid grid-cols-2 gap-4 p-4 overflow-hidden min-h-[200px]">
+                                                <div className="space-y-4">
+                                                    {/* Input */}
+                                                    <div className="flex flex-col">
+                                                        <p className="text-xs font-medium text-gray-700 mb-1">Input:</p>
+                                                        <textarea
+                                                            className="p-2 text-sm font-mono border border-gray-300 rounded-md focus:outline-none focus:ring-1 focus:ring-indigo-500 text-gray-800 h-[40px]"
+                                                            value={testCaseInput}
+                                                            onChange={(e) => handleTestCaseInputChange(e.target.value)}
+                                                            placeholder="Enter input for this test case..."
+                                                            rows={2}
+                                                        />
+                                                    </div>
+
+                                                    {/* Expected Output */}
+                                                    <div className="flex flex-col">
+                                                        <p className="text-xs font-medium text-gray-700 mb-1">Expected Output:</p>
+                                                        <textarea
+                                                            className="p-2 text-sm font-mono border border-gray-300 rounded-md focus:outline-none focus:ring-1 focus:ring-indigo-500 text-gray-800 h-[40px]"
+                                                            value={customTestCases[activeTestCase]?.expected || ''}
+                                                            onChange={(e) => handleTestCaseExpectedChange(e.target.value)}
+                                                            placeholder="Enter expected output for verification..."
+                                                            rows={2}
+                                                        />
+                                                    </div>
+                                                </div>
+
+                                                {/* Output */}
+                                                <div className="flex flex-col min-h-[20px]">
+                                                    <p className="text-xs font-medium text-gray-700 mb-1">Output:</p>
+                                                    <div className="h-[20px] flex-grow p-2  text-sm font-mono border border-gray-300 rounded-md bg-gray-50 overflow-hidden whitespace-pre-wrap text-gray-800">
+                                                        {isExecuting ? (
+                                                            <div className="text-gray-600">Running code against all test cases...</div>
+                                                        ) : executionError ? (
+                                                            <div className="text-red-600">{executionError}</div>
+                                                        ) : testCaseResults.length > 0 ? (
+                                                            <>
+                                                                {/* Test Result Header */}
+                                                                <div className="bg-gray-800 text-white p-2 flex items-center">
+                                                                    <div className="flex items-center">
+                                                                        <span className={`w-2 h-2 rounded-full mr-2 ${testCaseResults.every(r => r.status === 'success')
+                                                                            ? 'bg-green-500'
+                                                                            : 'bg-red-500'
+                                                                            }`}></span>
+                                                                        <span className="font-medium">
+                                                                            {testCaseResults.every(r => r.status === 'success')
+                                                                                ? 'Accepted'
+                                                                                : 'Failed'}
+                                                                        </span>
+                                                                    </div>
+                                                                    <div className="ml-4 text-xs text-gray-300">
+                                                                        Runtime: {testCaseResults[activeResultTab]?.executionTimeMs || 0} ms
+                                                                    </div>
+                                                                </div>
+
+                                                                {/* Test Case Tabs */}
+                                                                <div className="bg-gray-700 text-white px-2 pt-1 flex">
+                                                                    {testCaseResults.map((_, index) => (
+                                                                        <button
+                                                                            key={index}
+                                                                            className={`px-3 py-1 text-xs mr-1 rounded-t ${activeResultTab === index
+                                                                                ? 'bg-gray-50 text-gray-800'
+                                                                                : 'bg-gray-600 text-gray-200 hover:bg-gray-500'
+                                                                                }`}
+                                                                            onClick={() => setActiveResultTab(index)}
+                                                                        >
+                                                                            <span className={`w-2 h-2 rounded-full inline-block mr-1 ${testCaseResults[index].status === 'success'
+                                                                                ? 'bg-green-500'
+                                                                                : 'bg-red-500'
+                                                                                }`}></span>
+                                                                            Case {index + 1}
+                                                                        </button>
+                                                                    ))}
+                                                                </div>
+
+                                                                {/* Current Test Case Result */}
+                                                                <div className="p-2 text-sm font-mono whitespace-pre-wrap flex-grow">
+                                                                    {testCaseResults[activeResultTab] && (
+                                                                        <div className="space-y-2">
+                                                                            {/* Output */}
+                                                                            {testCaseResults[activeResultTab].stdout && (
+                                                                                <div>
+                                                                                    <div className="font-semibold text-xs text-gray-700 mb-1">Your Output:</div>
+                                                                                    <div className="pl-2 border-l-2 border-green-400">
+                                                                                        {testCaseResults[activeResultTab].stdout}
+                                                                                    </div>
+                                                                                </div>
+                                                                            )}
+
+                                                                            {/* Error */}
+                                                                            {(testCaseResults[activeResultTab].stderr || testCaseResults[activeResultTab].error) && (
+                                                                                <div>
+                                                                                    <div className="font-semibold text-xs text-red-700 mb-1">Error:</div>
+                                                                                    <div className="pl-2 border-l-2 border-red-400 text-red-600">
+                                                                                        {testCaseResults[activeResultTab].stderr || testCaseResults[activeResultTab].error}
+                                                                                    </div>
+                                                                                </div>
+                                                                            )}
+
+                                                                            {/* Expected Output if available */}
+                                                                            {testCaseResults[activeResultTab].testCase?.expected && (
+                                                                                <div>
+                                                                                    <div className="font-semibold text-xs text-gray-700 mb-1">Expected:</div>
+                                                                                    <div className="pl-2 border-l-2 border-blue-400">
+                                                                                        {testCaseResults[activeResultTab].testCase.expected}
+                                                                                    </div>
+                                                                                </div>
+                                                                            )}
+
+                                                                            {/* Comparison Result */}
+                                                                            {testCaseResults[activeResultTab].status === 'wrong_answer' && (
+                                                                                <div className="mt-1 text-xs text-red-600">
+                                                                                    Your output does not match the expected output.
+                                                                                </div>
+                                                                            )}
+                                                                        </div>
+                                                                    )}
+                                                                </div>
+                                                            </>
+                                                        ) : submissionResult?.error ? (
+                                                            <div className="text-red-600">Submission error: {submissionResult.error}</div>
+                                                        ) : (
+                                                            <div className="text-gray-500">
+                                                                Click "Run" to execute your code against all test cases.
+                                                            </div>
+                                                        )}
+                                                    </div>
+                                                </div>
+                                            </div>
+                                        </div>
+
+                                        {/* Authentication Banner - shown when not logged in */}
+                                        {!isLoggedIn && (
+                                            <div className="mx-4 mb-2 p-2 bg-yellow-50 border border-yellow-200 rounded text-yellow-800 text-sm">
+                                                <p className="font-medium">Authentication Required</p>
+                                                <p>Please <Link href="/login" className="underline">sign in</Link> to submit solutions and save your progress.</p>
+                                            </div>
+                                        )}
+                                    </ResizablePanel>
+                                </ResizablePanelGroup>
                             </div>
-                        )}
-
-                        {/* Action Buttons */}
-                        <div className="h-16 bg-white border-t border-gray-200 flex items-center justify-end px-4">
-                            <button
-                                className="px-4 py-2 mr-3 text-sm font-medium text-gray-700 bg-white border border-gray-300 rounded-md shadow-sm hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500"
-                                onClick={handleRunCode}
-                                disabled={isExecuting || !isLoggedIn}
-                                title="Run your code against all test cases"
-                            >
-                                {isExecuting ? 'Running...' : `Run All Cases (${customTestCases.length})`}
-                            </button>
-                            <button
-                                className="px-4 py-2 text-sm font-medium text-white bg-indigo-600 border border-transparent rounded-md shadow-sm hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500"
-                                onClick={handleSubmitCode}
-                                disabled={isSubmitting || !isLoggedIn}
-                            >
-                                {isSubmitting ? 'Submitting...' : 'Submit'}
-                            </button>
                         </div>
-                    </div>
-                </div>
+                    </ResizablePanel>
+                </ResizablePanelGroup>
             </div>
         </>
     );
-} 
+}

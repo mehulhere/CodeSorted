@@ -29,11 +29,21 @@ func init() {
 	jwtKey = []byte(secret)
 }
 
+// List of allowed origins
+var allowedOrigins = map[string]bool{
+	"http://localhost:3000":  true,
+	"http://localhost:33921": true,
+	"http://127.0.0.1:33921": true,
+}
+
 // This is the middleware for the CORS
 func WithCORS(next http.HandlerFunc) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		// Set CORS headers for all responses
-		w.Header().Set("Access-Control-Allow-Origin", "http://localhost:3000")
+		origin := r.Header.Get("Origin")
+		if allowedOrigins[origin] {
+			w.Header().Set("Access-Control-Allow-Origin", origin)
+		}
 		w.Header().Set("Access-Control-Allow-Methods", "POST, GET, OPTIONS, PUT, DELETE")
 		w.Header().Set("Access-Control-Allow-Headers", "Accept, Content-Type, Content-Length, Accept-Encoding, X-CSRF-Token, Authorization")
 		w.Header().Set("Access-Control-Allow-Credentials", "true")
