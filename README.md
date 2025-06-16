@@ -15,7 +15,8 @@ This is an Online Judge platform for competitive programming practice and contes
 - **Detailed Feedback**: Receive specific error messages and test case results
 - **Submission History**: Track your progress and review past submissions
 - **Pseudocode Support**: Convert pseudocode to Python for execution
-- **AI Code Completion**: Get intelligent code suggestions as you type.
+- **AI Code Completion**: Get intelligent code suggestions as you type, enhanced with problem context for more accurate completions.
+- **AI Progressive Hints**: Receive progressive hints for problems, with the number of hints varying by difficulty (Easy: 1, Medium: 2, Hard: 3).
 - **Rate Limiting**: Protection against excessive usage of AI-powered and resource-intensive services
 
 ## Getting Started

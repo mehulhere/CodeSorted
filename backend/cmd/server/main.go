@@ -156,7 +156,7 @@ func main() {
 	http.HandleFunc("/submissions/", middleware.WithCORS(handlers.GetSubmissionDetailsHandler))
 	http.HandleFunc("/submit", middleware.WithCORS(middleware.JWTAuthMiddleware(middleware.RateLimitMiddleware(models.ServiceCodeSubmission)(handlers.SubmitSolutionHandler))))
 	http.HandleFunc("/convert-code", middleware.WithCORS(middleware.JWTAuthMiddleware(middleware.RateLimitMiddleware(models.ServicePseudocodeToCode)(handlers.ConvertCodeHandler))))
-	http.HandleFunc("/api/ai-hint", middleware.WithCORS(middleware.JWTAuthMiddleware(middleware.RateLimitMiddleware(models.ServicePseudocodeToCode)(handlers.AIHintHandler)))) // Using pseudocode rate limit for now
+	http.HandleFunc("/api/ai-hint", middleware.WithCORS(middleware.JWTAuthMiddleware(middleware.RateLimitMiddleware(models.ServiceAIHint)(handlers.AIHintHandler))))
 
 	// Last code retrieval route
 	http.HandleFunc("/last-code", middleware.WithCORS(middleware.JWTAuthMiddleware(handlers.GetLastCodeHandler)))

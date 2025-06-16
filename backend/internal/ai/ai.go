@@ -36,6 +36,12 @@ type AICompletionResponse struct {
 	Suggestion string `json:"suggestion"`
 }
 
+// Define a type for sample test case
+type SampleTestCase struct {
+	Input          string `json:"input"`
+	ExpectedOutput string `json:"expected_output"`
+}
+
 var client *genai.GenerativeModel
 var completionCacheCollection *mongo.Collection
 
@@ -184,11 +190,16 @@ func ConvertPseudocodeToPython(ctx context.Context, pseudocode string) (string, 
 	return cleanedCode, nil
 }
 
-func GetCodeCompletion(prefix, currentLine, language string) (string, error) {
+func GetCodeCompletion(prefix, currentLine, language string, problemName string, sampleTestCase *SampleTestCase) (string, error) {
 	ctx := context.Background()
 
 	// Create a unique cache key from the inputs.
-	cacheKey := fmt.Sprintf("lang:%s|prefix:%s|current:%s", language, prefix, currentLine)
+	// Include problemName in the cache key if available
+	cacheKeyBase := fmt.Sprintf("lang:%s|prefix:%s|current:%s", language, prefix, currentLine)
+	cacheKey := cacheKeyBase
+	if problemName != "" {
+		cacheKey = fmt.Sprintf("%s|problem:%s", cacheKeyBase, problemName)
+	}
 
 	// 1. Check database cache first
 	var cachedEntry CompletionCacheEntry
@@ -203,24 +214,42 @@ func GetCodeCompletion(prefix, currentLine, language string) (string, error) {
 		// Proceed without cache, but log the error.
 	}
 
-	// Create a prompt that handles both single-line and multi-line generation.
-	prompt := fmt.Sprintf(
-		"You are an intelligent code completion assistant. Your task is to complete the code provided by the user.\n"+
-			"You will be given the code that appears before the cursor, and the content of the current line up to the cursor.\n"+
-			"Based on this context, provide the most logical and likely code completion.\n\n"+
-			"**Instructions:**\n"+
-			"1. The completion can be a single line or multiple lines of code.\n"+
-			"2. Respond with a JSON object containing a single key: \"suggestion\". The value should be the code to be inserted at the cursor position.\n"+
-			"3. If the new code should start from a new line, ADD a newline character at the beginning of the suggestion string.\n"+
-			"4. Do NOT repeat any code that was already provided in the 'Code before cursor' or 'Current line' sections in your suggestion.\n"+
-			"5. Do NOT include any conversational text, explanations, or markdown formatting (like ```json). Return only the raw JSON object.\n\n"+
-			"---CONTEXT---\n"+
-			"Language: %s\n\n"+
-			"Code before cursor:\n```\n%s\n```\n\n"+
-			"Current line:\n```\n%s\n```\n\n"+
-			"Provide the completion in the following JSON format:\n"+
-			"{\"suggestion\": \"<your code completion here>\"}",
-		language, prefix, currentLine)
+	// Create the base prompt
+	promptBuilder := strings.Builder{}
+	promptBuilder.WriteString("You are an intelligent code completion assistant. Your task is to complete the code provided by the user.\n")
+	promptBuilder.WriteString("You will be given the code that appears before the cursor, and the content of the current line up to the cursor.\n")
+	promptBuilder.WriteString("Based on this context, provide the most logical and likely code completion.\n\n")
+
+	promptBuilder.WriteString("**Instructions:**\n")
+	promptBuilder.WriteString("1. The completion can be a single line or multiple lines of code.\n")
+	promptBuilder.WriteString("2. Respond with a JSON object containing a single key: \"suggestion\". The value should be the code to be inserted at the cursor position.\n")
+	promptBuilder.WriteString("3. If the new code should start from a new line, ADD a newline character at the beginning of the suggestion string.\n")
+	promptBuilder.WriteString("4. Do NOT repeat any code that was already provided in the 'Code before cursor' or 'Current line' sections in your suggestion.\n")
+	promptBuilder.WriteString("5. Do NOT include any conversational text, explanations, or markdown formatting (like ```json). Return only the raw JSON object.\n\n")
+	promptBuilder.WriteString("6. DO NOT autocomplete the main task, you may provide completion for helper functions or give function signatures for main function.\n")
+
+	promptBuilder.WriteString("---CONTEXT---\n")
+	promptBuilder.WriteString(fmt.Sprintf("Language: %s\n\n", language))
+
+	// Add problem name if available
+	if problemName != "" {
+		promptBuilder.WriteString(fmt.Sprintf("Problem Name: %s\n\n", problemName))
+	}
+
+	// Add sample test case if available
+	if sampleTestCase != nil {
+		promptBuilder.WriteString("Sample Test Case:\n")
+		promptBuilder.WriteString(fmt.Sprintf("Input:\n```\n%s\n```\n\n", sampleTestCase.Input))
+		promptBuilder.WriteString(fmt.Sprintf("Expected Output:\n```\n%s\n```\n\n", sampleTestCase.ExpectedOutput))
+	}
+
+	promptBuilder.WriteString(fmt.Sprintf("Code before cursor:\n```\n%s\n```\n\n", prefix))
+	promptBuilder.WriteString(fmt.Sprintf("Current line:\n```\n%s\n```\n\n", currentLine))
+
+	promptBuilder.WriteString("Provide the completion in the following JSON format:\n")
+	promptBuilder.WriteString("{\"suggestion\": \"<your code completion here>\"}")
+
+	prompt := promptBuilder.String()
 
 	log.Printf("Sending prompt to AI for completion:\n%s", prompt)
 

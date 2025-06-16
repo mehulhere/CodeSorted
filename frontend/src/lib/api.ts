@@ -132,8 +132,20 @@ export const convertPseudocode = async (pseudocode: string) => {
   return post('/convert-code', { pseudocode });
 };
 
-export const getCodeCompletion = async (prefix: string, currentLine: string, language: string) => {
-  return post('/autocomplete', { prefix, currentLine, language });
+export const getCodeCompletion = async (
+  prefix: string, 
+  currentLine: string, 
+  language: string, 
+  problemName?: string, 
+  sampleTestCase?: { input: string, expected_output: string }
+) => {
+  return post('/autocomplete', { 
+    prefix, 
+    currentLine, 
+    language, 
+    problemName, 
+    sampleTestCase 
+  });
 };
 
 export const getAIHint = async (problemStatement: string, code: string, language: string) => {

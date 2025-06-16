@@ -185,7 +185,21 @@ export default function SingleProblemPage() {
 
                     const currentLine = model.getLineContent(position.lineNumber).substring(0, position.column - 1);
 
-                    const res = await getCodeCompletion(prefix, currentLine, selectedLanguage) as CodeCompletionResponse;
+                    // Get sample test case for providing context to AI
+                    const sampleTestCase = problem?.sample_test_cases && problem.sample_test_cases.length > 0
+                        ? {
+                            input: problem.sample_test_cases[0].input,
+                            expected_output: problem.sample_test_cases[0].expected_output
+                        }
+                        : undefined;
+
+                    const res = await getCodeCompletion(
+                        prefix,
+                        currentLine,
+                        selectedLanguage,
+                        problem?.title, // Pass problem title
+                        sampleTestCase // Pass sample test case
+                    ) as CodeCompletionResponse;
 
                     if (token.isCancellationRequested || !res.suggestion) {
                         return { items: [] };
@@ -295,7 +309,7 @@ export default function SingleProblemPage() {
             if (debounceTimeoutRef.current) clearTimeout(debounceTimeoutRef.current);
             document.head.removeChild(styleElement);
         };
-    }, [monacoInstance, editorInstance, selectedLanguage]);
+    }, [monacoInstance, editorInstance, selectedLanguage, problem]);
 
     // Fetch threads for the discussion tab
     const fetchThreads = useCallback(async () => {
@@ -740,7 +754,14 @@ export default function SingleProblemPage() {
                 selectedLanguage
             ) as AIHintResponse;
 
-            setHints(response.hints);
+            // Limit number of hints based on problem difficulty
+            const maxHints = problem.difficulty === 'Easy' ? 1 :
+                problem.difficulty === 'Medium' ? 2 : 3;
+
+            // Only keep the allowed number of hints
+            const limitedHints = response.hints.slice(0, maxHints);
+
+            setHints(limitedHints);
             setVisibleHintIndex(0); // Show the first hint
         } catch (error) {
             console.error("Error getting hints:", error);
@@ -913,6 +934,13 @@ export default function SingleProblemPage() {
                                                 <h2 className="text-lg font-semibold text-gray-800 flex items-center">
                                                     <Lightbulb className="w-5 h-5 mr-2 text-yellow-500" />
                                                     Hints
+                                                    {problem && (
+                                                        <span className="ml-2 text-xs bg-gray-100 text-gray-600 px-2 py-1 rounded-full">
+                                                            {problem.difficulty === 'Easy' ? '1 hint' :
+                                                                problem.difficulty === 'Medium' ? '2 hints' :
+                                                                    '3 hints'} available
+                                                        </span>
+                                                    )}
                                                 </h2>
                                                 {!isLoadingHint && !hints && isLoggedIn && (
                                                     <Button
@@ -963,7 +991,16 @@ export default function SingleProblemPage() {
                                                         )}
                                                     </div>
                                                 ) : (
-                                                    <p className="text-sm text-gray-500 p-2">Click "Get Hint" if you're stuck and need some guidance. Hints are designed to help you think through the problem without giving away the solution.</p>
+                                                    <p className="text-sm text-gray-500 p-2">
+                                                        Click "Get Hint" if you're stuck and need some guidance. Hints are designed to help you think through the problem without giving away the solution.
+                                                        {problem && (
+                                                            <span className="block mt-1 text-xs text-gray-400">
+                                                                {problem.difficulty === 'Easy' ? 'Easy problems provide 1 hint.' :
+                                                                    problem.difficulty === 'Medium' ? 'Medium problems provide 2 progressive hints.' :
+                                                                        'Hard problems provide 3 progressive hints.'} Use them wisely!
+                                                            </span>
+                                                        )}
+                                                    </p>
                                                 )}
                                             </div>
                                         </div>

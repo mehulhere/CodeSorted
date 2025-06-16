@@ -133,7 +133,8 @@ This repository contains a complete Online Judge (OJ) system where programmers c
 The `ai` package encapsulates all interactions with the external generative AI service (e.g., Google Gemini).
 - **Code Complexity Analysis (`AnalyzeCodeComplexity`)**: Analyzes a code snippet to determine its time and memory complexity.
 - **Pseudocode Conversion (`ConvertPseudocodeToPython`)**: Translates pseudocode into runnable Python code.
-- **Code Completion (`GetCodeCompletion`)**: Provides context-aware code completion suggestions. To optimize performance, suggestions are cached in a MongoDB collection (`completion_cache`) with a 1-hour TTL. The function now communicates with the AI using a structured JSON format for more reliable response parsing.
+- **Code Completion (`GetCodeCompletion`)**: Provides context-aware code completion suggestions. To optimize performance, suggestions are cached in a MongoDB collection (`completion_cache`) with a 1-hour TTL. The function now communicates with the AI using a structured JSON format for more reliable response parsing. Code completion is enhanced with problem context by including the problem name and a sample test case in the prompt, providing more accurate and targeted completions.
+- **Progressive Hints (`GenerateProgressiveHints`)**: Generates 3 progressive hints for a problem based on its statement and the user's code, designed to guide without revealing the solution. The frontend decides how many hints to display based on problem difficulty (Easy: 1, Medium: 2, Hard: 3).
 
 #### Error Classification System
 
@@ -376,6 +377,7 @@ Below is a detailed schema of the MongoDB collections used in the application:
   - `/last-code` (GET): Return the authenticated user's most recent code draft for a given `problem_id` (and optional `language`). Used by the frontend to restore editor state.
 - **AI Features**:
   - `/convert-code` (POST): Convert pseudocode to Python code.
+  - `/api/ai-hint` (POST): Get progressive hints for a problem. Requires `problem_statement`, `code`, and `language` in the request body. Applies rate limiting.
 
 #### Configuration (`.env`)
 The backend is configured using the following environment variables:

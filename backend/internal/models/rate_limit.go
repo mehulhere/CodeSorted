@@ -16,6 +16,7 @@ const (
 	ServiceCodeSubmission   RateLimitedService = "code_submission"
 	ServiceAIAnalysis       RateLimitedService = "ai_analysis"
 	ServiceGuestCreation    RateLimitedService = "guest_creation"
+	ServiceAIHint           RateLimitedService = "ai_hint"
 )
 
 // ServiceLimit defines the rate limits for a specific service
@@ -51,6 +52,7 @@ func DefaultRateLimits(isAdmin bool) []ServiceLimit {
 			{Service: ServiceCodeExecution, MaxRequests: 200, WindowMinutes: 60, CurrentCount: 0, WindowStartedAt: now, LastRequestAt: now},
 			{Service: ServiceCodeSubmission, MaxRequests: 200, WindowMinutes: 60, CurrentCount: 0, WindowStartedAt: now, LastRequestAt: now},
 			{Service: ServiceAIAnalysis, MaxRequests: 100, WindowMinutes: 60, CurrentCount: 0, WindowStartedAt: now, LastRequestAt: now},
+			{Service: ServiceAIHint, MaxRequests: 50, WindowMinutes: 60, CurrentCount: 0, WindowStartedAt: now, LastRequestAt: now},
 		}
 	}
 
@@ -61,6 +63,7 @@ func DefaultRateLimits(isAdmin bool) []ServiceLimit {
 		{Service: ServiceCodeExecution, MaxRequests: 50, WindowMinutes: 60, CurrentCount: 0, WindowStartedAt: now, LastRequestAt: now},
 		{Service: ServiceCodeSubmission, MaxRequests: 50, WindowMinutes: 60, CurrentCount: 0, WindowStartedAt: now, LastRequestAt: now},
 		{Service: ServiceAIAnalysis, MaxRequests: 20, WindowMinutes: 60, CurrentCount: 0, WindowStartedAt: now, LastRequestAt: now},
+		{Service: ServiceAIHint, MaxRequests: 10, WindowMinutes: 60, CurrentCount: 0, WindowStartedAt: now, LastRequestAt: now},
 	}
 }
 
