@@ -144,7 +144,7 @@ func RegisterHandler(w http.ResponseWriter, r *http.Request) {
 		Value:    tokenString, // The JWT token string
 		Expires:  expirationTime,
 		HttpOnly: true,                  // Make it HTTP-only
-		Secure:   true,                  // Set to true in production with HTTPS
+		Secure:   true,                  // Make it Secure
 		SameSite: http.SameSiteNoneMode, // Recommended for CSRF protection
 		Path:     "/",                   // Make the cookie available to all paths
 	})
@@ -257,7 +257,7 @@ func LoginHandler(w http.ResponseWriter, r *http.Request) {
 		Value:    tokenString, // The JWT token string
 		Expires:  expirationTime,
 		HttpOnly: true,                  // Make it HTTP-only
-		Secure:   true,                  // Set to true in production with HTTPS
+		Secure:   true,                  // Make it Secure
 		SameSite: http.SameSiteNoneMode, // Recommended for CSRF protection
 		Path:     "/",                   // Make the cookie available to all paths
 	})
@@ -347,7 +347,7 @@ func LogoutHandler(w http.ResponseWriter, r *http.Request) {
 		Expires:  time.Now().Add(-24 * time.Hour), // Set to past time
 		MaxAge:   -1,                              // Immediate expiration
 		HttpOnly: true,                            // Same as login
-		Secure:   true,                            // Same as login
+		Secure:   true,                            // Make it Secure
 		SameSite: http.SameSiteNoneMode,           // Same as login
 		Path:     "/",                             // Same as login
 	})

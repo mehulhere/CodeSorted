@@ -46,7 +46,7 @@ export default function HomePage() {
         const fetchProblems = async () => {
             setLoading(true);
             try {
-                const response = await fetch('http://localhost:8080/problems');
+                const response = await fetch(`${process.env.NEXT_PUBLIC_BACKEND_URL}/problems`);
                 if (!response.ok) {
                     setError(`Error: ${response.status}`);
                     return;
@@ -72,7 +72,7 @@ export default function HomePage() {
         // Check auth status and fetch user stats if logged in
         const checkAuthAndFetchStats = async () => {
             try {
-                const authResponse = await axios.get('http://localhost:8080/api/auth-status', {
+                const authResponse = await axios.get(`${process.env.NEXT_PUBLIC_BACKEND_URL}/api/auth-status`, {
                     withCredentials: true,
                 });
 
@@ -81,7 +81,7 @@ export default function HomePage() {
                     setUsername(authResponse.data.user.username);
 
                     // Fetch user stats
-                    const statsResponse = await axios.get(`http://localhost:8080/api/users/${authResponse.data.user.username}/stats`);
+                    const statsResponse = await axios.get(`${process.env.NEXT_PUBLIC_BACKEND_URL}/api/users/${authResponse.data.user.username}/stats`);
                     setUserStats(statsResponse.data);
                 } else {
                     setIsLoggedIn(false);
@@ -166,9 +166,16 @@ export default function HomePage() {
                 <div className="bg-white rounded-lg shadow-md p-6 mb-10">
                     <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center mb-6">
                         <h2 className="text-2xl font-bold text-gray-900 mb-4 sm:mb-0">Featured Problems</h2>
-                        <Link href="/problems" className="text-indigo-600 hover:text-indigo-800 font-medium">
-                            View All Problems →
-                        </Link>
+                        <div className="flex space-x-4">
+                            {isLoggedIn && (
+                                <Link href="/problems/create" className="text-white bg-green-600 hover:bg-green-700 font-medium py-2 px-4 rounded-md">
+                                    Create Problem
+                                </Link>
+                            )}
+                            <Link href="/problems" className="text-indigo-600 hover:text-indigo-800 font-medium">
+                                View All Problems →
+                            </Link>
+                        </div>
                     </div>
 
                     {/* Filter Controls */}

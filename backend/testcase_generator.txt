@@ -1,0 +1,39 @@
+# Test Case Generation Rules
+
+## Problem Statement
+{PROBLEM_STATEMENT}
+
+## Task
+Generate exactly 30 test cases covering the problem constraints and edge cases.
+
+## Requirements
+- 30 test cases: 8 easy, 10 medium, 8 hard, 4 stress
+- `"python": false` - Use input directly
+- `"python": true` - Input needs Python evaluation to generate actual data
+- Test all constraint boundaries mentioned in problem
+- Include edge cases: empty inputs, single elements, min/max limits
+
+## For Large Data Use Python Expressions
+- `[1] * 1000` - Repeated values
+- `list(range(1000000))` - Sequential numbers  
+- `'a' * 50000` - Large strings
+- `random.seed(42); [random.randint(1,100) for _ in range(10000)]` - Random data
+
+## Critical
+- Never put more than 100 elements(characters or int) in JSON
+- Always test constraint boundaries from problem statement
+- Use stress tests for maximum allowed input sizes
+
+## Output Format
+```json
+{
+  "test_case_1": {
+    "input": "[1, 2, 3, 4, 5]",
+    "python": false
+  },
+  "test_case_2": {
+    "input": "[1] * 10000",
+    "python": true
+  }
+}
+```

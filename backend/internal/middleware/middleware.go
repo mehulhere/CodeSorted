@@ -20,7 +20,9 @@ var jwtKey []byte
 func init() {
 	err := godotenv.Load(".env")
 	if err != nil {
-		log.Println("WARNING: Error loading .env file in middleware.go.")
+		if !os.IsNotExist(err) {
+			log.Printf("WARNING: Error loading .env file in middleware.go: %v.\n", err)
+		}
 	}
 	secret := os.Getenv("JWT_SECRET_KEY")
 	if secret == "" {

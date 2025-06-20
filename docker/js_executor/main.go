@@ -4,12 +4,14 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"fmt"
 	"log"
 	"net/http"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"text/template"
 	"time"
 )
 
@@ -19,6 +21,8 @@ type ExecRequest struct {
 	TimeLimitMs   int    `json:"time_limit_ms"`
 	MemoryLimitKB int    `json:"memory_limit_kb"`
 	Language      string `json:"language"`
+	FunctionName  string `json:"function_name"`
+	Parser        string `json:"parser"` // Parser code provided by the backend
 }
 
 type ExecResult struct {
@@ -46,7 +50,13 @@ func execHandler(w http.ResponseWriter, r *http.Request) {
 
 	start := time.Now()
 
-	out, status := runCode(ctx, req.Code, req.Input)
+	wrappedCode, err := wrapJSCode(req)
+	if err != nil {
+		http.Error(w, fmt.Sprintf("failed to wrap code: %v", err), http.StatusInternalServerError)
+		return
+	}
+
+	out, status := runCode(ctx, wrappedCode, req.Input)
 	execMs := int(time.Since(start).Milliseconds())
 
 	res := ExecResult{
@@ -91,4 +101,80 @@ func runCode(ctx context.Context, code, input string) (output, status string) {
 	}
 
 	return stdout.String(), "success"
+}
+
+func wrapJSCode(req ExecRequest) (string, error) {
+	// Use provided parser or fallback to default
+	parserCode := req.Parser
+	if parserCode == "" {
+		// Default parser as fallback
+		parserCode = `
+function parseInput(inputStr) {
+    inputStr = inputStr.trim();
+    if (inputStr.includes('=')) {
+        const params = {};
+        const parts = inputStr.split(',').map(s => s.trim());
+        for (const part of parts) {
+            const [key, value] = part.split('=').map(s => s.trim());
+            try {
+                params[key] = JSON.parse(value);
+            } catch {
+                params[key] = value;
+            }
+        }
+        return [params.nums, params.target];
+    }
+    try {
+        return [JSON.parse(inputStr)];
+    } catch {
+        return [inputStr];
+    }
+}
+`
+	}
+
+	const tpl = `
+{{.Code}}
+
+const fs = require('fs');
+
+{{.ParserCode}}
+
+function main() {
+    const inputStr = fs.readFileSync(0, 'utf-8').trim();
+    const args = parseInput(inputStr);
+    
+    let result;
+    if (Array.isArray(args)) {
+        result = {{.FunctionName}}(...args);
+    } else if (typeof args === 'object' && args !== null) {
+        result = {{.FunctionName}}(args);
+    } else {
+        result = {{.FunctionName}}(args);
+    }
+    
+    if (typeof result === 'object') {
+        console.log(JSON.stringify(result));
+    } else {
+        console.log(result);
+    }
+}
+
+main();
+`
+	t := template.Must(template.New("js").Parse(tpl))
+	var buf bytes.Buffer
+	err := t.Execute(&buf, struct {
+		Code         string
+		FunctionName string
+		ParserCode   string
+	}{
+		Code:         req.Code,
+		FunctionName: req.FunctionName,
+		ParserCode:   parserCode,
+	})
+	if err != nil {
+		return "", err
+	}
+	return buf.String(), nil
 }

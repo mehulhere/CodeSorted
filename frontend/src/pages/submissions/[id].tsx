@@ -89,7 +89,7 @@ export default function SubmissionDetailPage() {
         // Check if user is logged in
         const checkLoginStatus = async () => {
             try {
-                const response = await fetch('http://localhost:8080/api/auth-status', {
+                const response = await fetch(`${process.env.NEXT_PUBLIC_BACKEND_URL}/api/auth-status`, {
                     method: 'GET',
                     credentials: 'include',
                     headers: {
@@ -124,7 +124,7 @@ export default function SubmissionDetailPage() {
         const fetchSubmissionAndStats = async () => {
             try {
                 // Fetch submission details
-                const subResponse = await fetch(`http://localhost:8080/submissions/${id}`, {
+                const subResponse = await fetch(`${process.env.NEXT_PUBLIC_BACKEND_URL}/submissions/${id}`, {
                     credentials: 'include',
                 });
 
@@ -138,7 +138,7 @@ export default function SubmissionDetailPage() {
 
                 // If submission is accepted, fetch stats
                 if (subData.status === "ACCEPTED" && subData.problem_id) {
-                    const statsResponse = await fetch(`http://localhost:8080/problems/${subData.problem_id}/stats`);
+                    const statsResponse = await fetch(`${process.env.NEXT_PUBLIC_BACKEND_URL}/problems/${subData.problem_id}/stats`);
                     if (statsResponse.ok) {
                         const statsData = await statsResponse.json();
                         setStats(statsData);

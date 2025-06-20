@@ -56,8 +56,8 @@ func OAuthLoginHandler(w http.ResponseWriter, r *http.Request) {
 		Name:     "oauth_state",
 		Value:    state,
 		HttpOnly: true,
-		Secure:   true,
 		SameSite: http.SameSiteNoneMode,
+		Secure:   true,
 		Path:     "/",
 		MaxAge:   int(time.Hour.Seconds()),
 	})
@@ -106,7 +106,6 @@ func OAuthCallbackHandler(w http.ResponseWriter, r *http.Request) {
 		Name:     "oauth_state",
 		Value:    "",
 		HttpOnly: true,
-		Secure:   true,
 		Path:     "/",
 		MaxAge:   -1,
 	})

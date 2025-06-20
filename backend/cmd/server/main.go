@@ -1,6 +1,8 @@
 package main
 
 import (
+	"encoding/json"
+	"fmt"
 	"log"
 	"net/http"
 	"os"
@@ -20,7 +22,11 @@ func main() {
 	// Load environment variables
 	err := godotenv.Load(".env")
 	if err != nil {
-		log.Fatal("Error loading .env file in main.go")
+		if !os.IsNotExist(err) {
+			log.Printf("Warning: Errr loading .env file in main.go: %v. Using environment variables instead.\n", err)
+		}
+		// If the error is just that the file doesn't exist, we don't need to log it
+		// as environment variables will be used anyway.
 	}
 
 	// Get MongoDB URI from environment
@@ -110,6 +116,16 @@ func main() {
 	http.HandleFunc("/execute", middleware.WithCORS(middleware.JWTAuthMiddleware(middleware.RateLimitMiddleware(models.ServiceCodeExecution)(handlers.ExecuteCodeHandler))))
 	http.HandleFunc("/testcases", middleware.WithCORS(middleware.JWTAuthMiddleware(handlers.AddTestCaseHandler))) // Only for admins
 
+	// New routes for problem creation and test case generation
+	http.HandleFunc("/admin/problems", middleware.WithCORS(middleware.JWTAuthMiddleware(handlers.CreateProblemHandler)))
+	http.HandleFunc("/api/generate-testcases", middleware.WithCORS(handlers.GenerateTestCasesHandler))
+	http.HandleFunc("/api/bulk-add-testcases", middleware.WithCORS(middleware.JWTAuthMiddleware(handlers.BulkAddTestCasesHandler)))
+	http.HandleFunc("/api/generate-problem-details", middleware.WithCORS(middleware.JWTAuthMiddleware(handlers.GenerateProblemDetailsHandler)))
+
+	// New routes for generating brute force solutions and expected outputs
+	http.HandleFunc("/api/generate-brute-force-solution", middleware.WithCORS(middleware.JWTAuthMiddleware(handlers.GenerateBruteForceSolutionHandler)))
+	http.HandleFunc("/api/generate-expected-outputs", middleware.WithCORS(middleware.JWTAuthMiddleware(handlers.GenerateExpectedOutputsHandler)))
+
 	// Profile routes
 	http.HandleFunc("/api/users/", middleware.WithCORS(func(w http.ResponseWriter, r *http.Request) {
 		pathParts := strings.Split(strings.Trim(r.URL.Path, "/"), "/")
@@ -190,6 +206,36 @@ func main() {
 		}
 	}))
 	http.HandleFunc("/api/vote", middleware.WithCORS(middleware.JWTAuthMiddleware(handlers.VoteHandler)))
+
+	// Code execution route
+	http.HandleFunc("/api/execute", middleware.WithCORS(handlers.ExecuteCodeHandler))
+	http.HandleFunc("/api/parser-check", middleware.WithCORS(handlers.ParserCheckHandler))
+
+	// Test endpoint for Python evaluation
+	http.HandleFunc("/api/test-python-eval", func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost {
+			http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+			return
+		}
+
+		var req struct {
+			Expressions []string `json:"expressions"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			http.Error(w, "Invalid request", http.StatusBadRequest)
+			return
+		}
+
+		results := make(map[string]string)
+		for i, expr := range req.Expressions {
+			results[fmt.Sprintf("expr_%d", i)] = ai.EvaluatePythonExpression(expr)
+		}
+
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"results": results,
+		})
+	})
 
 	// Start server
 	port := os.Getenv("PORT")

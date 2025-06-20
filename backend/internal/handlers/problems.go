@@ -1,6 +1,7 @@
 package handlers
 
 import (
+	"backend/internal/ai"
 	"backend/internal/database"
 	"backend/internal/models"
 	"backend/internal/types"
@@ -235,7 +236,7 @@ func CreateProblemHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Get claims from context to identify the admin user
+	// Get claims from context to identify the user
 	claims, ok := r.Context().Value("claims").(*types.Claims)
 	if !ok {
 		utils.SendJSONError(w, "Failed to retrieve user information.", http.StatusInternalServerError)
@@ -297,5 +298,49 @@ func CreateProblemHandler(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusCreated)
 	json.NewEncoder(w).Encode(createdProblem)
-	log.Printf("Problem created: %s (ID: %s) by admin: %s\n", createdProblem.Title, createdProblem.ID.Hex(), claims.Username)
+	log.Printf("Problem created: %s (ID: %s) by user: %s\n", createdProblem.Title, createdProblem.ID.Hex(), claims.Username)
+}
+
+// GenerateProblemDetailsHandler generates structured problem details from a raw problem statement
+func GenerateProblemDetailsHandler(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		utils.SendJSONError(w, "Method not allowed. Only POST is accepted.", http.StatusMethodNotAllowed)
+		return
+	}
+
+	// Parse the request body
+	type GenerateProblemDetailsRequest struct {
+		RawProblemStatement string `json:"raw_problem_statement"`
+	}
+
+	var req GenerateProblemDetailsRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		log.Println("Invalid request payload:", err)
+		utils.SendJSONError(w, "Invalid request payload.", http.StatusBadRequest)
+		return
+	}
+	defer r.Body.Close()
+
+	// Validate the request
+	if req.RawProblemStatement == "" {
+		utils.SendJSONError(w, "Raw problem statement is required.", http.StatusBadRequest)
+		return
+	}
+
+	// Generate problem details using AI
+	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second) // Longer timeout for AI
+	defer cancel()
+
+	problemDetails, err := ai.GenerateProblemDetails(ctx, req.RawProblemStatement)
+	if err != nil {
+		log.Printf("Failed to generate problem details: %v", err)
+		utils.SendJSONError(w, "Failed to generate problem details: "+err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	// Return the generated problem details
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusOK)
+	json.NewEncoder(w).Encode(problemDetails)
+	log.Println("Successfully generated problem details using AI")
 }

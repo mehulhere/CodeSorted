@@ -30,10 +30,13 @@ type LoginPayload struct {
 
 // This is the struct for the code execution payload
 type ExecuteCodePayload struct {
-	Language  string   `json:"language"`
-	Code      string   `json:"code"`
-	Stdin     string   `json:"stdin"`     // Single test case input (for backward compatibility)
-	TestCases []string `json:"testCases"` // Multiple test cases input
+	Language      string   `json:"language"`
+	Code          string   `json:"code"`
+	Stdin         string   `json:"stdin"`     // Single test case input (for backward compatibility)
+	TestCases     []string `json:"testCases"` // Multiple test cases input
+	ProblemId     string   `json:"problemId"` // Problem ID for extracting function name
+	InputExample  string   `json:"input_example"`
+	OutputExample string   `json:"output_example"`
 }
 
 // This is the struct for the code execution result
@@ -58,10 +61,12 @@ type TestCaseResult struct {
 
 // ExecutionRequest defines the structure for a code execution request
 type ExecutionRequest struct {
-	Language    string `json:"language"`
-	Code        string `json:"code"`
-	Input       string `json:"input"`
-	TimeLimitMs int    `json:"time_limit_ms"`
+	Language     string `json:"language"`
+	Code         string `json:"code"`
+	Input        string `json:"input"`
+	TimeLimitMs  int    `json:"time_limit_ms"`
+	FunctionName string `json:"function_name"`
+	Parser       string `json:"parser"`
 }
 
 // ExecutionResult defines the structure for a code execution result
@@ -70,4 +75,13 @@ type ExecutionResult struct {
 	ExecutionTimeMs int    `json:"execution_time_ms"`
 	MemoryUsedKB    int    `json:"memory_used_kb"`
 	Status          string `json:"status"`
+}
+
+// ParserCheckPayload defines the structure for a parser check request
+type ParserCheckPayload struct {
+	Language      string `json:"language"`
+	FunctionName  string `json:"function_name"`
+	InputExample  string `json:"input_example"`
+	OutputExample string `json:"output_example"`
+	ParserCode    string `json:"parser_code"`
 }

@@ -63,7 +63,7 @@ export default function Register() {
         };
 
         try {
-            const response = await fetch('http://localhost:8080/register', {
+            const response = await fetch(`${process.env.NEXT_PUBLIC_BACKEND_URL}/register`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify(formData),
@@ -93,7 +93,7 @@ export default function Register() {
     };
 
     const handleSocialLogin = (provider: string) => {
-        window.location.href = `http://localhost:8080/auth/login/${provider}`;
+        window.location.href = `${process.env.NEXT_PUBLIC_BACKEND_URL}/auth/login/${provider}`;
     };
 
     return (

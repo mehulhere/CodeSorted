@@ -31,7 +31,7 @@ export default function NewTestCasePage() {
             setIsLoading(true);
             setError(null);
             try {
-                const response = await fetch(`http://localhost:8080/problems/${problemId}`, {
+                const response = await fetch(`${process.env.NEXT_PUBLIC_BACKEND_URL}/problems/${problemId}`, {
                     credentials: 'include',
                 });
                 if (!response.ok) {
@@ -68,7 +68,7 @@ export default function NewTestCasePage() {
         setSubmitError(null);
 
         try {
-            const response = await fetch('http://localhost:8080/admin/testcases', {
+            const response = await fetch(`${process.env.NEXT_PUBLIC_BACKEND_URL}/admin/testcases`, {
                 method: 'POST',
                 headers: {
                     'Content-Type': 'application/json',

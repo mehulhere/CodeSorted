@@ -1,0 +1,16 @@
+rsync -avz --delete -e "ssh -i /home/poodle/Downloads/Mehul.pem" /home/poodle/Work/OJ/backend/ ec2-user@ec2-3-7-69-61.ap-south-1.compute.amazonaws.com:/home/ec2-user/backend/
+
+scp -i /home/poodle/Downloads/Mehul.pem -r /home/poodle/Work/OJ/backend ec2-user@ec2-3-7-69-61.ap-south-1.compute.amazonaws.com:/home/ec2-user/
+
+# Stop the currently running backend container
+docker stop oj-backend
+
+# Remove the stopped container
+docker rm oj-backend
+
+# Run a new container using the updated image with your environment variables
+docker run -d -p 80:80 --name oj-backend \
+  -e MONGO_URI="<YOUR_MONGODB_ATLAS_CONNECTION_STRING>" \
+  -e JWT_SECRET_KEY="<YOUR_STRONG_JWT_SECRET_KEY>" \
+  -e PORT="80" \
+  oj-go-backend

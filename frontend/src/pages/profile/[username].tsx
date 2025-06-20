@@ -186,16 +186,16 @@ const UserProfilePage = () => {
       setLoading(true);
 
       // Fetch basic profile data
-      const profileResponse = await axios.get(`http://localhost:8080/api/users/${username}/profile`);
+      const profileResponse = await axios.get(`${process.env.NEXT_PUBLIC_BACKEND_URL}/api/users/${username}/profile`);
       setProfile(profileResponse.data);
 
       // Fetch user data
-      const userResponse = await axios.get(`http://localhost:8080/api/users/${username}`);
+      const userResponse = await axios.get(`${process.env.NEXT_PUBLIC_BACKEND_URL}/api/users/${username}`);
       setUser(userResponse.data);
 
       // Fetch user stats
       try {
-        const statsResponse = await axios.get(`http://localhost:8080/api/users/${username}/stats`);
+        const statsResponse = await axios.get(`${process.env.NEXT_PUBLIC_BACKEND_URL}/api/users/${username}/stats`);
         const fetchedStats = statsResponse.data;
         const formattedStats: UserStats = {
           totalSolved: fetchedStats.total_solved,
@@ -230,7 +230,7 @@ const UserProfilePage = () => {
 
       // Fetch check-in data for heatmap
       try {
-        const checkinsResponse = await axios.get(`http://localhost:8080/api/users/${username}/checkins`);
+        const checkinsResponse = await axios.get(`${process.env.NEXT_PUBLIC_BACKEND_URL}/api/users/${username}/checkins`);
         const checkinData = checkinsResponse.data;
 
         // Convert checkin data to heatmap format
@@ -245,7 +245,7 @@ const UserProfilePage = () => {
 
       // Fetch recent submissions
       try {
-        const submissionsResponse = await axios.get(`http://localhost:8080/api/users/${username}/submissions?limit=5`);
+        const submissionsResponse = await axios.get(`${process.env.NEXT_PUBLIC_BACKEND_URL}/api/users/${username}/submissions?limit=5`);
         setRecentSubmissions(submissionsResponse.data);
       } catch (error) {
         console.error('Error fetching recent submissions:', error);
@@ -262,7 +262,7 @@ const UserProfilePage = () => {
 
       // Fetch language statistics
       try {
-        const languageResponse = await axios.get(`http://localhost:8080/api/users/${username}/languages`);
+        const languageResponse = await axios.get(`${process.env.NEXT_PUBLIC_BACKEND_URL}/api/users/${username}/languages`);
         const languageData = languageResponse.data;
 
         // Format the language data for display
@@ -286,7 +286,7 @@ const UserProfilePage = () => {
 
       // Fetch skills data
       try {
-        const skillsResponse = await axios.get(`http://localhost:8080/api/users/${username}/skills`);
+        const skillsResponse = await axios.get(`${process.env.NEXT_PUBLIC_BACKEND_URL}/api/users/${username}/skills`);
         const skillsData = skillsResponse.data;
 
         // Format the skills data for display
@@ -308,7 +308,7 @@ const UserProfilePage = () => {
 
       // Check if current user can edit
       try {
-        const authResponse = await axios.get(`http://localhost:8080/api/auth-status`, { withCredentials: true });
+        const authResponse = await axios.get(`${process.env.NEXT_PUBLIC_BACKEND_URL}/api/auth-status`, { withCredentials: true });
         if (authResponse.data.user) {
           setLoggedInUser(authResponse.data.user);
         }
@@ -318,7 +318,7 @@ const UserProfilePage = () => {
 
       // Fetch discussion count
       try {
-        const discussionCountResponse = await axios.get(`http://localhost:8080/api/users/${username}/discussion-count`);
+        const discussionCountResponse = await axios.get(`${process.env.NEXT_PUBLIC_BACKEND_URL}/api/users/${username}/discussion-count`);
         setDiscussionsCount(discussionCountResponse.data.total_discussions);
       } catch (error) {
         console.error('Error fetching discussion count:', error);
@@ -377,7 +377,7 @@ const UserProfilePage = () => {
 
     try {
       // First check auth status to ensure cookie is valid
-      const authCheck = await axios.get('http://localhost:8080/api/auth-status', {
+      const authCheck = await axios.get(`${process.env.NEXT_PUBLIC_BACKEND_URL}/api/auth-status`, {
         withCredentials: true
       });
 
@@ -388,7 +388,7 @@ const UserProfilePage = () => {
       }
 
       // Now update the profile
-      const response = await axios.put('http://localhost:8080/api/profile', updatedProfile, {
+      const response = await axios.put(`${process.env.NEXT_PUBLIC_BACKEND_URL}/api/profile`, updatedProfile, {
         withCredentials: true,
         headers: {
           'Content-Type': 'application/json'

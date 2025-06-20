@@ -39,7 +39,7 @@ export default function NewProblemPage() {
                 .map(tag => tag.trim())
                 .filter(tag => tag !== '');
 
-            const response = await fetch('http://localhost:8080/admin/problems', {
+            const response = await fetch(`${process.env.NEXT_PUBLIC_BACKEND_URL}/admin/problems`, {
                 method: 'POST',
                 headers: {
                     'Content-Type': 'application/json',

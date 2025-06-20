@@ -1,22 +1,20 @@
+/* eslint-disable react/no-unescaped-entities */
 import '@/app/globals.css';
 import Editor, { Monaco } from '@monaco-editor/react';
 import { Button } from '@/components/ui/button';
-import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from '@/components/ui/card';
 import { ResizableHandle, ResizablePanel, ResizablePanelGroup } from '@/components/ui/resizable';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
-import { Separator } from '@/components/ui/separator';
-import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
-import { Textarea } from '@/components/ui/textarea';
-import { executeCode, submitSolution, convertPseudocode, getCodeCompletion, getAIHint } from '@/lib/api';
-import { AlertCircle, CheckCircle, ChevronDown, ChevronRight, ChevronLeft, ChevronsUpDown, Loader, Terminal, XCircle, MessageSquare, ArrowUp, ArrowDown, Trash2, Lightbulb } from 'lucide-react';
+import { executeCode, submitSolution, getCodeCompletion, getAIHint } from '@/lib/api';
+import { AlertCircle, ChevronLeft, Loader, MessageSquare, ArrowUp, ArrowDown, Trash2, Lightbulb } from 'lucide-react';
 import type { editor } from 'monaco-editor';
 import { useRouter } from 'next/router';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import Head from 'next/head';
 import Link from 'next/link';
-import type { ProblemType, ApiError, ThreadType, CommentType, ThreadsResponse, CommentsResponse, CreateThreadPayload, CreateCommentPayload, VotePayload } from '@/types/problem'; // Adjust path
-import { useNotification } from '@/components/ui/notification';
+import type { ProblemType, ThreadType, CommentType, ThreadsResponse, CommentsResponse, ApiError } from '@/types/problem'; // Adjust path
+// import { useNotification } from '@/components/ui/notification';
 import { ApiErrorResponse } from '@/lib/api';
+import { CodeSubmitOptions } from '@/components/ui/CodeSubmitOptions';
 
 // Type definitions for API responses
 interface CodeCompletionResponse {
@@ -40,9 +38,9 @@ interface SubmitSolutionResponse {
     submission_id: string;
 }
 
-interface ConvertPseudocodeResponse {
-    python_code: string;
-}
+// interface ConvertPseudocodeResponse {
+//     python_code: string;
+// }
 
 interface AIHintResponse {
     hints: string[];
@@ -63,10 +61,10 @@ export default function SingleProblemPage() {
     const [currentTab, setCurrentTab] = useState<string>('description');
 
     // New state for code execution results
-    const [output, setOutput] = useState<any>(null);
     const [isExecuting, setIsExecuting] = useState<boolean>(false);
     const [executionError, setExecutionError] = useState<string | null>(null);
     const [isSubmitting, setIsSubmitting] = useState<boolean>(false);
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const [submissionResult, setSubmissionResult] = useState<any>(null);
 
     // Track test case results
@@ -121,8 +119,11 @@ export default function SingleProblemPage() {
 
     const monacoRef = useRef<Monaco | null>(null);
     const [editorInstance, setEditorInstance] = useState<editor.IStandaloneCodeEditor | null>(null);
-    const [monacoInstance, setMonacoInstance] = useState<any>(null);
+    const [monacoInstance, setMonacoInstance] = useState<Monaco | null>(null);
     const lastSuggestionRef = useRef<string>('');
+
+    // Add state for using the parser
+    const [useParser, setUseParser] = useState<boolean>(true);
 
     const onEditorMount = (editor: editor.IStandaloneCodeEditor, monaco: Monaco) => {
         setEditorInstance(editor);
@@ -168,8 +169,9 @@ export default function SingleProblemPage() {
             provideInlineCompletions: async (
                 model: editor.ITextModel,
                 position: { lineNumber: number; column: number },
-                context: any,
-                token: any // This is the CancellationToken
+                // eslint-disable-next-line @typescript-eslint/no-explicit-any
+                context: any, // Using any for Monaco editor types compatibility
+                token: { isCancellationRequested: boolean }
             ) => {
                 // Debounce the request
                 await new Promise(r => setTimeout(r, 500));
@@ -258,6 +260,7 @@ export default function SingleProblemPage() {
             if (e.keyCode === monacoInstance.KeyCode.Tab.valueOf() && !e.shiftKey) {
                 // Use the editor's context key to check if an inline suggestion is visible.
                 // This is more reliable than querying the DOM.
+                // eslint-disable-next-line @typescript-eslint/no-explicit-any
                 const isSuggestionVisible = (editorInstance as any).getContextKey('inlineSuggestionVisible')?.get();
 
                 if (isSuggestionVisible) {
@@ -302,11 +305,14 @@ export default function SingleProblemPage() {
 
         // --- End of Autocomplete Logic ---
 
+        // Capture debounceTimeoutRef in a local variable inside the effect
+        const timeoutRef = debounceTimeoutRef;
+
         return () => {
             // Cleanup all autocomplete resources
             providerRegistration.dispose();
             keyDownListener.dispose();
-            if (debounceTimeoutRef.current) clearTimeout(debounceTimeoutRef.current);
+            if (timeoutRef.current) clearTimeout(timeoutRef.current);
             document.head.removeChild(styleElement);
         };
     }, [monacoInstance, editorInstance, selectedLanguage, problem]);
@@ -316,7 +322,7 @@ export default function SingleProblemPage() {
         if (!problemId) return;
         setIsLoadingThreads(true);
         try {
-            const response = await fetch(`http://localhost:8080/api/discussions/problems/${problemId}/threads`, {
+            const response = await fetch(`${process.env.NEXT_PUBLIC_BACKEND_URL}/api/discussions/problems/${problemId}/threads`, {
                 credentials: 'include',
             });
             if (!response.ok) {
@@ -341,7 +347,7 @@ export default function SingleProblemPage() {
 
         setIsCreatingThread(true);
         try {
-            const response = await fetch(`http://localhost:8080/api/discussions/problems/${problemId}/threads`, {
+            const response = await fetch(`${process.env.NEXT_PUBLIC_BACKEND_URL}/api/discussions/problems/${problemId}/threads`, {
                 method: 'POST',
                 headers: {
                     'Content-Type': 'application/json',
@@ -375,7 +381,7 @@ export default function SingleProblemPage() {
     const loadComments = useCallback(async (threadId: string) => {
         setIsLoadingComments(true);
         try {
-            const response = await fetch(`http://localhost:8080/api/discussions/threads/${threadId}/comments`, {
+            const response = await fetch(`${process.env.NEXT_PUBLIC_BACKEND_URL}/api/discussions/threads/${threadId}/comments`, {
                 credentials: 'include',
             });
             if (!response.ok) {
@@ -400,7 +406,7 @@ export default function SingleProblemPage() {
 
         setIsCreatingComment(true);
         try {
-            const response = await fetch(`http://localhost:8080/api/discussions/threads/${selectedThread.id}/comments`, {
+            const response = await fetch(`${process.env.NEXT_PUBLIC_BACKEND_URL}/api/discussions/threads/${selectedThread.id}/comments`, {
                 method: 'POST',
                 headers: {
                     'Content-Type': 'application/json',
@@ -427,10 +433,10 @@ export default function SingleProblemPage() {
         }
     };
 
-    // Handle voting
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const handleVote = async (targetId: string, type: 'thread' | 'comment', value: -1 | 0 | 1) => {
         try {
-            const response = await fetch('http://localhost:8080/api/vote', {
+            const response = await fetch(`${process.env.NEXT_PUBLIC_BACKEND_URL}/api/vote`, {
                 method: 'POST',
                 headers: {
                     'Content-Type': 'application/json',
@@ -462,7 +468,7 @@ export default function SingleProblemPage() {
     // Handle deleting a comment
     const handleDeleteComment = async (commentId: string) => {
         try {
-            const response = await fetch(`http://localhost:8080/api/discussions/comments/${commentId}`, {
+            const response = await fetch(`${process.env.NEXT_PUBLIC_BACKEND_URL}/api/discussions/comments/${commentId}`, {
                 method: 'DELETE',
                 credentials: 'include',
             });
@@ -512,7 +518,7 @@ export default function SingleProblemPage() {
     useEffect(() => {
         const checkLoginStatus = async () => {
             try {
-                const response = await fetch('http://localhost:8080/api/auth-status', {
+                const response = await fetch(`${process.env.NEXT_PUBLIC_BACKEND_URL}/api/auth-status`, {
                     credentials: 'include',
                 });
                 if (response.ok) {
@@ -536,14 +542,15 @@ export default function SingleProblemPage() {
             setIsLoading(true);
             setError(null);
             try {
-                const response = await fetch(`http://localhost:8080/problems/${problemId}`);
+                const response = await fetch(`${process.env.NEXT_PUBLIC_BACKEND_URL}/problems/${problemId}`);
                 if (!response.ok) {
                     let errorMessage = `Failed to fetch problem: ${response.status}`;
                     try {
                         const errorData: ApiError = await response.json();
                         errorMessage = errorData.message || errorMessage;
-                    } catch (jsonError) {
+                    } catch (_errorParse) {
                         errorMessage = response.statusText || errorMessage;
+                        console.error('Error parsing JSON:', _errorParse);
                     }
                     setError(errorMessage);
                     return;
@@ -578,6 +585,7 @@ export default function SingleProblemPage() {
         }
     }, [activeTestCase, customTestCases]);
 
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     function handleEditorDidMount(editor: any, monaco: Monaco) {
         onEditorMount(editor, monaco);
         monacoRef.current = monaco;
@@ -597,62 +605,41 @@ export default function SingleProblemPage() {
             return;
         }
 
-        // Reset previous results
-        setOutput(null);
+        // Clear previous results
+        setTestCaseResults([]);
         setExecutionError(null);
         setIsExecuting(true);
-        setTestCaseResults([]);
 
         try {
-            // Prepare test cases (use the selected one if it has content, otherwise use all with content)
-            const testCasesToRun = customTestCases
-                .filter(tc => tc.input.trim() !== '')
-                .map(tc => tc.input);
+            // Get test case inputs
+            let testCaseInputs = customTestCases.map(tc => tc.input).filter(input => input.trim() !== '');
 
-            if (testCasesToRun.length === 0) {
-                testCasesToRun.push(''); // Use empty input if no test cases defined
+            // If no test cases are defined, use an empty string as input
+            if (testCaseInputs.length === 0) {
+                testCaseInputs = [''];
             }
 
-            // Handle pseudocode conversion if needed
-            let codeToRun = currentCode;
-            let languageToRun = selectedLanguage;
+            // Execute the code with specified test cases
+            // @ts-ignore - API accepts additional parameters
+            const response = await executeCode(
+                selectedLanguage,
+                currentCode,
+                testCaseInputs,
+                problem?.problem_id,
+            ) as ExecuteCodeResponse;
 
-            if (selectedLanguage === "pseudocode") {
-                try {
-                    const response = await convertPseudocode(currentCode) as ConvertPseudocodeResponse;
-                    codeToRun = response.python_code;
-                    languageToRun = "python";
-                    setConvertedCode(codeToRun); // Save the converted code
-                } catch (error) {
-                    console.error("Error converting pseudocode:", error);
-                    setExecutionError("Failed to convert pseudocode to Python. Please check your syntax.");
-                    setIsExecuting(false);
-                    return;
-                }
-            }
-
-            // Execute the code
-            const response = await executeCode(languageToRun, codeToRun, testCasesToRun) as ExecuteCodeResponse;
-
-            // Log the response to see what we're getting
-            console.log("Execute code response:", response);
-
-            // Process results
-            setOutput(response);
-
-            // Map the results to our test case results format
-            const results = response.results.map((result, index: number) => ({
-                stdout: result.stdout || '',
-                stderr: result.stderr || '',
-                status: result.status || 'success',
-                executionTimeMs: result.execution_time_ms || 0,
-                error: result.stderr, // Make sure stderr is properly assigned to error
-                testCase: customTestCases[index] || { input: testCasesToRun[index] },
+            // Format the test case results
+            const results = response.results.map((result, index) => ({
+                stdout: result.stdout,
+                stderr: result.stderr,
+                status: result.status,
+                executionTimeMs: result.execution_time_ms,
+                testCase: customTestCases[index]
             }));
 
             setTestCaseResults(results);
-            setActiveResultTab(0); // Show the first result tab
-        } catch (error: unknown) {
+            setActiveResultTab(0); // Show the first result
+        } catch (error) {
             console.error("Error executing code:", error);
             const errorMessage = error instanceof Error
                 ? error.message
@@ -680,6 +667,7 @@ export default function SingleProblemPage() {
 
         try {
             // Submit the code
+            // @ts-ignore - API accepts additional parameters
             const response = await submitSolution(
                 problem?.problem_id || String(problemId),
                 selectedLanguage,
@@ -1203,7 +1191,9 @@ export default function SingleProblemPage() {
                                                                     <Loader className="animate-spin h-6 w-6 mx-auto text-indigo-600" />
                                                                 </div>
                                                             ) : comments.length === 0 ? (
-                                                                <p className="text-gray-600 text-center py-4">No comments yet.</p>
+                                                                <div className="text-center py-4">
+                                                                    <p className="text-gray-600">No comments yet.</p>
+                                                                </div>
                                                             ) : (
                                                                 <div className="space-y-4">
                                                                     {comments.map((comment) => (
@@ -1316,6 +1306,11 @@ export default function SingleProblemPage() {
                                             {isSubmitting ? 'Submitting...' : 'Submit'}
                                         </button>
                                     </div>
+                                </div>
+
+                                {/* Add CodeSubmitOptions component */}
+                                <div className="mt-2">
+                                    <CodeSubmitOptions useParser={useParser} setUseParser={setUseParser} />
                                 </div>
                             </div>
 
@@ -1467,9 +1462,13 @@ export default function SingleProblemPage() {
                                                                         <span className="font-medium">
                                                                             {testCaseResults.every(r => r.status === 'success')
                                                                                 ? 'Accepted'
-                                                                                : testCaseResults.some(r => r.status === 'runtime_error')
-                                                                                    ? 'Runtime Error'
-                                                                                    : 'Failed'}
+                                                                                : testCaseResults.some(r => r.status === 'compilation_error')
+                                                                                    ? 'Compilation Error'
+                                                                                    : testCaseResults.some(r => r.status === 'runtime_error')
+                                                                                        ? 'Runtime Error'
+                                                                                        : testCaseResults.some(r => r.status === 'time_limit_exceeded')
+                                                                                            ? 'Time Limit Exceeded'
+                                                                                            : 'Failed'}
                                                                         </span>
                                                                     </div>
                                                                     <div className="ml-4 text-xs text-gray-300">
@@ -1501,15 +1500,13 @@ export default function SingleProblemPage() {
                                                                 <div className="p-2 text-sm font-mono whitespace-pre-wrap flex-grow">
                                                                     {testCaseResults[activeResultTab] && (
                                                                         <div className="space-y-2">
-                                                                            {/* Output */}
-                                                                            {testCaseResults[activeResultTab].stdout && (
-                                                                                <div>
-                                                                                    <div className="font-semibold text-xs text-gray-700 mb-1">Your Output:</div>
-                                                                                    <div className="pl-2 border-l-2 border-green-400">
-                                                                                        {testCaseResults[activeResultTab].stdout}
-                                                                                    </div>
+                                                                            {/* Output - Always show output section even if empty */}
+                                                                            <div>
+                                                                                <div className="font-semibold text-xs text-gray-700 mb-1">Your Output:</div>
+                                                                                <div className="pl-2 border-l-2 border-green-400">
+                                                                                    {testCaseResults[activeResultTab].stdout || "(No output)"}
                                                                                 </div>
-                                                                            )}
+                                                                            </div>
 
                                                                             {/* Error */}
                                                                             {(testCaseResults[activeResultTab].stderr || testCaseResults[activeResultTab].error) && (
@@ -1552,7 +1549,7 @@ export default function SingleProblemPage() {
                                                             <div className="text-red-600">Submission error: {submissionResult.error}</div>
                                                         ) : (
                                                             <div className="text-gray-500">
-                                                                Click "Run" to execute your code against all test cases.
+                                                                Click &quot;Run&quot; to execute your code against all test cases.
                                                             </div>
                                                         )}
                                                     </div>

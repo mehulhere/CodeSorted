@@ -1,6 +1,6 @@
 import axios, { AxiosError, AxiosRequestConfig, AxiosResponse } from 'axios';
 
-const BASE_URL = 'http://localhost:8080';
+const BASE_URL = `${process.env.NEXT_PUBLIC_BACKEND_URL}`;
 
 export interface ApiErrorResponse {
   message: string;
@@ -107,11 +107,11 @@ export const get = <T>(url: string, config?: AxiosRequestConfig): Promise<T> => 
   return apiRequest<T>({ ...config, method: 'GET', url });
 };
 
-export const post = <T>(url: string, data?: any, config?: AxiosRequestConfig): Promise<T> => {
+export const post = <T>(url: string, data?: unknown, config?: AxiosRequestConfig): Promise<T> => {
   return apiRequest<T>({ ...config, method: 'POST', url, data });
 };
 
-export const put = <T>(url: string, data?: any, config?: AxiosRequestConfig): Promise<T> => {
+export const put = <T>(url: string, data?: unknown, config?: AxiosRequestConfig): Promise<T> => {
   return apiRequest<T>({ ...config, method: 'PUT', url, data });
 };
 
@@ -120,10 +120,26 @@ export const del = <T>(url: string, config?: AxiosRequestConfig): Promise<T> => 
 };
 
 // Specialized API functions
-export const executeCode = async (language: string, code: string, testCases: string[]) => {
-  return post('/execute', { language, code, testCases });
+
+/**
+ * Executes code with the provided test cases
+ * @param language The programming language to use (python, javascript, cpp, java)
+ * @param code The user's code
+ * @param testCases Array of test case input strings
+ * @param problemId Optional problem ID for context
+ * @returns Results of code execution
+ */
+export const executeCode = async (language: string, code: string, testCases: string[], problemId?: string) => {
+  return post('/execute', { language, code, testCases, problem_id: problemId });
 };
 
+/**
+ * Submits a solution for evaluation
+ * @param problemId The ID of the problem
+ * @param language The programming language
+ * @param code The user's code
+ * @returns Submission confirmation
+ */
 export const submitSolution = async (problemId: string, language: string, code: string) => {
   return post('/submit', { problem_id: problemId, language, code });
 };
@@ -160,12 +176,12 @@ export const logout = async () => {
   try {
     await post('/logout');
     // Also clear the cookie client-side
-    document.cookie = 'authToken=; expires=Thu, 01 Jan 1970 00:00:00 UTC; path=/; domain=localhost; secure; samesite=none;';
+    document.cookie = 'authToken=; expires=Thu, 01 Jan 1970 00:00:00 UTC; path=/; secure; samesite=none;';
     return { success: true };
   } catch (error) {
     console.error('Error during logout:', error);
     // Even if the server call fails, clear the cookie
-    document.cookie = 'authToken=; expires=Thu, 01 Jan 1970 00:00:00 UTC; path=/; domain=localhost; secure; samesite=none;';
+    document.cookie = 'authToken=; expires=Thu, 01 Jan 1970 00:00:00 UTC; path=/; secure; samesite=none;';
     throw error;
   }
 };
@@ -191,6 +207,48 @@ export const getAuthStatus = async (): Promise<AuthStatusResponse> => {
 // Add guest login function
 export const guestLogin = async (): Promise<AuthStatusResponse> => {
   return post('/guest-login');
+};
+
+// New functions for problem creation and test cases
+export const createProblem = async (problemData: any) => {
+  return post('/admin/problems', problemData);
+};
+
+export const generateTestCases = async (problemStatement: string) => {
+  return post('/api/generate-testcases', { problem_statement: problemStatement });
+};
+
+export const bulkAddTestCases = async (problemId: string, testCases: any, sampleCount: number) => {
+  return post('/api/bulk-add-testcases', {
+    problem_db_id: problemId,
+    test_cases: testCases,
+    sample_count: sampleCount
+  });
+};
+
+// New function for generating problem details
+export interface ProblemDetails {
+  title: string;
+  formatted_statement: string;
+  difficulty: string;
+  constraints: string;
+  tags: string[];
+  problem_id: string;
+}
+
+export const generateProblemDetails = async (rawProblemStatement: string): Promise<ProblemDetails> => {
+  return post('/api/generate-problem-details', { 
+    raw_problem_statement: rawProblemStatement 
+  });
+};
+
+// Functions for generating brute force solutions and expected outputs
+export const generateBruteForceSolution = async (problemStatement: string, language: string = 'python') => {
+  return post('/api/generate-brute-force-solution', { problem_statement: problemStatement, language });
+};
+
+export const generateExpectedOutputs = async (problemStatement: string, testCases: any, language: string = 'python') => {
+  return post('/api/generate-expected-outputs', { problem_statement: problemStatement, test_cases: testCases, language });
 };
 
 export default api; 

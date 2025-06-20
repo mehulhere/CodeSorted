@@ -87,7 +87,7 @@ export default function SubmissionsPage() {
 
             queryParams.append('limit', pagination.limit.toString());
 
-            const response = await fetch(`http://localhost:8080/submissions?${queryParams.toString()}`, {
+            const response = await fetch(`${process.env.NEXT_PUBLIC_BACKEND_URL}/submissions?${queryParams.toString()}`, {
                 method: 'GET',
                 credentials: 'include',
                 headers: {

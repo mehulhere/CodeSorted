@@ -50,7 +50,7 @@ export default function ProblemsPage() {
             setIsLoading(true);
             setError(null);
             try {
-                const response = await fetch('http://localhost:8080/problems');
+                const response = await fetch(`${process.env.NEXT_PUBLIC_BACKEND_URL}/problems`);
                 if (!response.ok) {
                     const errorData: ApiError = await response.json();
                     setError(errorData.message || `Failed to fetch problems: ${response.status}`);
@@ -187,9 +187,19 @@ export default function ProblemsPage() {
             </Head>
             <div className="min-h-screen bg-gray-100 py-8 px-4 sm:px-6 lg:px-8">
                 <div className="max-w-5xl mx-auto">
-                    <h1 className="text-4xl font-extrabold text-gray-900 text-center mb-6">
-                        Problem Set
-                    </h1>
+                    <div className="flex justify-between items-center mb-6">
+                        <h1 className="text-4xl font-extrabold text-gray-900">
+                            Problem Set
+                        </h1>
+                        <div>
+                            <Button
+                                onClick={() => window.location.href = '/problems/create'}
+                                className="bg-green-600 hover:bg-green-700"
+                            >
+                                Create Problem
+                            </Button>
+                        </div>
+                    </div>
 
                     {/* Search and Filters */}
                     <div className="mb-6 bg-white shadow rounded-lg p-4">

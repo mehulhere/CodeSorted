@@ -57,7 +57,7 @@ func GenerateState() (string, error) {
 func GetRedirectURL(provider string) string {
 	baseURL := os.Getenv("OAUTH_REDIRECT_BASE_URL")
 	if baseURL == "" {
-		baseURL = "http://localhost:8080"
+		baseURL = `${process.env.OAUTH_REDIRECT_BASE_URL}`
 	}
 	return fmt.Sprintf("%s/auth/callback/%s", baseURL, provider)
 }

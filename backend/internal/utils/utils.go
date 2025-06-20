@@ -6,6 +6,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"log"
 	"net/http"
 	"strconv"
 	"strings"
@@ -49,6 +50,9 @@ func ParseInt(s string) (int, error) {
 // and returns types.ExecutionResult.
 func ExecuteCode(ctx context.Context, req types.ExecutionRequest) (types.ExecutionResult, error) {
 	fmt.Println("Executing code in DOCKER in ", req.Language)
+	log.Printf("ExecuteCode called with: FunctionName=%q, Language=%s, Parser length=%d",
+		req.FunctionName, req.Language, len(req.Parser))
+
 	langToPort := map[string]string{
 		"python":     "8001",
 		"javascript": "8002",
@@ -64,10 +68,18 @@ func ExecuteCode(ctx context.Context, req types.ExecutionRequest) (types.Executi
 	}
 
 	endpoint := fmt.Sprintf("http://localhost:%s/execute", port)
+	log.Printf("Sending request to: %s", endpoint)
 
 	payload, err := json.Marshal(req)
 	if err != nil {
 		return types.ExecutionResult{}, fmt.Errorf("marshal exec-request: %w", err)
+	}
+
+	// Log a portion of the payload for debugging
+	if len(payload) > 100 {
+		log.Printf("Payload (first 100 bytes): %s...", string(payload[:100]))
+	} else {
+		log.Printf("Payload: %s", string(payload))
 	}
 
 	httpReq, err := http.NewRequestWithContext(ctx, http.MethodPost, endpoint, bytes.NewReader(payload))
@@ -93,6 +105,7 @@ func ExecuteCode(ctx context.Context, req types.ExecutionRequest) (types.Executi
 		return types.ExecutionResult{}, fmt.Errorf("decode exec-result: %w", err)
 	}
 
+	log.Printf("Received execution result: status=%s", result.Status)
 	return result, nil
 }
 

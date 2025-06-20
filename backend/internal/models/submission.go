@@ -33,6 +33,7 @@ type Submission struct {
 	TestCasesTotal   int                `json:"test_cases_total" bson:"test_cases_total"`
 	TimeComplexity   string             `json:"time_complexity,omitempty" bson:"time_complexity,omitempty"`
 	MemoryComplexity string             `json:"memory_complexity,omitempty" bson:"memory_complexity,omitempty"`
+	UseParser        bool               `json:"use_parser" bson:"use_parser"` // Whether to use the generic input parser
 }
 
 // Parse submission data
@@ -40,6 +41,7 @@ type SubmissionData struct {
 	ProblemID string `json:"problem_id"`
 	Language  string `json:"language"`
 	Code      string `json:"code"`
+	UseParser bool   `json:"use_parser"` // Whether to use the generic input parser
 }
 
 // SubmissionListItem defines a simplified structure for listing submissions

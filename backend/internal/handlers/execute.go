@@ -1,12 +1,14 @@
 package handlers
 
 import (
+	"backend/internal/ai"
 	"backend/internal/types"
 	"backend/internal/utils"
 	"context"
 	"encoding/json"
 	"log"
 	"net/http"
+	"strings"
 	"time"
 )
 
@@ -33,6 +35,18 @@ func ExecuteCodeHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	log.Printf("Problem ID from request: %q", payload.ProblemId)
+
+	// Always use function name from problem ID
+	functionName := utils.ExtractFunctionName(payload.ProblemId)
+	log.Printf("Function name from problem ID: %q", functionName)
+
+	// Ensure we have a function name with a fallback to "twoSum" (for the example problem)
+	if functionName == "" {
+		functionName = "twoSum"
+		log.Printf("Using default function name: %q", functionName)
+	}
+
 	// Process test cases
 	var testCases []string
 	if len(payload.TestCases) > 0 {
@@ -56,6 +70,38 @@ func ExecuteCodeHandler(w http.ResponseWriter, r *http.Request) {
 		Results: make([]types.TestCaseResult, 0, len(testCases)),
 	}
 
+	// Generate parser code using AI if input examples provided
+	var parser string
+	if payload.InputExample != "" && payload.OutputExample != "" {
+		// Map language name for parser generation
+		langName := payload.Language
+		if strings.ToLower(langName) == "js" {
+			langName = "javascript"
+		} else if strings.ToLower(langName) == "cpp" {
+			langName = "c++"
+		}
+
+		log.Printf("Generating parser with: language=%s, functionName=%s, inputExample=%s, outputExample=%s",
+			langName, functionName, payload.InputExample, payload.OutputExample)
+		parserCode, err := ai.GenerateParser(langName, functionName, payload.InputExample, payload.OutputExample)
+
+		if err != nil {
+			log.Printf("Failed to generate parser: %v. Continuing without custom parser.", err)
+		} else {
+			if parserCode == "" {
+				log.Printf("WARNING: Generated parser is empty! InputExample=%q, OutputExample=%q",
+					payload.InputExample, payload.OutputExample)
+			} else {
+				parser = parserCode
+				log.Printf("Generated custom parser for %s function %s (length: %d)",
+					langName, functionName, len(parser))
+				log.Printf("Parser content preview: %s", truncateString(parser, 200))
+			}
+		}
+	}
+
+	log.Printf("Parser: %s", parser)
+
 	// Default error in case a language isn't handled, or early exit
 	result.Error = "Language not supported or internal error before execution: " + payload.Language
 
@@ -67,11 +113,17 @@ func ExecuteCodeHandler(w http.ResponseWriter, r *http.Request) {
 	for _, testInput := range testCases {
 		// Prepare execution request
 		execReq := types.ExecutionRequest{
-			Language:    payload.Language,
-			Code:        payload.Code,
-			Input:       testInput,
-			TimeLimitMs: defaultTimeLimitMs,
+			Language:     payload.Language,
+			Code:         payload.Code,
+			Input:        testInput,
+			TimeLimitMs:  defaultTimeLimitMs,
+			FunctionName: functionName,
+			Parser:       parser,
 		}
+
+		// Debug log the request
+		log.Printf("Sending execution request: Language=%s, FunctionName=%q, Input=%q, Parser length=%d",
+			execReq.Language, execReq.FunctionName, execReq.Input, len(execReq.Parser))
 
 		// Give a little buffer over the requested time limit
 		execCtx, cancel := context.WithTimeout(r.Context(), time.Duration(defaultTimeLimitMs+2000)*time.Millisecond)
@@ -131,4 +183,12 @@ func ExecuteCodeHandler(w http.ResponseWriter, r *http.Request) {
 	}
 	log.Printf("Code execution: lang=%s, status=%s, time=%dms, test_cases=%d",
 		payload.Language, result.Status, maxExecutionTime, len(testCases))
+}
+
+// truncateString truncates a string to the given max length and adds "..." if needed
+func truncateString(s string, maxLen int) string {
+	if len(s) <= maxLen {
+		return s
+	}
+	return s[:maxLen] + "..."
 }

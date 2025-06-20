@@ -21,7 +21,7 @@ func main() {
 		// Create a default .env file
 		defaultEnv := `MONGO_URI=mongodb://localhost:27017
 JWT_SECRET_KEY=mysecretkey123fortests
-PORT=8080`
+PORT=80`
 
 		err = os.WriteFile(".env", []byte(defaultEnv), 0644)
 		if err != nil {

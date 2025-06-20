@@ -1,13 +1,18 @@
-# OJ (Online Judge)
+# for i in range (Online Judge)
 
 This is an Online Judge platform for competitive programming practice and contests. The platform supports multiple programming languages, real-time code execution, and automated evaluation of submissions.
 
 ## Features
 
-- **User Authentication**: Register, login, and manage your account
+- **User Authentication**: Register, login, and manage user profiles.
 - **Social Login**: Sign in using Google, Facebook, or GitHub accounts
 - **Guest Access**: Try the platform without registration using a guest account
-- **Problem Solving**: Browse problems by difficulty and topic
+- **Problem Solving**: Browse problems, write solutions, and submit them in multiple languages (Python, JavaScript, C++, Java).
+- **AI-powered Code Completion**: Get intelligent code suggestions as you type.
+- **AI-assisted Problem Creation**: Create well-structured problems with AI-generated problem statements, test cases, and metadata.
+- **Judge System**: Automatic evaluation of submissions against test cases.
+- **Discussion System**: Participate in discussions for each problem.
+- **Admin Dashboard**: Manage problems, users, and submissions.
 - **Code Editor**: Built-in Monaco editor with syntax highlighting
 - **Multiple Languages**: Support for Python, JavaScript, C++, and Java
 - **Real-time Execution**: Test your code with custom inputs before submission (via sandboxed language executors)
@@ -15,7 +20,6 @@ This is an Online Judge platform for competitive programming practice and contes
 - **Detailed Feedback**: Receive specific error messages and test case results
 - **Submission History**: Track your progress and review past submissions
 - **Pseudocode Support**: Convert pseudocode to Python for execution
-- **AI Code Completion**: Get intelligent code suggestions as you type, enhanced with problem context for more accurate completions.
 - **AI Progressive Hints**: Receive progressive hints for problems, with the number of hints varying by difficulty (Easy: 1, Medium: 2, Hard: 3).
 - **Rate Limiting**: Protection against excessive usage of AI-powered and resource-intensive services
 
@@ -110,6 +114,40 @@ Rate limits are set per service and reset hourly. Regular users and administrato
 
 When a rate limit is exceeded, the API returns a 429 Too Many Requests status code.
 
+## New Problem Creation Feature (June 2025)
+
+### Overview
+The platform now supports user-created problems with AI-powered test case generation. This feature allows any logged-in user to:
+
+1. Create new programming problems with a UI similar to the problem-solving page
+2. Generate test cases automatically using AI based on the problem statement
+3. Preview the problem before submission
+4. Specify sample test cases that will be visible to problem solvers
+
+### Usage
+1. Navigate to the "Create Problem" option on the home page or problems list
+2. Fill in the problem details (ID, title, statement, constraints, etc.)
+3. Click "Generate Test Cases" to create test data using AI
+4. Review and adjust the test cases as needed
+5. Click "Create Problem" to finalize and publish the problem
+
+### Features
+- Open to all registered users
+- Editable problem form with real-time preview
+- AI-powered test case generation using the problem statement
+- Support for Python expressions in test cases for generating large datasets
+- Customizable number of sample test cases visible to users
+
+### API Endpoints
+| Endpoint | Method | Description |
+|----------|--------|-------------|
+| `/admin/problems` | POST | Create a new problem |
+| `/api/generate-testcases` | POST | Generate test cases from a problem statement |
+| `/api/bulk-add-testcases` | POST | Add multiple test cases to a problem |
+
+### Implementation
+The feature uses the Gemini AI model to analyze problem statements and generate diverse test cases across different difficulty levels, including edge cases and stress tests.
+
 ## Contribution
 
 Contributions are welcome! Please feel free to submit a Pull Request.
@@ -193,3 +231,17 @@ The FRONTEND_URL environment variable specifies where users should be redirected
 - Improved submissions search functionality to include problem name and fixed filtering issues
 - Removed problem ID search, only problem name search is available for submissions
 - Implemented client-side caching for responses from `/problems`, `/problems/{id}`, and `/problems/{id}/stats` endpoints, with a cache lifetime of 5 minutes.
+
+## AI Features
+
+The platform integrates several AI-powered features:
+
+1. **Code Complexity Analysis**: Automatically analyze the time and memory complexity of submitted code.
+2. **Pseudocode to Python Conversion**: Convert pseudocode to runnable Python code.
+3. **Intelligent Code Completion**: Get context-aware code suggestions as you type.
+4. **Progressive Hints**: Receive guided hints when stuck on a problem.
+5. **AI-assisted Problem Creation**: Generate well-structured problems from a simple description, including:
+   - Formatted problem statements with examples
+   - Appropriate difficulty level and tags
+   - Problem constraints
+   - Test cases (both sample and hidden)

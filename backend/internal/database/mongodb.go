@@ -52,12 +52,12 @@ func ConnectDB(uri string) error {
 	// Ensure unique indexes
 	err = EnsureUniqueIndex("OJ", "users", "username")
 	if err != nil {
-		log.Fatalf("Failed to ensure unique username index: %v", err)
+		log.Printf("Failed to ensure unique username index: %v. This may cause issues with duplicate usernames.", err)
 	}
 
 	err = EnsureUniqueIndex("OJ", "users", "email")
 	if err != nil {
-		log.Fatalf("Failed to ensure unique email index: %v", err)
+		log.Printf("Failed to ensure unique email index: %v. This may cause issues with duplicate emails.", err)
 	}
 
 	return nil
