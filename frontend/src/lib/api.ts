@@ -129,9 +129,14 @@ export const del = <T>(url: string, config?: AxiosRequestConfig): Promise<T> => 
  * @param problemId Optional problem ID for context
  * @returns Results of code execution
  */
-export const executeCode = async (language: string, code: string, testCases: string[], problemId?: string) => {
-  return post('/execute', { language, code, testCases, problem_id: problemId });
-};
+export async function executeCode(
+    language: string,
+    code: string,
+    testCases: string[],
+    problemId?: string
+) {
+    return post('/execute', { language, code, testCases, problemId });
+}
 
 /**
  * Submits a solution for evaluation
@@ -214,8 +219,13 @@ export const createProblem = async (problemData: any) => {
   return post('/admin/problems', problemData);
 };
 
-export const generateTestCases = async (problemStatement: string) => {
-  return post('/api/generate-testcases', { problem_statement: problemStatement });
+export const generateTestCases = async (problemStatement: string, constraints: string, problemId: string) => {
+  const response = await api.post('/api/generate-testcases', {
+    problem_statement: problemStatement,
+    constraints: constraints,
+    problem_id: problemId,
+  });
+  return response.data;
 };
 
 export const bulkAddTestCases = async (problemId: string, testCases: any, sampleCount: number) => {
@@ -236,10 +246,9 @@ export interface ProblemDetails {
   problem_id: string;
 }
 
-export const generateProblemDetails = async (rawProblemStatement: string): Promise<ProblemDetails> => {
-  return post('/api/generate-problem-details', { 
-    raw_problem_statement: rawProblemStatement 
-  });
+export const generateProblemDetails = async (rawStatement: string) => {
+  const response = await api.post('/api/generate-problem-details', { raw_problem_statement: rawStatement });
+  return response.data as ProblemDetails;
 };
 
 // Functions for generating brute force solutions and expected outputs

@@ -54,6 +54,19 @@ type ProblemDetails struct {
 	ProblemID          string   `json:"problem_id"`
 }
 
+// BruteForceSolution holds the generated solution code and function name
+type BruteForceSolution struct {
+	SolutionCode string `json:"solution_code"`
+	FunctionName string `json:"function_name"`
+}
+
+// IOParseResult holds the code for parsing I/O and the function signature.
+type IOParseResult struct {
+	InputParserCode   string `json:"input_parser_code"`
+	FunctionSignature string `json:"function_signature"`
+	OutputParserCode  string `json:"output_parser_code"`
+}
+
 var client *genai.Client
 var model *genai.GenerativeModel
 var completionCacheCollection *mongo.Collection
@@ -170,7 +183,7 @@ Raw problem statement:
 Create a complete problem with the following elements:
 
 1. Title: A concise, descriptive title for the problem.
-2. Formatted Statement: A well-structured problem statement with clear descriptions, examples, and explanations.
+2. Formatted Statement: A well-structured problem statement with a clear description, followed by 2-4 illustrative examples that clarify the problem's requirements and edge cases. Each example must have an input, the expected output, and a detailed explanation.
 3. Difficulty: Categorize as "Easy", "Medium", or "Hard" based on algorithmic complexity and expected solution time.
 4. Constraints: Technical constraints for input parameters (e.g., array length limits, value ranges).
 5. Tags: 2-4 relevant algorithmic tags (e.g., "Array", "Dynamic Programming", "Graph", "Binary Search", etc.).
@@ -193,30 +206,28 @@ Create a complete problem with the following elements:
 }
 
 // GenerateStructuredTestCases generates test cases with a structured schema
-func GenerateStructuredTestCases(ctx context.Context, problemStatement string) (map[string]interface{}, error) {
+func GenerateStructuredTestCases(ctx context.Context, problemStatement string, constraints string) ([]map[string]interface{}, error) {
 	if client == nil {
 		return nil, fmt.Errorf("AI client not initialized")
 	}
 
 	// Define a schema with an array of test cases
 	schema := &genai.Schema{
-		Type: genai.TypeObject,
-		Properties: map[string]*genai.Schema{
-			"test_cases": {
-				Type:        genai.TypeArray,
-				Description: "An array of exactly 30 test cases",
-				Items: &genai.Schema{
-					Type: genai.TypeObject,
-					Properties: map[string]*genai.Schema{
-						"name":   {Type: genai.TypeString},
-						"input":  {Type: genai.TypeString},
-						"python": {Type: genai.TypeBoolean},
-					},
-					Required: []string{"name", "input"},
+		Type:        genai.TypeArray,
+		Description: "An array of exactly 30 test cases.",
+		Items: &genai.Schema{
+			Type: genai.TypeObject,
+			Properties: map[string]*genai.Schema{
+				"id": {Type: genai.TypeInteger},
+				"inputs": {
+					Type:        genai.TypeArray,
+					Description: "An array of strings, where each string is a key-value pair like 'param_name = value'. Example: [\"nums = [1,2,3]\", \"k = 2\"]",
+					Items:       &genai.Schema{Type: genai.TypeString},
 				},
+				"pythonevalneeded": {Type: genai.TypeBoolean},
 			},
+			Required: []string{"id", "inputs", "pythonevalneeded"},
 		},
-		Required: []string{"test_cases"},
 	}
 
 	// Read the test case generator prompt template
@@ -225,46 +236,33 @@ func GenerateStructuredTestCases(ctx context.Context, problemStatement string) (
 		return nil, fmt.Errorf("failed to read test case generator template: %w", err)
 	}
 
+	// Combine problem statement and constraints for the prompt
+	fullProblemContext := problemStatement
+	if constraints != "" {
+		fullProblemContext += "\n\nConstraints:\n" + constraints
+	}
+
 	// Replace the problem statement placeholder in the template
-	prompt := strings.Replace(string(promptTemplate), "{PROBLEM_STATEMENT}", problemStatement, 1)
+	prompt := strings.Replace(string(promptTemplate), "{PROBLEM_STATEMENT}", fullProblemContext, 1)
 
-	// Add additional instruction to emphasize generating 30 test cases
-	prompt += "\n\nIMPORTANT: You MUST generate exactly 30 test cases in the test_cases array. Each test case should have a 'name' field (like 'test_case_1'), an 'input' field, and optionally a 'python' field."
-
+	// Add additional instruction to emphasize generating 50 test cases and a mix of difficulties
+	prompt += "\n\nIMPORTANT: You MUST generate a JSON array of exactly 30 test case objects, with a good mix of easy, medium, and hard difficulty levels. Each test case should follow the specified schema."
 	// Generate structured output
+
+	log.Printf("Prompt for test cases: %s", prompt)
 	jsonOutput, err := GenerateStructuredOutput(ctx, prompt, schema)
 	if err != nil {
 		return nil, fmt.Errorf("failed to generate structured test cases: %w", err)
 	}
 
 	// Log the raw response for debugging (truncated for readability)
-	log.Printf("Raw AI response for test cases: %s", truncateForLogging(jsonOutput, 1000))
+	log.Printf("Raw AI response for test cases: %s", TruncateForLogging(jsonOutput, 3000))
 
-	// Process the output to handle Python expressions
-	jsonOutput = fixPythonExpressions(jsonOutput)
-	log.Printf("JSON after fixing Python expressions: %s", truncateForLogging(jsonOutput, 1000))
-
-	// Unmarshal the JSON string into a struct with the test cases array
-	var result struct {
-		TestCases []struct {
-			Name   string `json:"name"`
-			Input  string `json:"input"`
-			Python bool   `json:"python"`
-		} `json:"test_cases"`
-	}
-
-	if err := json.Unmarshal([]byte(jsonOutput), &result); err != nil {
+	// Unmarshal the JSON string into a slice of test case maps
+	var testCases []map[string]interface{}
+	if err := json.Unmarshal([]byte(jsonOutput), &testCases); err != nil {
 		log.Printf("JSON unmarshal failed: %v", err)
 		return nil, fmt.Errorf("failed to parse test cases JSON: %w", err)
-	}
-
-	// Convert the array to a map of test cases
-	testCases := make(map[string]interface{})
-	for _, tc := range result.TestCases {
-		testCases[tc.Name] = map[string]interface{}{
-			"input":  tc.Input,
-			"python": tc.Python,
-		}
 	}
 
 	// Check if we have enough test cases
@@ -308,6 +306,10 @@ func AnalyzeCodeComplexity(ctx context.Context, code string, language string) (*
 		return nil, fmt.Errorf("failed to generate structured complexity analysis: %w", err)
 	}
 
+	// Process the output to handle Python expressions
+	jsonOutput = fixPythonExpressions(jsonOutput)
+	log.Printf("JSON after fixing Python expressions: %s", TruncateForLogging(jsonOutput, 1000))
+
 	// Unmarshal the JSON string into a struct
 	var result ComplexityResult
 	if err := json.Unmarshal([]byte(jsonOutput), &result); err != nil {
@@ -315,15 +317,6 @@ func AnalyzeCodeComplexity(ctx context.Context, code string, language string) (*
 	}
 
 	return &result, nil
-}
-
-func cleanAIResponse(resp string) (string, error) {
-	// Clean the response by removing markdown backticks and "python" language identifier
-	cleaned := strings.TrimSpace(resp)
-	cleaned = strings.TrimPrefix(cleaned, "```python")
-	cleaned = strings.TrimPrefix(cleaned, "```")
-	cleaned = strings.TrimSuffix(cleaned, "```")
-	return strings.TrimSpace(cleaned), nil
 }
 
 // ConvertPseudocodeToPython uses the AI model to convert pseudocode into runnable Python code.
@@ -570,54 +563,77 @@ Please provide 3 progressive hints, each building on the previous one:
 }
 
 // EvaluatePythonTestCases processes test cases and evaluates any Python expressions
-func EvaluatePythonTestCases(testCasesData map[string]interface{}) map[string]interface{} {
-	// Get the test cases array
-	testCasesArray, ok := testCasesData["test_cases"].([]interface{})
-	if !ok {
-		log.Println("Failed to parse test_cases as array")
-		return testCasesData
-	}
-
+func EvaluatePythonTestCases(ctx context.Context, testCasesData []map[string]interface{}) []map[string]interface{} {
 	// Process each test case
-	for i, testCase := range testCasesArray {
-		testCaseMap, ok := testCase.(map[string]interface{})
-		if !ok {
-			continue
-		}
+	for _, testCaseMap := range testCasesData {
+		isPython, _ := testCaseMap["pythonevalneeded"].(bool)
 
-		// Check if this is a Python test case
-		isPython, ok := testCaseMap["python"].(bool)
-		if !ok || !isPython {
-			// Also check for string inputs that look like Python expressions
-			inputStr, ok := testCaseMap["input"].(string)
-			if !ok || !containsPythonExpression(inputStr) {
-				continue
+		inputsMap := make(map[string]interface{})
+		hasInputs := false
+
+		if inputsRaw, ok := testCaseMap["inputs"]; ok {
+			// Handle new format: array of "key = value" strings
+			if inputsArray, isArray := inputsRaw.([]interface{}); isArray {
+				for _, item := range inputsArray {
+					if paramStr, isStr := item.(string); isStr {
+						parts := strings.SplitN(paramStr, "=", 2)
+						if len(parts) == 2 {
+							key := strings.TrimSpace(parts[0])
+							valStr := strings.TrimSpace(parts[1])
+
+							var val interface{}
+							// Try to unmarshal the value as JSON (e.g., for lists, numbers)
+							if err := json.Unmarshal([]byte(valStr), &val); err != nil {
+								// If it fails, treat it as a literal string.
+								val = valStr
+							}
+							inputsMap[key] = val
+						}
+					}
+				}
+				if len(inputsMap) > 0 {
+					hasInputs = true
+				}
+			} else if inputsStr, isStr := inputsRaw.(string); isStr {
+				// Handle previous format: a single JSON string
+				if err := json.Unmarshal([]byte(inputsStr), &inputsMap); err == nil {
+					hasInputs = true
+				} else {
+					log.Printf("Failed to unmarshal inputs JSON string: %v. Raw string: %s", err, inputsStr)
+				}
+			} else if inputs, isMap := inputsRaw.(map[string]interface{}); isMap {
+				// Handle original format: a direct map
+				inputsMap = inputs
+				hasInputs = true
 			}
 		}
 
-		// Get the input string
-		inputStr, ok := testCaseMap["input"].(string)
-		if !ok {
-			continue
+		if hasInputs {
+			evaluatedInputs := make(map[string]interface{})
+			for key, val := range inputsMap {
+				valStr, isString := val.(string)
+
+				if isString && (isPython || containsPythonExpression(valStr)) {
+					evaluatedInput, err := EvaluatePythonExpression(ctx, valStr)
+					if err != nil {
+						log.Printf("Failed to evaluate Python expression for key %s: %v. Using original.", key, err)
+						evaluatedInputs[key] = valStr
+					} else {
+						// Attempt to unmarshal the result, as it might be a JSON-like string (e.g., list)
+						var decodedValue interface{}
+						if err := json.Unmarshal([]byte(evaluatedInput), &decodedValue); err == nil {
+							evaluatedInputs[key] = decodedValue
+						} else {
+							evaluatedInputs[key] = evaluatedInput
+						}
+					}
+				} else {
+					evaluatedInputs[key] = val
+				}
+			}
+			testCaseMap["inputs"] = evaluatedInputs
 		}
-
-		// Evaluate the Python expression
-		evaluatedInput := EvaluatePythonExpression(inputStr)
-
-		// Update the test case with the evaluated input
-		testCaseMap["input"] = evaluatedInput
-
-		// Remove the python flag as it's now been evaluated
-		delete(testCaseMap, "python")
-
-		// Update the test case in the array
-		testCasesArray[i] = testCaseMap
 	}
-
-	// Update the test cases in the original data
-	testCasesData["test_cases"] = testCasesArray
-
-	log.Println("Successfully evaluated Python expressions in test cases")
 	return testCasesData
 }
 
@@ -633,160 +649,46 @@ func containsPythonExpression(input string) bool {
 	return false
 }
 
-// EvaluatePythonExpression evaluates common Python string expressions
-func EvaluatePythonExpression(expr string) string {
-	// Handle empty string concatenation with repeated string: ''+'abcdef'*833
-	emptyPlusPattern := regexp.MustCompile(`^''?\+['"]([^'"]+)['"][ ]*\*[ ]*(\d+)$`)
-	if matches := emptyPlusPattern.FindStringSubmatch(expr); len(matches) == 3 {
-		str := matches[1]
-		count, err := strconv.Atoi(matches[2])
-		if err == nil {
-			// Limit repetition to avoid memory issues
-			if count > 50000000/len(str) {
-				count = 50000000 / len(str)
-			}
-			return strings.Repeat(str, count)
-		}
+// EvaluatePythonExpression evaluates a Python expression by sending it to the executor service.
+func EvaluatePythonExpression(ctx context.Context, expr string) (string, error) {
+	log.Printf("Evaluating Python expression via executor: %s", TruncateForLogging(expr, 200))
+
+	// The executor service will handle the Python evaluation
+	evaluated, err := EvaluatePythonInExecutor(ctx, expr)
+	if err != nil {
+		return "", fmt.Errorf("evaluation via executor failed: %w", err)
 	}
 
-	// Handle simple string repetition: 'abcdef'*833
-	simpleMultPattern := regexp.MustCompile(`^['"]([^'"]+)['"][ ]*\*[ ]*(\d+)$`)
-	if matches := simpleMultPattern.FindStringSubmatch(expr); len(matches) == 3 {
-		str := matches[1]
-		count, err := strconv.Atoi(matches[2])
-		if err == nil {
-			// Limit repetition to avoid memory issues
-			if count > 50000000/len(str) {
-				count = 50000000 / len(str)
-			}
-			return strings.Repeat(str, count)
-		}
-	}
-
-	// Handle string concatenation: 'abc' + 'def'
-	concatPattern := regexp.MustCompile(`^['"]([^'"]+)['"][ ]*\+[ ]*['"]([^'"]+)['"]$`)
-	if matches := concatPattern.FindStringSubmatch(expr); len(matches) == 3 {
-		return matches[1] + matches[2]
-	}
-
-	// If we can't evaluate it, return the original expression
-	log.Printf("Could not evaluate Python expression: %s", expr)
-	return expr
+	log.Printf("Successfully evaluated expression to: %s", TruncateForLogging(evaluated, 100))
+	return evaluated, nil
 }
 
 // GenerateTestCases uses the AI model to generate test cases for a problem
-func GenerateTestCases(ctx context.Context, problemStatement string) (map[string]interface{}, error) {
+func GenerateTestCases(ctx context.Context, problemStatement string, constraints string) ([]map[string]interface{}, error) {
 	// Try the structured approach first
-	testCases, err := GenerateStructuredTestCases(ctx, problemStatement)
+	testCases, err := GenerateStructuredTestCases(ctx, problemStatement, constraints)
 	if err != nil {
 		log.Printf("Structured test case generation failed: %v", err)
-		// Fall back to the original approach
-		testCases, err = generateTestCasesOriginal(ctx, problemStatement)
-		if err != nil {
-			return nil, err
-		}
+		return nil, err
 	}
 
 	// If we didn't get enough test cases, fall back to the original approach
 	if len(testCases) < 15 { // If we got less than half of the expected test cases
 		log.Printf("Structured approach only generated %d test cases, falling back to original approach", len(testCases))
-		testCases, err = generateTestCasesOriginal(ctx, problemStatement)
-		if err != nil {
-			return nil, err
-		}
+		return nil, fmt.Errorf("structured approach only generated less than 15 test cases")
 	}
 
 	// Evaluate any Python expressions in the test cases
-	testCases = EvaluatePythonTestCases(testCases)
+	evaluatedTestCases := EvaluatePythonTestCases(ctx, testCases)
 
-	return testCases, nil
-}
-
-// generateTestCasesOriginal is the original implementation of test case generation without structured output
-func generateTestCasesOriginal(ctx context.Context, problemStatement string) (map[string]interface{}, error) {
-	if client == nil {
-		return nil, fmt.Errorf("AI client not initialized")
-	}
-
-	// Read the test case generator prompt template
-	promptTemplate, err := os.ReadFile("testcase_generator.txt")
-	if err != nil {
-		return nil, fmt.Errorf("failed to read test case generator template: %w", err)
-	}
-
-	// Replace the problem statement placeholder in the template
-	prompt := strings.Replace(string(promptTemplate), "{PROBLEM_STATEMENT}", problemStatement, 1)
-
-	// Generate the test cases using the AI model
-	resp, err := model.GenerateContent(ctx, genai.Text(prompt))
-	if err != nil {
-		return nil, fmt.Errorf("failed to generate test cases: %w", err)
-	}
-
-	if len(resp.Candidates) == 0 || len(resp.Candidates[0].Content.Parts) == 0 {
-		return nil, fmt.Errorf("no content in AI response for test case generation")
-	}
-
-	// Extract the JSON response
-	jsonContent, ok := resp.Candidates[0].Content.Parts[0].(genai.Text)
-	if !ok {
-		return nil, fmt.Errorf("AI response is not text")
-	}
-
-	// Log the raw response for debugging (truncated for readability)
-	log.Printf("Raw AI response for test cases: %s", truncateForLogging(string(jsonContent), 1000))
-
-	// Clean the response: extract JSON object from the response
-	cleanedJSON := strings.TrimSpace(string(jsonContent))
-
-	// Remove markdown code block markers and any text before or after the JSON
-	cleanedJSON = strings.ReplaceAll(cleanedJSON, "```json", "")
-	cleanedJSON = strings.ReplaceAll(cleanedJSON, "```", "")
-
-	// Find the JSON object in the response
-	startIdx := strings.Index(cleanedJSON, "{")
-	endIdx := strings.LastIndex(cleanedJSON, "}")
-
-	if startIdx == -1 || endIdx == -1 || startIdx >= endIdx {
-		log.Printf("Failed to extract JSON object from response: %s", truncateForLogging(cleanedJSON, 500))
-		return nil, fmt.Errorf("failed to extract JSON from AI response")
-	}
-
-	jsonStr := cleanedJSON[startIdx : endIdx+1]
-
-	// Log the extracted JSON for debugging (truncated for readability)
-	log.Printf("Extracted JSON for test cases: %s", truncateForLogging(jsonStr, 1000))
-
-	// First, try to fix Python expressions in the JSON
-	jsonStr = fixPythonExpressions(jsonStr)
-	log.Printf("JSON after fixing Python expressions: %s", truncateForLogging(jsonStr, 1000))
-
-	// Unmarshal the JSON string into a map
-	var testCases map[string]interface{}
-	if err := json.Unmarshal([]byte(jsonStr), &testCases); err != nil {
-		log.Printf("First JSON unmarshal attempt failed: %v", err)
-
-		// If standard unmarshaling fails, try a more robust approach
-		// by manually cleaning up the JSON
-		cleanedJsonStr := cleanJSONString(jsonStr)
-		log.Printf("Cleaned JSON for test cases: %s", truncateForLogging(cleanedJsonStr, 1000))
-
-		if err := json.Unmarshal([]byte(cleanedJsonStr), &testCases); err != nil {
-			log.Printf("Second JSON unmarshal attempt failed: %v", err)
-			return nil, fmt.Errorf("failed to parse test cases JSON: %w", err)
-		}
-
-		log.Printf("JSON parsing succeeded after cleaning")
-	}
-
-	return testCases, nil
+	return evaluatedTestCases, nil
 }
 
 // GenerateBruteForceSolution uses the AI model to generate an accurate brute force solution
 // for a given problem statement, prioritizing correctness over efficiency
-func GenerateBruteForceSolution(ctx context.Context, problemStatement string, language string) (string, error) {
+func GenerateBruteForceSolution(ctx context.Context, problemStatement string, language string, functionSignature string) (*BruteForceSolution, error) {
 	if client == nil {
-		return "", fmt.Errorf("AI client not initialized")
+		return nil, fmt.Errorf("AI client not initialized")
 	}
 
 	// Define schema for solution code
@@ -794,101 +696,351 @@ func GenerateBruteForceSolution(ctx context.Context, problemStatement string, la
 		Type: genai.TypeObject,
 		Properties: map[string]*genai.Schema{
 			"solution_code": {Type: genai.TypeString},
+			"function_name": {Type: genai.TypeString},
 		},
-		Required: []string{"solution_code"},
+		Required: []string{"solution_code", "function_name"},
 	}
 
 	// Create a prompt that emphasizes correctness over efficiency
 	prompt := fmt.Sprintf(`
-You are an expert algorithm engineer tasked with implementing a solution to a coding problem.
+You are an expert algorithm engineer tasked with implementing a solution to a coding problem in python.
 
 ## Problem Statement
 %s
 
 ## Requirements
-1. PRIORITIZE CORRECTNESS OVER EFFICIENCY. Your solution MUST be 100%% correct.
-2. Use a brute force approach if necessary to ensure correctness.
-3. Include comprehensive error handling and edge case handling.
-4. Your solution must handle all possible inputs within the constraints.
-5. Include clear comments explaining your approach.
-6. Return the solution code in %s in the solution_code field of your response.
+1. Implement the logic for the function with the following signature: %s.
+2. PRIORITIZE CORRECTNESS OVER EFFICIENCY. Your solution MUST be 100%% correct.
+3. Use a brute force approach if necessary to ensure correctness.
+4. The entire solution must be contained within the provided function signature.
+5. Your solution must handle all possible inputs within the constraints.
+6. Return a JSON object with "solution_code" (containing only the function body) and "function_name" (which should be "solve").
+
 
 ## Important Notes
 - DO NOT optimize prematurely. Efficiency is NOT a concern.
-- Handle all edge cases explicitly.
+- The function should be standalone and not rely on any class structure unless absolutely necessary for the language (like Java).
+- Return a JSON object with "solution_code" and "function_name" fields.
 - If multiple approaches exist, choose the SIMPLEST and most STRAIGHTFORWARD one.
-- Include test cases in comments if it helps ensure correctness.
 - Make sure your solution works for all valid inputs, including edge cases.
-`, problemStatement, language)
+`, problemStatement, functionSignature)
 
 	// Generate structured output
 	jsonOutput, err := GenerateStructuredOutput(ctx, prompt, schema)
 	if err != nil {
-		return "", fmt.Errorf("failed to generate brute force solution: %w", err)
+		return nil, fmt.Errorf("failed to generate brute force solution: %w", err)
 	}
 
 	// Unmarshal the JSON string
-	var result struct {
-		SolutionCode string `json:"solution_code"`
-	}
+	var result BruteForceSolution
 	if err := json.Unmarshal([]byte(jsonOutput), &result); err != nil {
-		return "", fmt.Errorf("failed to parse solution JSON: %w", err)
+		return nil, fmt.Errorf("failed to parse solution JSON: %w", err)
 	}
 
-	return result.SolutionCode, nil
+	// Ensure the function name is 'solve' as requested.
+	result.FunctionName = "solve"
+
+	return &result, nil
 }
 
-// GenerateExpectedOutputs uses a reference solution to generate expected outputs for test cases
-func GenerateExpectedOutputs(ctx context.Context, problemStatement string, testCases map[string]interface{}, language string) (map[string]string, error) {
+// GenerateCorrectSolution uses the AI model to generate a correct solution
+// for a given problem statement, prioritizing correctness over efficiency.
+func GenerateCorrectSolution(ctx context.Context, problemStatement string, language string, functionSignature string) (*BruteForceSolution, error) {
 	if client == nil {
 		return nil, fmt.Errorf("AI client not initialized")
 	}
 
-	// First, generate a brute force reference solution
-	referenceSolution, err := GenerateBruteForceSolution(ctx, problemStatement, language)
-	if err != nil {
-		return nil, fmt.Errorf("failed to generate reference solution: %w", err)
+	schema := &genai.Schema{
+		Type: genai.TypeObject,
+		Properties: map[string]*genai.Schema{
+			"solution_code": {Type: genai.TypeString},
+			"function_name": {Type: genai.TypeString},
+		},
+		Required: []string{"solution_code", "function_name"},
 	}
 
-	// Log the reference solution for debugging
-	log.Printf("Generated reference solution (%d characters): %s", len(referenceSolution), truncateForLogging(referenceSolution, 200))
+	prompt := fmt.Sprintf(`
+You are an expert algorithm engineer tasked with implementing a solution to a coding problem in python.
 
-	// Prepare a map to store the expected outputs
-	expectedOutputs := make(map[string]string)
+## Problem Statement
+%s
 
-	// Extract test case inputs
-	for testName, testData := range testCases {
-		testCase, ok := testData.(map[string]interface{})
-		if !ok {
-			return nil, fmt.Errorf("invalid test case format for %s", testName)
+## Requirements
+1. Implement the logic for the function with the following signature: %s.
+2. The function should be correct and handle all edge cases described in the problem.
+3. The entire solution must be contained within the provided function signature.
+4. Return a JSON object with "solution_code" (containing only the function body) and "function_name" (which should be "solve").
+
+## Important Notes
+- Your primary goal is correctness. Ensure the solution works for all valid inputs.
+- The function should be standalone and not rely on any class structure unless absolutely necessary for the language (like Java).
+`, problemStatement, functionSignature)
+
+	jsonOutput, err := GenerateStructuredOutput(ctx, prompt, schema)
+	if err != nil {
+		return nil, fmt.Errorf("failed to generate correct solution: %w", err)
+	}
+
+	var result BruteForceSolution
+	if err := json.Unmarshal([]byte(jsonOutput), &result); err != nil {
+		return nil, fmt.Errorf("failed to parse solution JSON: %w", err)
+	}
+
+	return &result, nil
+}
+
+// GenerateIOParseCode generates code to parse input, a function signature, and code to format output.
+func GenerateIOParseCode(ctx context.Context, testCaseInputs []string, language string, problemID string) (*IOParseResult, error) {
+	if client == nil {
+		return nil, fmt.Errorf("AI client not initialized")
+	}
+
+	// Sanitize problemID to be a valid function name
+	funcName := strings.ReplaceAll(problemID, "-", "_")
+
+	// Define the schema for the I/O parsing code result
+	schema := &genai.Schema{
+		Type: genai.TypeObject,
+		Properties: map[string]*genai.Schema{
+			"input_parser_code":  {Type: genai.TypeString},
+			"function_signature": {Type: genai.TypeString},
+			"output_parser_code": {Type: genai.TypeString},
+		},
+		Required: []string{"input_parser_code", "function_signature", "output_parser_code"},
+	}
+
+	// Create the prompt
+	prompt := fmt.Sprintf(`
+You are an expert programmer. Your task is to write code that parses a raw JSON string input into variables for a function, defines the function signature, and then formats the function's output back into a string. You will be given examples of raw JSON input.
+
+Language: %s
+
+Input Examples:
+---
+%s
+---
+
+Based on these examples, generate a JSON object with three fields:
+1. "input_parser_code": The code that reads a single line from standard input (stdin), which will be a JSON string. This code must parse the JSON into variables required by the solution function. For Python, use the 'json' library.
+2. "function_signature": The signature of the function that will solve the problem. Name the function '%s'. It should take the parsed variables as arguments.
+3. "output_parser_code": The code that takes the return value from '%s', which will be called with the parsed variables, and prints the result to standard output in the correct format.
+
+IMPORTANT: The 'input_parser_code' should not call the function. The 'output_parser_code' should contain the call to '%s'.
+`, language, strings.Join(testCaseInputs, "\n---\n"), funcName, funcName, funcName)
+
+	log.Printf("IO Parse Prompt: %s", prompt)
+
+	// Generate structured output
+	jsonOutput, err := GenerateStructuredOutput(ctx, prompt, schema)
+	if err != nil {
+		return nil, fmt.Errorf("failed to generate I/O parse code: %w", err)
+	}
+
+	// Unmarshal the JSON string
+	var result IOParseResult
+	if err := json.Unmarshal([]byte(jsonOutput), &result); err != nil {
+		return nil, fmt.Errorf("failed to parse I/O parse code JSON: %w", err)
+	}
+
+	return &result, nil
+}
+
+// GenerateExpectedOutputs uses a reference solution to generate expected outputs for test cases
+func GenerateExpectedOutputs(ctx context.Context, problemStatement string, testCases map[string]interface{}, language string, problemID string) (map[string]map[string]string, error) {
+	if client == nil {
+		return nil, fmt.Errorf("AI client not initialized")
+	}
+
+	log.Println("Step 1: Generating I/O parsing code...")
+
+	// The incoming testCases map might be {"test_cases": {...}} or just {...}
+	cases, ok := testCases["test_cases"].(map[string]interface{})
+	if !ok {
+		// It might also be a slice of interfaces from structured generation
+		if nestedCases, ok := testCases["test_cases"].([]interface{}); ok {
+			cases = make(map[string]interface{})
+			for _, item := range nestedCases {
+				if itemMap, ok := item.(map[string]interface{}); ok {
+					if name, ok := itemMap["name"].(string); ok {
+						cases[name] = itemMap
+					}
+				}
+			}
+		} else {
+			cases = testCases // Assume it's the root map
 		}
+	}
 
-		input, ok := testCase["input"].(string)
-		if !ok {
-			return nil, fmt.Errorf("invalid input format for test case %s", testName)
+	var generatedTestCases []map[string]interface{}
+
+	// This case is for when we generate test cases from scratch and need to create the inputs first.
+	// If testCases is nil or empty, we must generate them.
+	if len(cases) == 0 {
+		log.Println("No test cases provided, generating them now...")
+		generated, err := GenerateTestCases(ctx, problemStatement, "") // Assuming no constraints for now
+		if err != nil {
+			return nil, fmt.Errorf("failed to generate test cases: %w", err)
 		}
+		generatedTestCases = generated
+		log.Printf("Successfully generated %d test cases.", len(generatedTestCases))
+	} else {
+		// Convert the old map format to the new slice format
+		for name, testData := range cases {
+			if testCaseMap, ok := testData.(map[string]interface{}); ok {
+				// Try to extract an ID from the name
+				idStr := strings.TrimPrefix(name, "test_case_")
+				id, _ := strconv.Atoi(idStr)
+				testCaseMap["id"] = id
+				generatedTestCases = append(generatedTestCases, testCaseMap)
+			}
+		}
+	}
 
-		// Log the test case input for debugging
-		log.Printf("Test case %s input (%d characters): %s", testName, len(input), truncateForLogging(input, 100))
-
-		// Check if this is a Python-generated input
-		isPython, _ := testCase["python"].(bool)
-		if isPython {
-			// For Python-generated inputs, we need to evaluate them
-			// This would be handled by the executor service
-			// For now, we'll just mark them as requiring evaluation
-			expectedOutputs[testName] = "<requires-python-evaluation>"
+	// Extract the first 3 test case inputs
+	var sampleInputs []string
+	i := 0
+	for _, testData := range generatedTestCases {
+		if i >= 3 {
+			break
+		}
+		inputs, ok := testData["inputs"].(map[string]interface{})
+		if !ok {
 			continue
 		}
 
-		// For regular inputs, we'll use the executor service to run the reference solution
-		// This would be implemented in a separate function that calls the executor service
-		// For now, we'll just mark them as requiring execution
-		expectedOutputs[testName] = "<requires-execution>"
+		jsonBytes, err := json.Marshal(inputs)
+		if err != nil {
+			log.Printf("Failed to marshal inputs map to JSON for sample: %v", err)
+			continue
+		}
+		sampleInputs = append(sampleInputs, string(jsonBytes))
+		i++
 	}
 
-	// Return the expected outputs (which would be populated by the executor service)
-	return expectedOutputs, nil
+	if len(sampleInputs) == 0 {
+		return nil, fmt.Errorf("could not find any valid sample inputs to generate I/O code")
+	}
+
+	// Generate the I/O parsing code and function signature
+	ioParseResult, err := GenerateIOParseCode(ctx, sampleInputs, language, problemID)
+	if err != nil {
+		return nil, fmt.Errorf("failed to generate I/O parsing code: %w", err)
+	}
+	log.Printf("Successfully generated I/O parsing code. Function signature: %s", ioParseResult.FunctionSignature)
+
+	// Step 2: Generate a correct solution, with a fallback to brute-force.
+	log.Println("Step 2: Generating a correct solution...")
+	solutionResult, err := GenerateCorrectSolution(ctx, problemStatement, language, ioParseResult.FunctionSignature)
+	if err != nil {
+		log.Printf("Correct solution generation failed: %v. Falling back to brute-force.", err)
+		solutionResult, err = GenerateBruteForceSolution(ctx, problemStatement, language, ioParseResult.FunctionSignature)
+		if err != nil {
+			return nil, fmt.Errorf("brute-force solution generation also failed: %w", err)
+		}
+	}
+	log.Printf("Successfully generated a solution. Function name: %s", solutionResult.FunctionName)
+
+	// --- Start Debugging Logs ---
+	log.Println("--- DEBUG: Generated Code Components ---")
+	log.Printf("[Input Parser Code]:\n%s", ioParseResult.InputParserCode)
+	log.Printf("[Function Signature]:\n%s", ioParseResult.FunctionSignature)
+	log.Printf("[Solution Code]:\n%s", solutionResult.SolutionCode)
+	log.Printf("[Output Parser Code]:\n%s", ioParseResult.OutputParserCode)
+	log.Println("--- END DEBUG ---")
+
+	// In a goroutine, save the generated code to the database
+	go func() {
+		// Create a new context for the goroutine
+		bgCtx := context.Background()
+		err := database.SaveGeneratedCode(bgCtx, problemID, language, ioParseResult.InputParserCode, solutionResult.SolutionCode, ioParseResult.OutputParserCode)
+		if err != nil {
+			log.Printf("Error saving generated code to database: %v", err)
+		}
+	}()
+
+	// Step 4: Execute the combined code for each test case to get the expected output
+	log.Println("Step 4: Executing code to generate expected outputs...")
+	generatedOutputs := make(map[string]map[string]string)
+
+	for _, testData := range generatedTestCases {
+		idFloat, ok := testData["id"].(float64) // JSON numbers are float64
+		if !ok {
+			idInt, ok2 := testData["id"].(int)
+			if !ok2 {
+				log.Printf("Skipping test case due to invalid or missing 'id'")
+				continue
+			}
+			idFloat = float64(idInt)
+		}
+		testName := fmt.Sprintf("test_case_%.0f", idFloat)
+
+		inputs, ok := testData["inputs"].(map[string]interface{})
+		if !ok {
+			log.Printf("Skipping test case %s due to invalid input format", testName)
+			continue
+		}
+
+		inputBytes, err := json.Marshal(inputs)
+		if err != nil {
+			log.Printf("Failed to marshal input value for test case %s: %v", testName, err)
+			continue
+		}
+		input := string(inputBytes)
+
+		// Assemble the final script
+		script := fmt.Sprintf(
+			`
+# ====== PARSER CODE ======
+%s
+# ====== SOLUTION FUNCTION ======
+%s
+# ====== OUTPUT CODE ======
+%s
+`,
+			ioParseResult.InputParserCode,
+			solutionResult.SolutionCode,
+			ioParseResult.OutputParserCode,
+		)
+
+		log.Printf("Input given to executor: %s", input)
+		output, err := ExecuteCodeInExecutor(ctx, script, language, input) // Input is sent to stdin
+
+		var finalOutput string
+		if err != nil {
+			log.Printf("Error executing test case %s: %v. Skipping.", testName, err)
+			finalOutput = fmt.Sprintf("<execution-error: %v>", err)
+		} else {
+			finalOutput = strings.TrimSpace(output)
+		}
+
+		generatedOutputs[testName] = map[string]string{
+			"input":  input,
+			"output": finalOutput,
+		}
+	}
+
+	log.Printf("Successfully generated %d expected outputs.", len(generatedOutputs))
+	return generatedOutputs, nil
+}
+
+// ExecuteCodeInExecutor calls the executor service with a self-contained script.
+func ExecuteCodeInExecutor(ctx context.Context, code, language, input string) (string, error) {
+	// The new approach creates a full script, so functionName and input are not needed at this level.
+	log.Printf("Executing code in executor: %s", code)
+	log.Printf("Language: %s", language)
+	log.Printf("Input: %s", TruncateForLogging(input, 1000))
+	result, err := ExecuteCode(language, code, input)
+	if err != nil {
+		return "", fmt.Errorf("execution failed: %w", err)
+	}
+
+	if result.Status != "success" {
+		// Combine output and error for better debugging in logs. The error returned to the caller is cleaner.
+		log.Printf("Execution failed with status %s. Output: %s", result.Status, result.Output)
+		return "", fmt.Errorf("execution failed with status %s", result.Status)
+	}
+
+	return result.Output, nil
 }
 
 // GenerateProblemDetails uses the AI model to generate structured problem details
@@ -910,7 +1062,7 @@ Raw problem statement:
 Create a complete problem with the following elements:
 
 1. Title: A concise, descriptive title for the problem.
-2. Formatted Statement: A well-structured problem statement with clear descriptions, examples, and explanations.
+2. Formatted Statement: A well-structured problem statement with a clear description, followed by 2-4 illustrative examples that clarify the problem's requirements and edge cases. Each example must have an input, the expected output, and a detailed explanation.
 3. Difficulty: Categorize as "Easy", "Medium", or "Hard" based on algorithmic complexity and expected solution time.
 4. Constraints: Technical constraints for input parameters (e.g., array length limits, value ranges).
 5. Tags: 2-4 relevant algorithmic tags (e.g., "Array", "Dynamic Programming", "Graph", "Binary Search", etc.).
@@ -931,6 +1083,8 @@ Format your response as a JSON object with these exact keys:
 	if err != nil {
 		return nil, fmt.Errorf("failed to generate problem details: %w", err)
 	}
+
+	log.Printf("Problem details response: %s", resp.Candidates[0].Content.Parts[0].(genai.Text))
 
 	if len(resp.Candidates) == 0 || len(resp.Candidates[0].Content.Parts) == 0 {
 		return nil, fmt.Errorf("no content in AI response for problem details generation")
@@ -990,8 +1144,8 @@ Format your response as a JSON object with these exact keys:
 	return &problemDetails, nil
 }
 
-// truncateForLogging truncates a long string for logging purposes
-func truncateForLogging(s string, maxLen int) string {
+// TruncateForLogging truncates a long string for logging purposes
+func TruncateForLogging(s string, maxLen int) string {
 	if len(s) <= maxLen {
 		return s
 	}
@@ -999,6 +1153,14 @@ func truncateForLogging(s string, maxLen int) string {
 	// Keep the first and last parts of the string
 	firstPart := maxLen / 2
 	lastPart := maxLen / 2
+
+	// Ensure we don't have a negative length if maxLen is small
+	if lastPart > len(s) {
+		lastPart = 0
+	}
+	if firstPart+lastPart > len(s) {
+		firstPart = len(s) - lastPart
+	}
 
 	return s[:firstPart] + "..." + s[len(s)-lastPart:]
 }
@@ -1101,35 +1263,6 @@ func fixPythonExpressions(jsonStr string) string {
 
 	// Fix trailing commas before closing brackets
 	jsonStr = regexp.MustCompile(`,\s*\]`).ReplaceAllString(jsonStr, "]")
-
-	// Handle any other invalid characters that might appear in the JSON
-	jsonStr = regexp.MustCompile(`[^\x20-\x7E]`).ReplaceAllString(jsonStr, "")
-
-	return jsonStr
-}
-
-// cleanJSONString attempts to clean up a JSON string that might have formatting issues
-func cleanJSONString(jsonStr string) string {
-	// Replace common issues that might cause parsing errors
-
-	// Handle Python string multiplication (e.g., "a" * 50000)
-	re := regexp.MustCompile(`"([^"]+)"\s*\*\s*(\d+)`)
-	jsonStr = re.ReplaceAllString(jsonStr, `"$1"`)
-
-	// Handle Python string concatenation (e.g., "a" * 25000 + "b" * 25000)
-	re = regexp.MustCompile(`"([^"]+)"\s*\+\s*"([^"]+)"`)
-	jsonStr = re.ReplaceAllString(jsonStr, `"$1$2"`)
-
-	// Replace any sequence of * characters that might appear in comments
-	jsonStr = regexp.MustCompile(`\*+`).ReplaceAllString(jsonStr, "")
-
-	// Remove any trailing commas in objects and arrays which are invalid in JSON
-	jsonStr = regexp.MustCompile(`,\s*\}`).ReplaceAllString(jsonStr, "}")
-	jsonStr = regexp.MustCompile(`,\s*\]`).ReplaceAllString(jsonStr, "]")
-
-	// Fix common quote issues with boolean values
-	jsonStr = strings.ReplaceAll(jsonStr, `"python": True`, `"python": true`)
-	jsonStr = strings.ReplaceAll(jsonStr, `"python": False`, `"python": false`)
 
 	// Handle any other invalid characters that might appear in the JSON
 	jsonStr = regexp.MustCompile(`[^\x20-\x7E]`).ReplaceAllString(jsonStr, "")

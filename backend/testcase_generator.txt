@@ -4,36 +4,93 @@
 {PROBLEM_STATEMENT}
 
 ## Task
-Generate exactly 30 test cases covering the problem constraints and edge cases.
+Generate a JSON array of exactly 30 test cases covering the problem constraints and edge cases.
 
 ## Requirements
-- 30 test cases: 8 easy, 10 medium, 8 hard, 4 stress
-- `"python": false` - Use input directly
-- `"python": true` - Input needs Python evaluation to generate actual data
-- Test all constraint boundaries mentioned in problem
-- Include edge cases: empty inputs, single elements, min/max limits
+- 30 test cases: 8 easy, 10 medium, 8 hard, 4 stress.
+- Use native JSON types for input values (e.g., numbers, strings, arrays).
+- `"pythonevalneeded": false` - Inputs are standard JSON values.
+- `"pythonevalneeded": true` - An input value is a string that needs Python's `eval()` to generate the actual data. If multi-line code seperate using `\n`.
+- Test all constraint boundaries mentioned in the problem.
+- Include edge cases: empty inputs, single elements, min/max limits.
+
+## Input Format Instructions
+- The output MUST be a single JSON array.
+- Each element in the array is a test case object with three keys: `id`, `inputs`, and `pythonevalneeded`.
+- `id`: An integer identifier for the test case (e.g., 1, 2, 3).
+- `inputs`: A JSON object where keys are the exact parameter names from the problem statement (e.g., "nums1", "target") and values are the input data in their native JSON type.
+- `pythonevalneeded`: A boolean indicating if any input value is a string requiring Python evaluation.
 
 ## For Large Data Use Python Expressions
-- `[1] * 1000` - Repeated values
-- `list(range(1000000))` - Sequential numbers  
-- `'a' * 50000` - Large strings
-- `random.seed(42); [random.randint(1,100) for _ in range(10000)]` - Random data
+When `pythonevalneeded` is `true`, an input value can be a string to be evaluated in Python:
+- `'[1] * 1000'` - Repeated values
+- `'list(range(1000000))'` - Sequential numbers
+- `"'a' * 50000"` - Large strings
+- `'random.seed(42); [random.randint(1,100) for _ in range(10000)]'` - Random data
 
 ## Critical
-- Never put more than 100 elements(characters or int) in JSON
-- Always test constraint boundaries from problem statement
-- Use stress tests for maximum allowed input sizes
+- Always use the EXACT parameter names from problem examples as keys in the `inputs` object.
+- Ensure the final output is a valid JSON array.
 
 ## Output Format
 ```json
-{
-  "test_case_1": {
-    "input": "[1, 2, 3, 4, 5]",
-    "python": false
+[
+  {
+    "id": 1,
+    "inputs": {
+      "nums1": [1, 3],
+      "nums2": [2]
+    },
+    "pythonevalneeded": false
   },
-  "test_case_2": {
-    "input": "[1] * 10000",
-    "python": true
+  {
+    "id": 2,
+    "inputs": {
+      "nums1": "'[1] * 10000'",
+      "nums2": "'list(range(10000))'"
+    },
+    "pythonevalneeded": true
+  },
+  {
+    "id": 3,
+    "inputs": {
+      "x": 121
+    },
+    "pythonevalneeded": false
+  },
+  {
+    "id": 4,
+    "inputs": {
+      "s": "aa",
+      "p": "a"
+    },
+    "pythonevalneeded": false
+  },
+  {
+    "id": 5,
+    "inputs": {
+      "strs": ["flower", "flow", "flight"]
+    },
+    "pythonevalneeded": false
+  },
+  {
+    "id": 6,
+    "inputs": {
+      "nums": [-1, 2, 1, -4],
+      "target": 1
+    },
+    "pythonevalneeded": false
+  },
+  {
+    "id": 7,
+    "inputs": {
+      "matrix": [
+        [1, 2, 3],
+        [4, 5, 6],
+        [7, 8, 9]
+      ]
+    },
+    "pythonevalneeded": false
   }
-}
+]
 ```

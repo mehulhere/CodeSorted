@@ -105,6 +105,66 @@ func GetCollection(dbName string, collectionName string) *mongo.Collection {
 	return collection
 }
 
+type GeneratedCode struct {
+	ProblemID        string    `bson:"problem_id"`
+	Language         string    `bson:"language"`
+	InputParserCode  string    `bson:"input_parser_code"`
+	SolutionCode     string    `bson:"solution_code"`
+	OutputParserCode string    `bson:"output_parser_code"`
+	CreatedAt        time.Time `bson:"created_at"`
+}
+
+func SaveGeneratedCode(ctx context.Context, problemID, language, inputParser, solution, outputParser string) error {
+	if DB == nil {
+		return fmt.Errorf("mongodb client is not initialized")
+	}
+
+	collection := GetCollection("OJ", "problem_artifacts")
+
+	// Create a new document with the generated code
+	codeDoc := GeneratedCode{
+		ProblemID:        problemID,
+		Language:         language,
+		InputParserCode:  inputParser,
+		SolutionCode:     solution,
+		OutputParserCode: outputParser,
+		CreatedAt:        time.Now(),
+	}
+
+	// Use upsert to either insert a new document or update an existing one
+	opts := options.Update().SetUpsert(true)
+	filter := bson.M{"problem_id": problemID, "language": language}
+	update := bson.M{"$set": codeDoc}
+
+	_, err := collection.UpdateOne(ctx, filter, update, opts)
+	if err != nil {
+		return fmt.Errorf("failed to save generated code for problem %s: %w", problemID, err)
+	}
+
+	log.Printf("Successfully saved generated code for problem %s and language %s", problemID, language)
+	return nil
+}
+
+func GetGeneratedCode(ctx context.Context, problemID, language string) (*GeneratedCode, error) {
+	if DB == nil {
+		return nil, fmt.Errorf("mongodb client is not initialized")
+	}
+
+	collection := GetCollection("OJ", "problem_artifacts")
+	filter := bson.M{"problem_id": problemID, "language": language}
+
+	var result GeneratedCode
+	err := collection.FindOne(ctx, filter).Decode(&result)
+	if err != nil {
+		if err == mongo.ErrNoDocuments {
+			return nil, fmt.Errorf("no generated code found for problem_id: %s and language: %s", problemID, language)
+		}
+		return nil, fmt.Errorf("failed to fetch generated code: %w", err)
+	}
+
+	return &result, nil
+}
+
 func DisconnectDB() {
 	if DB == nil {
 		return

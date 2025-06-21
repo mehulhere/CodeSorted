@@ -8,6 +8,7 @@ import (
 
 	"context"
 	"encoding/json"
+	"fmt"
 	"log"
 	"net/http"
 	"time"
@@ -93,51 +94,44 @@ func AddTestCaseHandler(w http.ResponseWriter, r *http.Request) { // Only allowe
 // GenerateTestCasesHandler generates test cases for a problem using AI
 func GenerateTestCasesHandler(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
-		utils.SendJSONError(w, "Method not allowed. Only POST is accepted.", http.StatusMethodNotAllowed)
+		http.Error(w, "Only POST method is allowed", http.StatusMethodNotAllowed)
 		return
 	}
 
-	// Parse the request body
 	type GenerateTestCasesRequest struct {
 		ProblemStatement string `json:"problem_statement"`
+		Constraints      string `json:"constraints"`
+		ProblemID        string `json:"problem_id"`
 	}
 
 	var req GenerateTestCasesRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		log.Println("Invalid request payload:", err)
-		utils.SendJSONError(w, "Invalid request payload.", http.StatusBadRequest)
+		http.Error(w, fmt.Sprintf("Failed to decode request body: %v", err), http.StatusBadRequest)
 		return
 	}
-	defer r.Body.Close()
 
-	// Validate the request
 	if req.ProblemStatement == "" {
-		utils.SendJSONError(w, "Problem statement is required.", http.StatusBadRequest)
+		http.Error(w, "Problem statement is required", http.StatusBadRequest)
 		return
 	}
 
-	// Generate test cases using AI
-	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second) // Longer timeout for AI
-	defer cancel()
-
-	testCases, err := ai.GenerateTestCases(ctx, req.ProblemStatement)
+	// For now, we are generating expected outputs directly with the test cases
+	// because the frontend flow combines these steps.
+	outputs, err := ai.GenerateExpectedOutputs(r.Context(), req.ProblemStatement, nil, "python", req.ProblemID)
 	if err != nil {
-		log.Printf("Failed to generate test cases: %v", err)
-		utils.SendJSONError(w, "Failed to generate test cases: "+err.Error(), http.StatusInternalServerError)
+		log.Printf("Failed to generate test cases and outputs: %v", err)
+		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
 
-	// The test cases should already be evaluated by the ai.GenerateTestCases function,
-	// but we'll log the successful processing
-	log.Println("Successfully generated and processed test cases using AI")
-
-	// Return the generated test cases
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(http.StatusOK)
 	response := map[string]interface{}{
-		"test_cases": testCases,
+		"test_cases": outputs,
 	}
-	json.NewEncoder(w).Encode(response)
+
+	w.Header().Set("Content-Type", "application/json")
+	if err := json.NewEncoder(w).Encode(response); err != nil {
+		http.Error(w, "Failed to encode response", http.StatusInternalServerError)
+	}
 }
 
 // BulkAddTestCasesHandler handles adding multiple test cases at once
@@ -196,16 +190,25 @@ func BulkAddTestCasesHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Create a context for Python expression evaluation
+	evalCtx, cancelEval := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancelEval()
+
 	// Evaluate Python expressions in test cases
 	for testName, testInput := range req.TestCases {
 		if testInput.IsPythonGen {
 			// Use the AI service to evaluate Python expressions
-			evaluatedInput := ai.EvaluatePythonExpression(testInput.Input)
+			evaluatedInput, err := ai.EvaluatePythonExpression(evalCtx, testInput.Input)
+			if err != nil {
+				log.Printf("Failed to evaluate Python expression for test case %s: %v. Using original input.", testName, err)
+				// Keep the original input if evaluation fails
+				continue
+			}
 			req.TestCases[testName] = BulkTestCaseInput{
 				Input:       evaluatedInput,
 				IsPythonGen: false, // Mark as no longer needing Python evaluation
 			}
-			log.Printf("Evaluated Python expression for test case %s: %s -> %s", testName, testInput.Input, evaluatedInput)
+			log.Printf("Evaluated Python expression for test case %s: %s -> %s", testName, ai.TruncateForLogging(testInput.Input, 100), ai.TruncateForLogging(evaluatedInput, 100))
 		}
 	}
 

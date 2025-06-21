@@ -1,4 +1,4 @@
-# for i in range (Online Judge)
+# codesorted (Online Judge)
 
 This is an Online Judge platform for competitive programming practice and contests. The platform supports multiple programming languages, real-time code execution, and automated evaluation of submissions.
 
@@ -127,9 +127,10 @@ The platform now supports user-created problems with AI-powered test case genera
 ### Usage
 1. Navigate to the "Create Problem" option on the home page or problems list
 2. Fill in the problem details (ID, title, statement, constraints, etc.)
-3. Click "Generate Test Cases" to create test data using AI
-4. Review and adjust the test cases as needed
-5. Click "Create Problem" to finalize and publish the problem
+3. Click "Generate Problem" to get the structured problem details.
+4. Click "Generate Test Cases" to create test data using AI, associated with the problem ID.
+5. Review and adjust the test cases as needed (inputs now support 'key = value' format).
+6. Click "Create Problem" to finalize and publish the problem
 
 ### Features
 - Open to all registered users
@@ -142,11 +143,12 @@ The platform now supports user-created problems with AI-powered test case genera
 | Endpoint | Method | Description |
 |----------|--------|-------------|
 | `/admin/problems` | POST | Create a new problem |
-| `/api/generate-testcases` | POST | Generate test cases from a problem statement |
+| `/api/generate-problem-details` | POST | Generate structured problem details from a raw statement. |
+| `/api/generate-testcases` | POST | Generate test cases from a problem statement and problem ID. |
 | `/api/bulk-add-testcases` | POST | Add multiple test cases to a problem |
 
 ### Implementation
-The feature uses the Gemini AI model to analyze problem statements and generate diverse test cases across different difficulty levels, including edge cases and stress tests.
+The feature uses the Gemini AI model to analyze problem statements and generate diverse test cases across different difficulty levels, including edge cases and stress tests. Test case inputs can now be provided and displayed in a human-readable `key = value` format, which is internally converted to JSON for backend processing.
 
 ## Contribution
 

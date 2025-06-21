@@ -209,7 +209,7 @@ func main() {
 
 	// Code execution route
 	http.HandleFunc("/api/execute", middleware.WithCORS(handlers.ExecuteCodeHandler))
-	http.HandleFunc("/api/parser-check", middleware.WithCORS(handlers.ParserCheckHandler))
+	// http.HandleFunc("/api/parser-check", middleware.WithCORS(handlers.ParserCheckHandler))
 
 	// Test endpoint for Python evaluation
 	http.HandleFunc("/api/test-python-eval", func(w http.ResponseWriter, r *http.Request) {
@@ -228,7 +228,7 @@ func main() {
 
 		results := make(map[string]string)
 		for i, expr := range req.Expressions {
-			results[fmt.Sprintf("expr_%d", i)] = ai.EvaluatePythonExpression(expr)
+			results[fmt.Sprintf("expr_%d", i)], err = ai.EvaluatePythonExpression(context.Background(), expr)
 		}
 
 		w.Header().Set("Content-Type", "application/json")

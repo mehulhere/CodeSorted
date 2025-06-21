@@ -164,30 +164,9 @@ func SubmitSolutionHandler(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 
-		// Check if we need to apply the parser wrapper
-		codeToSave := submissionData.Code
-		if submission.UseParser {
-			wrappedCode, err := utils.PrepareCodeWithParser(submissionData.Code, submission.Language, submission.ProblemID)
-			if err != nil {
-				log.Printf("Failed to wrap code with parser: %v", err)
-				utils.SendJSONError(w, "Failed to prepare code with generic parser: "+err.Error(), http.StatusInternalServerError)
-				return
-			}
-
-			// Save both the original and wrapped code
-			originalCodePath := filepath.Join(submissionDir, "original_code"+utils.GetFileExtension(submission.Language))
-			if err := os.WriteFile(originalCodePath, []byte(submissionData.Code), 0644); err != nil {
-				log.Printf("Failed to write original code file: %v", err)
-				utils.SendJSONError(w, "Server error during submission", http.StatusInternalServerError)
-				return
-			}
-
-			codeToSave = wrappedCode
-		}
-
 		fileExtension := utils.GetFileExtension(submission.Language)
 		codeFilePath := filepath.Join(submissionDir, "code"+fileExtension)
-		if err := os.WriteFile(codeFilePath, []byte(codeToSave), 0644); err != nil {
+		if err := os.WriteFile(codeFilePath, []byte(submissionData.Code), 0644); err != nil {
 			log.Printf("Failed to write code file: %v", err)
 			utils.SendJSONError(w, "Server error during submission", http.StatusInternalServerError)
 			return

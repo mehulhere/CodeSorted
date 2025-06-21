@@ -1,194 +1,129 @@
 package handlers
 
 import (
-	"backend/internal/ai"
+	"backend/internal/database"
 	"backend/internal/types"
 	"backend/internal/utils"
 	"context"
 	"encoding/json"
+	"fmt"
 	"log"
 	"net/http"
-	"strings"
 	"time"
 )
 
 func ExecuteCodeHandler(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
-		utils.SendJSONError(w, "Method not allowed. Only POST is accepted.", http.StatusMethodNotAllowed)
+		utils.SendJSONError(w, "Method not allowed", http.StatusMethodNotAllowed)
 		return
 	}
 
 	var payload types.ExecuteCodePayload
 	if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
-		log.Println("Invalid execute code request payload:", err)
-		utils.SendJSONError(w, "Invalid request payload for code execution.", http.StatusBadRequest)
+		utils.SendJSONError(w, "Invalid request payload", http.StatusBadRequest)
 		return
 	}
 	defer r.Body.Close()
 
-	if payload.Code == "" {
-		utils.SendJSONError(w, "Code cannot be empty.", http.StatusBadRequest)
-		return
-	}
-	if payload.Language == "" {
-		utils.SendJSONError(w, "Language must be specified.", http.StatusBadRequest)
+	if payload.Code == "" || payload.Language == "" || payload.ProblemId == "" {
+		utils.SendJSONError(w, "Fields 'code', 'language', and 'problemId' are required", http.StatusBadRequest)
 		return
 	}
 
-	log.Printf("Problem ID from request: %q", payload.ProblemId)
+	ctx, cancel := context.WithTimeout(r.Context(), 15*time.Second)
+	defer cancel()
 
-	// Always use function name from problem ID
-	functionName := utils.ExtractFunctionName(payload.ProblemId)
-	log.Printf("Function name from problem ID: %q", functionName)
-
-	// Ensure we have a function name with a fallback to "twoSum" (for the example problem)
-	if functionName == "" {
-		functionName = "twoSum"
-		log.Printf("Using default function name: %q", functionName)
+	// Fetch the parser and solution code from the database
+	artifacts, err := database.GetGeneratedCode(ctx, payload.ProblemId, payload.Language)
+	if err != nil {
+		log.Printf("Failed to get generated code for problem '%s': %v", payload.ProblemId, err)
+		utils.SendJSONError(w, "Could not find solution artifacts for this problem. Please try again.", http.StatusNotFound)
+		return
 	}
 
-	// Process test cases
-	var testCases []string
-	if len(payload.TestCases) > 0 {
-		testCases = payload.TestCases
-		log.Printf("Executing code with %d test cases", len(testCases))
-	} else if payload.Stdin != "" {
-		// Backward compatibility: use single stdin as a test case
-		testCases = []string{payload.Stdin}
-		stdinSummary := payload.Stdin
-		if len(stdinSummary) > 100 {
-			stdinSummary = stdinSummary[:100] + "... (truncated)"
-		}
-		log.Printf("Executing code with single test case: %s", stdinSummary)
-	} else {
-		testCases = []string{""} // Empty test case if none provided
+	// The user provides the core function logic. We need to reconstruct the full script.
+	// We assume the user's code is the body of the function signature stored in the artifacts.
+	// NOTE: The stored SolutionCode in the artifact is a complete, working solution,
+	// but for this endpoint, we use the user's provided code.
+	fullCode := fmt.Sprintf(
+		`
+# ====== PARSER CODE ======
+%s
+
+# ====== USER-PROVIDED SOLUTION ======
+%s
+
+# ====== OUTPUT CODE ======
+%s
+`,
+		artifacts.InputParserCode,
+		payload.Code, // The user's function code
+		artifacts.OutputParserCode,
+	)
+
+	// Determine test cases
+	testCases := payload.TestCases
+	if len(testCases) == 0 {
+		testCases = []string{payload.Stdin} // Fallback to stdin for single test cases
 	}
 
+	// Prepare the response structure
 	result := types.ExecuteCodeResult{
-		// Initialize status, it will be overwritten by actual execution outcomes
 		Status:  "processing",
-		Results: make([]types.TestCaseResult, 0, len(testCases)),
+		Results: make([]types.TestCaseResult, len(testCases)),
 	}
 
-	// Generate parser code using AI if input examples provided
-	var parser string
-	if payload.InputExample != "" && payload.OutputExample != "" {
-		// Map language name for parser generation
-		langName := payload.Language
-		if strings.ToLower(langName) == "js" {
-			langName = "javascript"
-		} else if strings.ToLower(langName) == "cpp" {
-			langName = "c++"
-		}
-
-		log.Printf("Generating parser with: language=%s, functionName=%s, inputExample=%s, outputExample=%s",
-			langName, functionName, payload.InputExample, payload.OutputExample)
-		parserCode, err := ai.GenerateParser(langName, functionName, payload.InputExample, payload.OutputExample)
-
-		if err != nil {
-			log.Printf("Failed to generate parser: %v. Continuing without custom parser.", err)
-		} else {
-			if parserCode == "" {
-				log.Printf("WARNING: Generated parser is empty! InputExample=%q, OutputExample=%q",
-					payload.InputExample, payload.OutputExample)
-			} else {
-				parser = parserCode
-				log.Printf("Generated custom parser for %s function %s (length: %d)",
-					langName, functionName, len(parser))
-				log.Printf("Parser content preview: %s", truncateString(parser, 200))
-			}
-		}
-	}
-
-	log.Printf("Parser: %s", parser)
-
-	// Default error in case a language isn't handled, or early exit
-	result.Error = "Language not supported or internal error before execution: " + payload.Language
-
-	// Execute each test case using the external executor service
-	const defaultTimeLimitMs = 5000
 	var maxExecutionTime int64
 	hasError := false
 
-	for _, testInput := range testCases {
-		// Prepare execution request
+	for i, testInput := range testCases {
 		execReq := types.ExecutionRequest{
-			Language:     payload.Language,
-			Code:         payload.Code,
-			Input:        testInput,
-			TimeLimitMs:  defaultTimeLimitMs,
-			FunctionName: functionName,
-			Parser:       parser,
+			Language:    payload.Language,
+			Code:        fullCode,
+			Input:       testInput,
+			TimeLimitMs: 5000, // 5-second time limit per test case
 		}
 
-		// Debug log the request
-		log.Printf("Sending execution request: Language=%s, FunctionName=%q, Input=%q, Parser length=%d",
-			execReq.Language, execReq.FunctionName, execReq.Input, len(execReq.Parser))
-
-		// Give a little buffer over the requested time limit
-		execCtx, cancel := context.WithTimeout(r.Context(), time.Duration(defaultTimeLimitMs+2000)*time.Millisecond)
+		execCtx, execCancel := context.WithTimeout(ctx, 7*time.Second) // Executor timeout
 		execResult, err := utils.ExecuteCode(execCtx, execReq)
-		cancel()
+		execCancel()
 
-		// Map executor result to API response structure
-		testCaseRes := types.TestCaseResult{
-			Stdout:          "",
-			Stderr:          "",
+		result.Results[i] = types.TestCaseResult{
 			ExecutionTimeMs: int64(execResult.ExecutionTimeMs),
 			Status:          execResult.Status,
 		}
 
-		if execResult.Status == "success" {
-			testCaseRes.Stdout = execResult.Output
-		} else {
-			testCaseRes.Stderr = execResult.Output
-		}
-
 		if err != nil {
-			testCaseRes.Error = err.Error()
+			result.Results[i].Error = err.Error()
+			result.Results[i].Status = "error"
 		}
 
-		// Track execution stats
-		if testCaseRes.ExecutionTimeMs > maxExecutionTime {
-			maxExecutionTime = testCaseRes.ExecutionTimeMs
-		}
-
-		// Track if any test case had an error
-		if testCaseRes.Status != "success" {
+		if execResult.Status == "success" {
+			result.Results[i].Stdout = execResult.Output
+		} else {
+			result.Results[i].Stderr = execResult.Output
 			hasError = true
 		}
 
-		// Add to results array
-		result.Results = append(result.Results, testCaseRes)
+		if result.Results[i].ExecutionTimeMs > maxExecutionTime {
+			maxExecutionTime = result.Results[i].ExecutionTimeMs
+		}
 	}
 
-	// Set overall result based on the first test case for backward compatibility
+	// Set overall status
+	if hasError {
+		result.Status = "error"
+	} else {
+		result.Status = "success"
+	}
+	result.ExecutionTimeMs = maxExecutionTime
+
+	// For backward compatibility, populate top-level fields from the first test case
 	if len(result.Results) > 0 {
 		result.Stdout = result.Results[0].Stdout
 		result.Stderr = result.Results[0].Stderr
-		result.Status = result.Results[0].Status
-		result.ExecutionTimeMs = maxExecutionTime
-		result.Error = ""
-	}
-
-	// If all test cases passed, set overall status to success
-	if !hasError {
-		result.Status = "success"
 	}
 
 	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(http.StatusOK)
-	if err := json.NewEncoder(w).Encode(result); err != nil {
-		log.Printf("Error encoding execution result: %v", err)
-	}
-	log.Printf("Code execution: lang=%s, status=%s, time=%dms, test_cases=%d",
-		payload.Language, result.Status, maxExecutionTime, len(testCases))
-}
-
-// truncateString truncates a string to the given max length and adds "..." if needed
-func truncateString(s string, maxLen int) string {
-	if len(s) <= maxLen {
-		return s
-	}
-	return s[:maxLen] + "..."
+	json.NewEncoder(w).Encode(result)
 }

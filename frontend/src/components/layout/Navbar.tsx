@@ -15,7 +15,7 @@ const Navbar = () => {
             <div className="max-w-10xl mx-auto px-4 sm:px-6 lg:px-8 py-4 flex justify-between items-center">
                 <div className="flex items-center">
                     <Link href="/" className="text-2xl font-bold text-indigo-600">
-                        for i in range ()
+                        CodeSorted
                     </Link>
                     <nav className="ml-10 flex space-x-8">
                         <Link href="/" className="text-gray-500 hover:text-indigo-600 font-medium">

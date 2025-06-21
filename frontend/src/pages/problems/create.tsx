@@ -18,7 +18,6 @@ import {
 } from '@/lib/api';
 import Editor, { Monaco } from '@monaco-editor/react';
 import type { editor } from 'monaco-editor';
-import { CodeSubmitOptions } from '@/components/ui/CodeSubmitOptions';
 
 // Define types for API responses
 interface AuthStatusResponse {
@@ -33,7 +32,7 @@ interface AuthStatusResponse {
 
 interface TestCase {
     input: string;
-    python: boolean;
+    output: string;
 }
 
 interface GenerateTestCasesResponse {
@@ -72,7 +71,7 @@ export default function CreateProblemPage() {
     const [isGeneratingTestCases, setIsGeneratingTestCases] = useState(false);
     const [generatedTestCases, setGeneratedTestCases] = useState<Record<string, TestCase> | null>(null);
     const [testCaseError, setTestCaseError] = useState<string | null>(null);
-    const [selectedSampleCount, setSelectedSampleCount] = useState(2);
+    const [selectedSampleCount, setSelectedSampleCount] = useState(5);
 
     // Problem creation state
     const [isCreatingProblem, setIsCreatingProblem] = useState(false);
@@ -82,18 +81,20 @@ export default function CreateProblemPage() {
     // Editor state
     const [code, setCode] = useState<string>('// Start coding here...');
     const [selectedLanguage, setSelectedLanguage] = useState<string>('python');
-    const [useParser, setUseParser] = useState<boolean>(true);
 
     // Auth state
     const [isLoggedIn, setIsLoggedIn] = useState(false);
     const [isLoading, setIsLoading] = useState(true);
 
     // Test case state
-    const [testCaseInput, setTestCaseInput] = useState<string>('');
-    const [testCaseExpected, setTestCaseExpected] = useState<string>('');
+    const [testCases, setTestCases] = useState<{ input: string; expectedOutput: string }[]>([
+        { input: '', expectedOutput: '' },
+    ]);
+    const [activeTestCaseIndex, setActiveTestCaseIndex] = useState(0);
     const [isExecuting, setIsExecuting] = useState<boolean>(false);
     const [executionResult, setExecutionResult] = useState<{ stdout: string; stderr: string; status: string; executionTimeMs: number } | null>(null);
     const [executionError, setExecutionError] = useState<string | null>(null);
+    const [formattedInput, setFormattedInput] = useState('');
 
     // Check authentication status
     useEffect(() => {
@@ -110,6 +111,39 @@ export default function CreateProblemPage() {
 
         checkAuthStatus();
     }, []);
+
+    // Effect to update UI test cases when generated cases or sample count changes
+    useEffect(() => {
+        if (generatedTestCases && Object.keys(generatedTestCases).length > 0) {
+            const testCaseEntries = Object.entries(generatedTestCases);
+
+            // Sort based on the number in the key "test_case_X"
+            testCaseEntries.sort(([keyA], [keyB]) => {
+                const numA = parseInt(keyA.split('_').pop() || '0');
+                const numB = parseInt(keyB.split('_').pop() || '0');
+                return numA - numB;
+            });
+
+            const allGeneratedCases = testCaseEntries.map(([, tc]) => ({
+                input: tc.input,
+                expectedOutput: (tc.output || '').trim(),
+            }));
+
+            const sampleCases = allGeneratedCases.slice(0, selectedSampleCount);
+            setTestCases(sampleCases);
+
+            // Reset active index if it's out of bounds
+            if (activeTestCaseIndex >= sampleCases.length) {
+                setActiveTestCaseIndex(Math.max(0, sampleCases.length - 1));
+            }
+        }
+    }, [generatedTestCases, selectedSampleCount]);
+
+    // Effect to update formatted input for the editor
+    useEffect(() => {
+        const currentInput = testCases[activeTestCaseIndex]?.input || '';
+        setFormattedInput(formatDisplayInput(currentInput));
+    }, [activeTestCaseIndex, testCases]);
 
     function handleEditorDidMount(editor: editor.IStandaloneCodeEditor) {
         editorRef.current = editor;
@@ -148,7 +182,11 @@ export default function CreateProblemPage() {
             // Now automatically generate test cases
             setIsGeneratingTestCases(true);
             try {
-                const response = await generateTestCases(details.formatted_statement) as GenerateTestCasesResponse;
+                const response = await generateTestCases(
+                    details.formatted_statement,
+                    details.constraints,
+                    details.problem_id
+                ) as GenerateTestCasesResponse;
                 setGeneratedTestCases(response.test_cases);
             } catch (err) {
                 console.error('Failed to generate test cases:', err);
@@ -216,6 +254,17 @@ export default function CreateProblemPage() {
             return;
         }
 
+        const activeTestCase = testCases[activeTestCaseIndex];
+        if (!activeTestCase) {
+            setExecutionError("No active test case selected");
+            return;
+        }
+
+        if (!problemDetails?.problem_id) {
+            setExecutionError("Problem details must be generated before running code.");
+            return;
+        }
+
         setIsExecuting(true);
         setExecutionError(null);
         setExecutionResult(null);
@@ -224,7 +273,8 @@ export default function CreateProblemPage() {
             const response = await executeCode(
                 selectedLanguage,
                 currentCode,
-                [testCaseInput],
+                [activeTestCase.input],
+                problemDetails.problem_id
             ) as ExecuteCodeResponse;
 
             if (response.results && response.results.length > 0) {
@@ -505,6 +555,27 @@ Only one valid answer exists."
                                                                     (<span className="font-medium">{selectedSampleCount}</span> will be visible to users)
                                                                 </p>
                                                             </div>
+
+                                                            {/* Display Sample Test Cases */}
+                                                            <div className="mt-4 space-y-2">
+                                                                {testCases.map((tc, index) => (
+                                                                    <div key={index} className="border border-gray-200 rounded-md overflow-hidden">
+                                                                        <div className="p-3 bg-gray-50 border-b">
+                                                                            <h4 className="text-sm font-medium text-gray-800">Sample Case {index + 1}</h4>
+                                                                        </div>
+                                                                        <div className="p-3 space-y-2">
+                                                                            <div>
+                                                                                <div className="text-xs font-medium text-gray-600 mb-1">Input:</div>
+                                                                                <div className="bg-gray-800 text-white p-2 rounded text-sm font-mono whitespace-pre-wrap">{formatDisplayInput(tc.input)}</div>
+                                                                            </div>
+                                                                            <div>
+                                                                                <div className="text-xs font-medium text-gray-600 mb-1">Expected Output:</div>
+                                                                                <div className="bg-gray-800 text-white p-2 rounded text-sm font-mono whitespace-pre-wrap">{tc.expectedOutput}</div>
+                                                                            </div>
+                                                                        </div>
+                                                                    </div>
+                                                                ))}
+                                                            </div>
                                                         </div>
                                                     ) : (
                                                         <p className="text-sm text-gray-600">No test cases generated yet</p>
@@ -584,11 +655,6 @@ Only one valid answer exists."
                                         </Button>
                                     </div>
                                 </div>
-
-                                {/* Add CodeSubmitOptions component */}
-                                <div className="mt-2">
-                                    <CodeSubmitOptions useParser={useParser} setUseParser={setUseParser} />
-                                </div>
                             </div>
 
                             {/* Editor Area */}
@@ -638,19 +704,29 @@ Only one valid answer exists."
                                         <div className="h-full flex flex-col bg-[#1e1e1e] text-gray-200">
                                             {/* Tabs */}
                                             <div className="h-10 bg-[#1e1e1e] border-b border-gray-800 flex items-center px-4">
-                                                <div className="flex">
-                                                    <div className="flex items-center mr-4">
-                                                        <button
-                                                            className="px-3 py-1 text-xs mr-2 rounded-full bg-indigo-600 text-white"
-                                                        >
-                                                            Case 1
-                                                        </button>
-                                                        <button
-                                                            className="px-3 py-1 text-xs bg-gray-700 text-gray-300 hover:bg-gray-600 rounded-full"
-                                                        >
-                                                            +
-                                                        </button>
+                                                <div className="flex-grow overflow-x-auto whitespace-nowrap pr-4">
+                                                    <div className="flex items-center">
+                                                        {testCases.map((_, index) => (
+                                                            <button
+                                                                key={index}
+                                                                className={`px-3 py-1 text-xs mr-2 rounded-full flex-shrink-0 ${activeTestCaseIndex === index ? 'bg-indigo-600 text-white' : 'bg-gray-700 text-gray-300 hover:bg-gray-600'}`}
+                                                                onClick={() => setActiveTestCaseIndex(index)}
+                                                            >
+                                                                Case {index + 1}
+                                                            </button>
+                                                        ))}
                                                     </div>
+                                                </div>
+                                                <div className="flex-shrink-0">
+                                                    <button
+                                                        className="px-3 py-1 text-xs bg-gray-700 text-gray-300 hover:bg-gray-600 rounded-full"
+                                                        onClick={() => {
+                                                            setTestCases([...testCases, { input: '', expectedOutput: '' }]);
+                                                            setActiveTestCaseIndex(testCases.length);
+                                                        }}
+                                                    >
+                                                        +
+                                                    </button>
                                                 </div>
                                             </div>
 
@@ -661,11 +737,17 @@ Only one valid answer exists."
                                                     <div className="flex flex-col">
                                                         <p className="text-xs font-medium text-gray-400 mb-1">Input:</p>
                                                         <textarea
-                                                            className="p-2 text-sm font-mono border border-gray-700 rounded-md focus:outline-none focus:ring-1 focus:ring-indigo-500 bg-[#2d2d2d] text-gray-200 h-[40px]"
-                                                            placeholder="Enter input for this test case..."
-                                                            value={testCaseInput}
-                                                            onChange={(e) => setTestCaseInput(e.target.value)}
-                                                            rows={2}
+                                                            className="p-2 text-sm font-mono border border-gray-700 rounded-md focus:outline-none focus:ring-1 focus:ring-indigo-500 bg-[#2d2d2d] text-gray-200 h-auto min-h-[40px] resize-y"
+                                                            value={formattedInput}
+                                                            onChange={(e) => setFormattedInput(e.target.value)}
+                                                            onBlur={() => {
+                                                                const newTestCases = [...testCases];
+                                                                if (newTestCases[activeTestCaseIndex]) {
+                                                                    newTestCases[activeTestCaseIndex].input = parseFormattedInput(formattedInput);
+                                                                    setTestCases(newTestCases);
+                                                                }
+                                                            }}
+                                                            rows={Math.max(2, (formattedInput || '').split('\n').length)}
                                                         />
                                                     </div>
 
@@ -674,9 +756,14 @@ Only one valid answer exists."
                                                         <p className="text-xs font-medium text-gray-400 mb-1">Expected Output:</p>
                                                         <textarea
                                                             className="p-2 text-sm font-mono border border-gray-700 rounded-md focus:outline-none focus:ring-1 focus:ring-indigo-500 bg-[#2d2d2d] text-gray-200 h-[40px]"
-                                                            placeholder="Enter expected output for verification..."
-                                                            value={testCaseExpected}
-                                                            onChange={(e) => setTestCaseExpected(e.target.value)}
+                                                            value={testCases[activeTestCaseIndex]?.expectedOutput || ''}
+                                                            onChange={(e) => {
+                                                                const newTestCases = [...testCases];
+                                                                if (newTestCases[activeTestCaseIndex]) {
+                                                                    newTestCases[activeTestCaseIndex].expectedOutput = e.target.value;
+                                                                    setTestCases(newTestCases);
+                                                                }
+                                                            }}
                                                             rows={2}
                                                         />
                                                     </div>
@@ -691,31 +778,51 @@ Only one valid answer exists."
                                                         ) : executionError ? (
                                                             <div className="text-red-400">{executionError}</div>
                                                         ) : executionResult ? (
-                                                            <div className="space-y-2">
-                                                                {/* Output */}
-                                                                <div>
-                                                                    <div className="font-semibold text-xs text-gray-400 mb-1">Your Output:</div>
-                                                                    <div className="pl-2 border-l-2 border-green-500">
-                                                                        {executionResult.stdout || "(No output)"}
-                                                                    </div>
-                                                                </div>
+                                                            (() => {
+                                                                const activeTestCase = testCases[activeTestCaseIndex];
+                                                                let statusText: React.ReactNode = 'Failed';
+                                                                let statusColor = 'text-red-400';
 
-                                                                {/* Error */}
-                                                                {executionResult.stderr && (
-                                                                    <div>
-                                                                        <div className="font-semibold text-xs text-red-400 mb-1">Error:</div>
-                                                                        <div className="pl-2 border-l-2 border-red-500 text-red-400">
-                                                                            {executionResult.stderr}
+                                                                if (executionResult.status === 'success') {
+                                                                    const isCorrect = activeTestCase && executionResult.stdout.trim() === activeTestCase.expectedOutput.trim();
+                                                                    if (isCorrect) {
+                                                                        statusText = 'Accepted';
+                                                                        statusColor = 'text-green-400';
+                                                                    } else {
+                                                                        statusText = 'Wrong Answer';
+                                                                    }
+                                                                } else if (executionResult.status) {
+                                                                    statusText = executionResult.status.replace(/_/g, ' ').replace(/\b\w/g, (l: string) => l.toUpperCase());
+                                                                }
+
+                                                                return (
+                                                                    <div className="space-y-2">
+                                                                        {/* Output */}
+                                                                        <div>
+                                                                            <div className="font-semibold text-xs text-gray-400 mb-1">Your Output:</div>
+                                                                            <div className="pl-2 border-l-2 border-green-500">
+                                                                                {executionResult.stdout || "(No output)"}
+                                                                            </div>
+                                                                        </div>
+
+                                                                        {/* Error */}
+                                                                        {executionResult.stderr && (
+                                                                            <div>
+                                                                                <div className="font-semibold text-xs text-red-400 mb-1">Error:</div>
+                                                                                <div className="pl-2 border-l-2 border-red-500 text-red-400">
+                                                                                    {executionResult.stderr}
+                                                                                </div>
+                                                                            </div>
+                                                                        )}
+
+                                                                        {/* Execution Info */}
+                                                                        <div className="text-xs text-gray-400 mt-2">
+                                                                            Status: <span className={statusColor}>{statusText}</span> |
+                                                                            Time: {executionResult.executionTimeMs}ms
                                                                         </div>
                                                                     </div>
-                                                                )}
-
-                                                                {/* Execution Info */}
-                                                                <div className="text-xs text-gray-400 mt-2">
-                                                                    Status: {executionResult.status === 'success' ? 'Accepted' : 'Failed'} |
-                                                                    Time: {executionResult.executionTimeMs}ms
-                                                                </div>
-                                                            </div>
+                                                                );
+                                                            })()
                                                         ) : (
                                                             <div className="text-gray-400">
                                                                 Click "Run" to execute your code against the test case.
@@ -736,50 +843,82 @@ Only one valid answer exists."
     );
 }
 
+// Helper to format JSON input string for better display
+const formatDisplayInput = (input: string): string => {
+    try {
+        const parsed = JSON.parse(input);
+        if (typeof parsed === 'object' && parsed !== null && !Array.isArray(parsed)) {
+            return Object.entries(parsed)
+                .map(([key, value]) => `${key} = ${JSON.stringify(value)}`)
+                .join('\n');
+        }
+    } catch (e) {
+        // Not a valid JSON object string, return original
+    }
+    return input;
+};
+
+// Helper to parse formatted input back to a JSON string
+const parseFormattedInput = (formatted: string): string => {
+    try {
+        // Check if it's already a valid JSON object string
+        JSON.parse(formatted);
+        return formatted;
+    } catch (e) {
+        // Not valid JSON, try to parse from k=v format
+        const lines = formatted.split('\n').filter(line => line.trim() !== '');
+        if (lines.length === 0) return '';
+
+        const obj: { [key: string]: any } = {};
+        for (const line of lines) {
+            const parts = line.split('=');
+            if (parts.length < 2) return formatted; // Malformed, return as is
+
+            const key = parts[0].trim();
+            const valueStr = parts.slice(1).join('=').trim();
+
+            try {
+                obj[key] = JSON.parse(valueStr);
+            } catch (jsonErr) {
+                return formatted; // Malformed value, return as is
+            }
+        }
+        return JSON.stringify(obj);
+    }
+};
+
 // Add a helper function to parse examples from the formatted statement
 const parseExamples = (statement: string): Array<{ input: string; output: string; explanation?: string }> => {
     const examples: Array<{ input: string; output: string; explanation?: string }> = [];
 
-    // Simple pattern matching for examples - this is basic and may need improvement
-    const exampleMatches = statement.match(/Example\s+\d+[\s\S]*?Input:[\s\S]*?Output:[\s\S]*?(Explanation:[\s\S]*?)?(?=Example\s+\d+|$)/gi);
+    const exampleMatches = statement.match(/Example\s+\d+:[\s\S]*?Input:[\s\S]*?Output:[\s\S]*?(?=Example\s+\d+:|$)/gi);
 
     if (!exampleMatches) return examples;
 
     exampleMatches.forEach(exampleText => {
-        const inputMatch = exampleText.match(/Input:[\s\S]*?s\s*=\s*["'](.+?)["']/i);
-        const outputMatch = exampleText.match(/Output:[\s\S]*?(\d+)/i);
-        const explanationMatch = exampleText.match(/Explanation:[\s\S]*?([^]*?)(?=Example\s+\d+|$)/i);
+        const inputMatch = exampleText.match(/Input:\s*`([\s\S]+?)`/i);
+        const outputMatch = exampleText.match(/Output:\s*`([\s\S]+?)`/i);
+        const explanationMatch = exampleText.match(/Explanation:\s*([\s\S]+)/i);
 
         if (inputMatch && outputMatch) {
             let explanation = explanationMatch ? explanationMatch[1].trim() : undefined;
 
-            // Clean up explanation by removing unwanted formatting characters
+            // Clean up explanation by removing unwanted formatting characters if it exists
             if (explanation) {
                 explanation = explanation
                     .replace(/```\s*\*\*/g, '') // Remove ``` **
-                    .replace(/```/g, '')        // Remove ```
+                    .replace(/`/g, '')        // Remove `
                     .replace(/\*\*/g, '')       // Remove **
                     .trim();
             }
 
             examples.push({
-                input: `s = "${inputMatch[1]}"`,
-                output: outputMatch[1],
+                input: inputMatch[1].trim(),
+                output: outputMatch[1].trim(),
                 explanation: explanation
             });
         }
     });
-
-    // If no examples were found through regex, create at least one placeholder
-    if (examples.length === 0) {
-        const inputPlaceholder = statement.includes('s = "') ? statement.match(/s\s*=\s*["'](.+?)["']/i)?.[1] : "abcabcbb";
-
-        examples.push({
-            input: `s = "${inputPlaceholder || 'example'}"`,
-            output: "3",
-            explanation: "The answer is \"abc\", with the length of 3."
-        });
-    }
 
     return examples;
 }; 

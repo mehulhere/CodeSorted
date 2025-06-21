@@ -36,7 +36,7 @@ func TestTruncateForLogging(t *testing.T) {
 
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
-			result := truncateForLogging(tc.input, tc.maxLen)
+			result := TruncateForLogging(tc.input, tc.maxLen)
 			if result != tc.expected {
 				t.Errorf("Expected: %s, Got: %s", tc.expected, result)
 			}
@@ -108,12 +108,12 @@ func TestFixPythonExpressions(t *testing.T) {
 			name: "Handle list comprehension",
 			input: `{
 				"test_case_1": {
-					"input": "''.join([chr(i) for i in range(32, 127)]) * 100"
+					"input": "''.join([chr(i) codesorted(32, 127)]) * 100"
 				}
 			}`,
 			expected: `{
 				"test_case_1": {
-					"input": "''.join([chr(i) for i in range(32, 127)]) * 100", "python": true
+					"input": "''.join([chr(i) codesorted(32, 127)]) * 100", "python": true
 				}
 			}`,
 		},
@@ -121,12 +121,12 @@ func TestFixPythonExpressions(t *testing.T) {
 			name: "Handle complex Python expression",
 			input: `{
 				"test_case_1": {
-					"input": "''.join([chr(i % 26 + ord('a')) for i in range(100000)])"
+					"input": "''.join([chr(i % 26 + ord('a')) codesorted(100000)])"
 				}
 			}`,
 			expected: `{
 				"test_case_1": {
-					"input": "''.join([chr(i % 26 + ord('a')) for i in range(100000)])", "python": true
+					"input": "''.join([chr(i % 26 + ord('a')) codesorted(100000)])", "python": true
 				}
 			}`,
 		},

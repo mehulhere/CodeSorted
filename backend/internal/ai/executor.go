@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"log"
 	"net/http"
 	"strings"
@@ -13,14 +14,13 @@ import (
 )
 
 // ExecuteCode runs code in a Docker container and returns the result
-func ExecuteCode(language string, code string, input string, functionName string) (*types.ExecutionResult, error) {
+func ExecuteCode(language string, code string, input string) (*types.ExecutionResult, error) {
 	// Create an execution request
 	execReq := types.ExecutionRequest{
-		Language:     language,
-		Code:         code,
-		Input:        input,
-		TimeLimitMs:  10000, // 10 seconds
-		FunctionName: functionName,
+		Language:    language,
+		Code:        code,
+		Input:       input,
+		TimeLimitMs: 10000, // 10 seconds
 	}
 
 	// Convert the request to JSON
@@ -37,13 +37,13 @@ func ExecuteCode(language string, code string, input string, functionName string
 	var executorURL string
 	switch language {
 	case "python":
-		executorURL = "http://python_executor:8080/execute"
+		executorURL = "http://localhost:8001/execute"
 	case "javascript":
-		executorURL = "http://js_executor:8080/execute"
+		executorURL = "http://localhost:8002/execute"
 	case "cpp":
-		executorURL = "http://cpp_executor:8080/execute"
+		executorURL = "http://localhost:8003/execute"
 	case "java":
-		executorURL = "http://java_executor:8080/execute"
+		executorURL = "http://localhost:8004/execute"
 	default:
 		return nil, fmt.Errorf("unsupported language: %s", language)
 	}
@@ -63,6 +63,12 @@ func ExecuteCode(language string, code string, input string, functionName string
 	}
 	defer resp.Body.Close()
 
+	// Check if the request was successful
+	if resp.StatusCode != http.StatusOK {
+		bodyBytes, _ := io.ReadAll(resp.Body)
+		return nil, fmt.Errorf("executor service returned status %d: %s", resp.StatusCode, string(bodyBytes))
+	}
+
 	// Parse the response
 	var result types.ExecutionResult
 	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
@@ -73,23 +79,20 @@ func ExecuteCode(language string, code string, input string, functionName string
 }
 
 // ExecuteBruteForceSolution executes a brute force solution against a set of test cases
-func ExecuteBruteForceSolution(ctx context.Context, solution string, language string, testCases map[string]interface{}) (map[string]string, error) {
+func ExecuteBruteForceSolution(ctx context.Context, solution string, language string, functionName string, testCases map[string]interface{}) (map[string]string, error) {
 	// Prepare a map to store the expected outputs
 	expectedOutputs := make(map[string]string)
 
-	// Determine the function name based on the language
-	var functionName string
-	switch language {
-	case "python":
-		functionName = "solution"
-	case "javascript":
-		functionName = "solution"
-	case "cpp":
-		functionName = "solution"
-	case "java":
-		functionName = "Solution"
-	default:
-		return nil, fmt.Errorf("unsupported language: %s", language)
+	// If no function name is provided, use a default based on language
+	if functionName == "" {
+		switch language {
+		case "python", "javascript", "cpp":
+			functionName = "solution"
+		case "java":
+			functionName = "Solution"
+		default:
+			return nil, fmt.Errorf("unsupported language for default function name: %s", language)
+		}
 	}
 
 	// Execute the solution against each test case
@@ -104,17 +107,8 @@ func ExecuteBruteForceSolution(ctx context.Context, solution string, language st
 			return nil, fmt.Errorf("invalid input format for test case %s", testName)
 		}
 
-		// Check if this is a Python-generated input
-		isPython, _ := testCase["python"].(bool)
-		if isPython {
-			// For Python-generated inputs, we need to evaluate them
-			// This would be handled by a separate function
-			expectedOutputs[testName] = "<requires-python-evaluation>"
-			continue
-		}
-
 		// Execute the solution against the test case
-		result, err := ExecuteCode(language, solution, input, functionName)
+		result, err := ExecuteCode(language, solution, input)
 		if err != nil {
 			log.Printf("Failed to execute solution for test case %s: %v", testName, err)
 			expectedOutputs[testName] = fmt.Sprintf("<execution-error: %v>", err)
@@ -135,22 +129,27 @@ func ExecuteBruteForceSolution(ctx context.Context, solution string, language st
 	return expectedOutputs, nil
 }
 
-// GenerateExpectedOutputsWithExecution uses a reference solution to generate expected outputs for test cases
-func GenerateExpectedOutputsWithExecution(ctx context.Context, problemStatement string, testCases map[string]interface{}, language string) (map[string]string, error) {
-	// First, generate a brute force reference solution
-	referenceSolution, err := GenerateBruteForceSolution(ctx, problemStatement, language)
+// EvaluatePythonInExecutor evaluates a Python expression using the executor service
+func EvaluatePythonInExecutor(ctx context.Context, expression string) (string, error) {
+	// We generate a script that directly prints the expression's result.
+	// This avoids wrapping it in a function that the executor doesn't know to call.
+	code := fmt.Sprintf(`
+import sys
+sys.set_int_max_str_digits(0)
+print(%s)
+`, expression)
+
+	// The function takes no input, so the input parameter is empty.
+	result, err := ExecuteCode("python", code, "")
 	if err != nil {
-		return nil, fmt.Errorf("failed to generate reference solution: %w", err)
+		return "", fmt.Errorf("python expression execution failed: %w", err)
 	}
 
-	// Log the reference solution for debugging
-	log.Printf("Generated reference solution (%d characters): %s", len(referenceSolution), truncateForLogging(referenceSolution, 200))
-
-	// Execute the reference solution against the test cases
-	expectedOutputs, err := ExecuteBruteForceSolution(ctx, referenceSolution, language, testCases)
-	if err != nil {
-		return nil, fmt.Errorf("failed to execute reference solution: %w", err)
+	if result.Status != "success" {
+		// If there's a compilation or runtime error, it will be in the Output field.
+		return "", fmt.Errorf("python expression evaluation failed with status %s: %s", result.Status, result.Output)
 	}
 
-	return expectedOutputs, nil
+	// The output of the expression will be in the Output field.
+	return strings.TrimSpace(result.Output), nil
 }

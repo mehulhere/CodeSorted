@@ -126,3 +126,41 @@ func GetFileExtension(language string) string {
 		return ".txt"
 	}
 }
+
+// func cleanAIResponse(resp string) (string, error) {
+// 	// Clean the response by removing markdown backticks and "python" language identifier
+// 	cleaned := strings.TrimSpace(resp)
+// 	cleaned = strings.TrimPrefix(cleaned, "```python")
+// 	cleaned = strings.TrimPrefix(cleaned, "```")
+// 	cleaned = strings.TrimSuffix(cleaned, "```")
+// 	return strings.TrimSpace(cleaned), nil
+// }
+
+// // cleanJSONString attempts to clean up a JSON string that might have formatting issues
+// func cleanJSONString(jsonStr string) string {
+// 	// Replace common issues that might cause parsing errors
+
+// 	// Handle Python string multiplication (e.g., "a" * 50000)
+// 	re := regexp.MustCompile(`"([^"]+)"\s*\*\s*(\d+)`)
+// 	jsonStr = re.ReplaceAllString(jsonStr, `"$1"`)
+
+// 	// Handle Python string concatenation (e.g., "a" * 25000 + "b" * 25000)
+// 	re = regexp.MustCompile(`"([^"]+)"\s*\+\s*"([^"]+)"`)
+// 	jsonStr = re.ReplaceAllString(jsonStr, `"$1$2"`)
+
+// 	// Replace any sequence of * characters that might appear in comments
+// 	jsonStr = regexp.MustCompile(`\*+`).ReplaceAllString(jsonStr, "")
+
+// 	// Remove any trailing commas in objects and arrays which are invalid in JSON
+// 	jsonStr = regexp.MustCompile(`,\s*\}`).ReplaceAllString(jsonStr, "}")
+// 	jsonStr = regexp.MustCompile(`,\s*\]`).ReplaceAllString(jsonStr, "]")
+
+// 	// Fix common quote issues with boolean values
+// 	jsonStr = strings.ReplaceAll(jsonStr, `"python": True`, `"python": true`)
+// 	jsonStr = strings.ReplaceAll(jsonStr, `"python": False`, `"python": false`)
+
+// 	// Handle any other invalid characters that might appear in the JSON
+// 	jsonStr = regexp.MustCompile(`[^\x20-\x7E]`).ReplaceAllString(jsonStr, "")
+
+// 	return jsonStr
+// }

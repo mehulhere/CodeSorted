@@ -620,12 +620,11 @@ export default function SingleProblemPage() {
             }
 
             // Execute the code with specified test cases
-            // @ts-ignore - API accepts additional parameters
             const response = await executeCode(
                 selectedLanguage,
                 currentCode,
                 testCaseInputs,
-                problem?.problem_id,
+                problem?.problem_id || String(problemId)
             ) as ExecuteCodeResponse;
 
             // Format the test case results

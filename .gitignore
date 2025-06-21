@@ -7,5 +7,6 @@ submissions/
 learnings.md
 .cursor/
 node_modules
+backend/node_modules
 codebase.md
 run.txt

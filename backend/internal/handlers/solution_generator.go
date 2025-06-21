@@ -54,7 +54,7 @@ func GenerateBruteForceSolutionHandler(w http.ResponseWriter, r *http.Request) {
 	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second) // Longer timeout for AI
 	defer cancel()
 
-	solution, err := ai.GenerateBruteForceSolution(ctx, req.ProblemStatement, req.Language)
+	solution, err := ai.GenerateBruteForceSolution(ctx, req.ProblemStatement, req.Language, "")
 	if err != nil {
 		log.Printf("Failed to generate brute force solution: %v", err)
 		utils.SendJSONError(w, "Failed to generate solution: "+err.Error(), http.StatusInternalServerError)
@@ -107,7 +107,7 @@ func GenerateExpectedOutputsHandler(w http.ResponseWriter, r *http.Request) {
 	ctx, cancel := context.WithTimeout(context.Background(), 120*time.Second) // Longer timeout for AI and execution
 	defer cancel()
 
-	expectedOutputs, err := ai.GenerateExpectedOutputsWithExecution(ctx, req.ProblemStatement, req.TestCases, req.Language)
+	expectedOutputs, err := ai.GenerateExpectedOutputs(ctx, req.ProblemStatement, req.TestCases, req.Language, "")
 	if err != nil {
 		log.Printf("Failed to generate expected outputs: %v", err)
 		utils.SendJSONError(w, "Failed to generate expected outputs: "+err.Error(), http.StatusInternalServerError)
