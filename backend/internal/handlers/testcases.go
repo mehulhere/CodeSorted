@@ -91,17 +91,20 @@ func AddTestCaseHandler(w http.ResponseWriter, r *http.Request) { // Only allowe
 	log.Printf("Test case added for problem %s with ID: %v. Points: %d, Sequence: %d\n", payload.ProblemDBID, result.InsertedID, payload.Points, payload.SequenceNumber)
 }
 
-// GenerateTestCasesHandler generates test cases for a problem using AI
+// GenerateTestCasesRequest defines the expected payload for the test case generation endpoint
+type GenerateTestCasesRequest struct {
+	ProblemID        string                 `json:"problem_id"`
+	ProblemStatement string                 `json:"problem_statement"`
+	TestCases        map[string]interface{} `json:"test_cases"` // This can be optional now
+	ProblemTitle     string                 `json:"problem_title"`
+	ProblemDetails   *ai.ProblemDetails     `json:"problem_details"`
+}
+
+// GenerateTestCasesHandler handles the generation of test cases for a problem
 func GenerateTestCasesHandler(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
 		http.Error(w, "Only POST method is allowed", http.StatusMethodNotAllowed)
 		return
-	}
-
-	type GenerateTestCasesRequest struct {
-		ProblemStatement string `json:"problem_statement"`
-		Constraints      string `json:"constraints"`
-		ProblemID        string `json:"problem_id"`
 	}
 
 	var req GenerateTestCasesRequest
@@ -110,28 +113,35 @@ func GenerateTestCasesHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if req.ProblemStatement == "" {
-		http.Error(w, "Problem statement is required", http.StatusBadRequest)
+	if req.ProblemStatement == "" || req.ProblemID == "" {
+		http.Error(w, "Problem statement and problem ID are required", http.StatusBadRequest)
 		return
 	}
 
-	// For now, we are generating expected outputs directly with the test cases
-	// because the frontend flow combines these steps.
-	outputs, err := ai.GenerateExpectedOutputs(r.Context(), req.ProblemStatement, nil, "python", req.ProblemID)
+	// Generate expected outputs using AI and execution synchronously
+	// This ensures the response is written only after the generation is complete.
+	ctx, cancel := context.WithTimeout(context.Background(), 120*time.Second) // Longer timeout for AI and execution
+	defer cancel()
+
+	generatedOutputs, err := ai.GenerateExpectedOutputs(ctx, req.ProblemStatement, req.ProblemDetails, req.TestCases, "python", req.ProblemID, req.ProblemTitle)
 	if err != nil {
-		log.Printf("Failed to generate test cases and outputs: %v", err)
-		http.Error(w, err.Error(), http.StatusInternalServerError)
+		log.Printf("Error generating expected outputs: %v", err)
+		utils.SendJSONError(w, "Failed to generate expected outputs: "+err.Error(), http.StatusInternalServerError)
 		return
 	}
 
 	response := map[string]interface{}{
-		"test_cases": outputs,
+		"test_cases": generatedOutputs,
 	}
 
 	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusOK) // Set status to 200 OK after successful generation
 	if err := json.NewEncoder(w).Encode(response); err != nil {
-		http.Error(w, "Failed to encode response", http.StatusInternalServerError)
+		log.Printf("Failed to encode response: %v", err)
+		// If encoding fails, try to send a JSON error, but headers might already be sent
+		utils.SendJSONError(w, "Failed to encode response", http.StatusInternalServerError)
 	}
+	log.Println("Successfully generated test cases")
 }
 
 // BulkAddTestCasesHandler handles adding multiple test cases at once

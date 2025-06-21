@@ -14,7 +14,8 @@ import {
     getAuthStatus,
     generateProblemDetails,
     ProblemDetails,
-    executeCode
+    executeCode,
+    submitSolution
 } from '@/lib/api';
 import Editor, { Monaco } from '@monaco-editor/react';
 import type { editor } from 'monaco-editor';
@@ -33,6 +34,10 @@ interface AuthStatusResponse {
 interface TestCase {
     input: string;
     output: string;
+}
+
+interface SubmitSolutionResponse {
+    submission_id: string;
 }
 
 interface GenerateTestCasesResponse {
@@ -88,6 +93,7 @@ export default function CreateProblemPage() {
     // Editor state
     const [code, setCode] = useState<string>('// Start coding here...');
     const [selectedLanguage, setSelectedLanguage] = useState<string>('python');
+    const [isSubmitting, setIsSubmitting] = useState(false);
 
     // Auth state
     const [isLoggedIn, setIsLoggedIn] = useState(false);
@@ -191,9 +197,7 @@ export default function CreateProblemPage() {
             setIsGeneratingTestCases(true);
             try {
                 const response = await generateTestCases(
-                    details.formatted_statement,
-                    details.constraints,
-                    details.problem_id
+                    details
                 ) as GenerateTestCasesResponse;
                 setGeneratedTestCases(response.test_cases);
             } catch (err) {
@@ -248,6 +252,45 @@ export default function CreateProblemPage() {
             setError('Failed to create problem. Please try again.');
         } finally {
             setIsCreatingProblem(false);
+        }
+    };
+
+    const handleSubmitCode = async () => {
+        if (!editorRef.current) return;
+
+        const currentCode = editorRef.current.getValue();
+        if (!currentCode.trim()) {
+            setExecutionError("Code cannot be empty");
+            return;
+        }
+
+        if (!problemDetails?.problem_id) {
+            setExecutionError("Problem details must be generated before submitting.");
+            return;
+        }
+
+        setExecutionError(null);
+        setIsSubmitting(true);
+
+        try {
+            const response = await submitSolution(
+                problemDetails.problem_id,
+                selectedLanguage,
+                currentCode
+            ) as SubmitSolutionResponse;
+
+            // Assuming the response includes a submission_id
+            if (response.submission_id) {
+                router.push(`/submissions/${response.submission_id}`);
+            } else {
+                // Fallback if no ID is returned, maybe just go to the generic submissions page for that problem
+                router.push(`/submissions?problemId=${problemDetails.problem_id}`);
+            }
+        } catch (error) {
+            console.error("Error submitting code:", error);
+            setExecutionError(error instanceof Error ? error.message : "Failed to submit solution.");
+        } finally {
+            setIsSubmitting(false);
         }
     };
 
@@ -664,8 +707,10 @@ Only one valid answer exists."
                                         </Button>
                                         <Button
                                             className="px-4 py-2 text-sm font-medium text-white bg-indigo-600 border border-transparent rounded-md shadow-sm hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500"
+                                            onClick={handleSubmitCode}
+                                            disabled={isSubmitting || isExecuting}
                                         >
-                                            Submit
+                                            {isSubmitting ? 'Submitting...' : 'Submit'}
                                         </Button>
                                     </div>
                                 </div>

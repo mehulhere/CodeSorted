@@ -2,6 +2,8 @@ package ai
 
 import (
 	"context"
+	"crypto/rand"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"log"
@@ -12,6 +14,7 @@ import (
 	"time"
 
 	"backend/internal/database"
+	"backend/internal/models"
 
 	"github.com/google/generative-ai-go/genai"
 	"go.mongodb.org/mongo-driver/bson"
@@ -116,7 +119,7 @@ func ensureCacheTTLIndex(ctx context.Context) error {
 }
 
 // GenerateStructuredOutput uses Gemini to generate structured output based on a provided schema
-func GenerateStructuredOutput(ctx context.Context, prompt string, schema *genai.Schema) (string, error) {
+func GenerateStructuredOutput(ctx context.Context, prompt string, schema *genai.Schema, temperature float32) (string, error) {
 	if client == nil {
 		return "", fmt.Errorf("AI client not initialized")
 	}
@@ -127,6 +130,7 @@ func GenerateStructuredOutput(ctx context.Context, prompt string, schema *genai.
 	// Configure for structured output
 	structuredModel.ResponseMIMEType = "application/json"
 	structuredModel.ResponseSchema = schema
+	structuredModel.Temperature = &temperature
 
 	// Generate the content
 	resp, err := structuredModel.GenerateContent(ctx, genai.Text(prompt))
@@ -191,7 +195,7 @@ Create a complete problem with the following elements:
 `, rawProblemStatement)
 
 	// Generate structured output
-	jsonOutput, err := GenerateStructuredOutput(ctx, prompt, schema)
+	jsonOutput, err := GenerateStructuredOutput(ctx, prompt, schema, 1)
 	if err != nil {
 		return nil, fmt.Errorf("failed to generate structured problem details: %w", err)
 	}
@@ -202,7 +206,19 @@ Create a complete problem with the following elements:
 		return nil, fmt.Errorf("failed to parse problem details JSON: %w", err)
 	}
 
+	problemDetails.ProblemID = createUniqueProblemID(problemDetails.ProblemID)
+
 	return &problemDetails, nil
+}
+
+// createUniqueProblemID creates a unique problem ID by appending a timestamp and a random hex string.
+func createUniqueProblemID(baseID string) string {
+	randBytes := make([]byte, 4)
+	if _, err := rand.Read(randBytes); err != nil {
+		// fallback to just timestamp if rand fails
+		return fmt.Sprintf("%s-%d", baseID, time.Now().UnixNano())
+	}
+	return fmt.Sprintf("%s-%d-%s", baseID, time.Now().UnixNano(), hex.EncodeToString(randBytes))
 }
 
 // GenerateStructuredTestCases generates test cases with a structured schema
@@ -221,12 +237,19 @@ func GenerateStructuredTestCases(ctx context.Context, problemStatement string, c
 				"id": {Type: genai.TypeInteger},
 				"inputs": {
 					Type:        genai.TypeArray,
-					Description: "An array of strings, where each string is a key-value pair like 'param_name = value'. Example: [\"nums = [1,2,3]\", \"k = 2\"]",
-					Items:       &genai.Schema{Type: genai.TypeString},
+					Description: "An array of objects, where each object represents an input parameter.",
+					Items: &genai.Schema{
+						Type: genai.TypeObject,
+						Properties: map[string]*genai.Schema{
+							"name":   {Type: genai.TypeString, Description: "The name of the parameter."},
+							"data":   {Description: "The input value. Can be any valid JSON type or a Python expression string."},
+							"python": {Type: genai.TypeBoolean, Description: "True if 'data' is a Python expression to be evaluated."},
+						},
+						Required: []string{"name", "data", "python"},
+					},
 				},
-				"pythonevalneeded": {Type: genai.TypeBoolean},
 			},
-			Required: []string{"id", "inputs", "pythonevalneeded"},
+			Required: []string{"id", "inputs"},
 		},
 	}
 
@@ -245,12 +268,12 @@ func GenerateStructuredTestCases(ctx context.Context, problemStatement string, c
 	// Replace the problem statement placeholder in the template
 	prompt := strings.Replace(string(promptTemplate), "{PROBLEM_STATEMENT}", fullProblemContext, 1)
 
-	// Add additional instruction to emphasize generating 50 test cases and a mix of difficulties
-	prompt += "\n\nIMPORTANT: You MUST generate a JSON array of exactly 30 test case objects, with a good mix of easy, medium, and hard difficulty levels. Each test case should follow the specified schema."
-	// Generate structured output
+	// Add additional instruction to emphasize generating 30 test cases and a mix of difficulties
+	prompt += "\n\nIMPORTANT: You MUST generate a JSON array of exactly 30 test case objects, with a good mix of easy, medium, and hard difficulty levels. Each test case should follow the specified schema.\n" +
+		"Specifically, the \"inputs\" field MUST be an array of objects, where each object has \"name\", \"data\", and \"python\" fields. Do NOT use \"key = value\" strings in the \"inputs\" array directly. Use the specified object format for each parameter."
 
 	log.Printf("Prompt for test cases: %s", prompt)
-	jsonOutput, err := GenerateStructuredOutput(ctx, prompt, schema)
+	jsonOutput, err := GenerateStructuredOutput(ctx, prompt, schema, 0) // Temperature 0 for test cases
 	if err != nil {
 		return nil, fmt.Errorf("failed to generate structured test cases: %w", err)
 	}
@@ -301,7 +324,7 @@ func AnalyzeCodeComplexity(ctx context.Context, code string, language string) (*
     `, language, code)
 
 	// Generate structured output
-	jsonOutput, err := GenerateStructuredOutput(ctx, prompt, schema)
+	jsonOutput, err := GenerateStructuredOutput(ctx, prompt, schema, 0.2)
 	if err != nil {
 		return nil, fmt.Errorf("failed to generate structured complexity analysis: %w", err)
 	}
@@ -347,7 +370,7 @@ func ConvertPseudocodeToPython(ctx context.Context, pseudocode string) (string, 
 		"\n---"
 
 	// Generate structured output
-	jsonOutput, err := GenerateStructuredOutput(ctx, prompt, schema)
+	jsonOutput, err := GenerateStructuredOutput(ctx, prompt, schema, 0.2)
 	if err != nil {
 		return "", fmt.Errorf("failed to generate content for pseudocode conversion: %w", err)
 	}
@@ -433,7 +456,7 @@ func GetCodeCompletion(prefix, currentLine, language string, problemName string,
 	log.Printf("Sending prompt to AI for completion:\n%s", prompt)
 
 	// Generate structured output
-	jsonOutput, err := GenerateStructuredOutput(ctx, prompt, schema)
+	jsonOutput, err := GenerateStructuredOutput(ctx, prompt, schema, 0.5)
 	if err != nil {
 		return "", fmt.Errorf("gemini API call failed: %w", err)
 	}
@@ -529,7 +552,7 @@ Please provide 3 progressive hints, each building on the previous one:
 `, problemStatement, language, code)
 
 	// Generate structured output
-	jsonOutput, err := GenerateStructuredOutput(ctx, prompt, schema)
+	jsonOutput, err := GenerateStructuredOutput(ctx, prompt, schema, 0.7)
 	if err != nil {
 		if err.Error() == "AI client not initialized" {
 			return []string{
@@ -566,95 +589,89 @@ Please provide 3 progressive hints, each building on the previous one:
 func EvaluatePythonTestCases(ctx context.Context, testCasesData []map[string]interface{}) []map[string]interface{} {
 	// Process each test case
 	for _, testCaseMap := range testCasesData {
-		isPython, _ := testCaseMap["pythonevalneeded"].(bool)
-
-		inputsMap := make(map[string]interface{})
-		hasInputs := false
-
-		if inputsRaw, ok := testCaseMap["inputs"]; ok {
-			// Handle new format: array of "key = value" strings
-			if inputsArray, isArray := inputsRaw.([]interface{}); isArray {
-				for _, item := range inputsArray {
-					if paramStr, isStr := item.(string); isStr {
-						parts := strings.SplitN(paramStr, "=", 2)
-						if len(parts) == 2 {
-							key := strings.TrimSpace(parts[0])
-							valStr := strings.TrimSpace(parts[1])
-
-							var val interface{}
-							// Try to unmarshal the value as JSON (e.g., for lists, numbers)
-							if err := json.Unmarshal([]byte(valStr), &val); err != nil {
-								// If it fails, treat it as a literal string.
-								val = valStr
-							}
-							inputsMap[key] = val
-						}
-					}
-				}
-				if len(inputsMap) > 0 {
-					hasInputs = true
-				}
-			} else if inputsStr, isStr := inputsRaw.(string); isStr {
-				// Handle previous format: a single JSON string
-				if err := json.Unmarshal([]byte(inputsStr), &inputsMap); err == nil {
-					hasInputs = true
-				} else {
-					log.Printf("Failed to unmarshal inputs JSON string: %v. Raw string: %s", err, inputsStr)
-				}
-			} else if inputs, isMap := inputsRaw.(map[string]interface{}); isMap {
-				// Handle original format: a direct map
-				inputsMap = inputs
-				hasInputs = true
-			}
+		inputsRaw, ok := testCaseMap["inputs"].([]interface{})
+		if !ok {
+			log.Printf("Skipping test case due to invalid 'inputs' format, expected an array")
+			continue
 		}
 
-		if hasInputs {
-			evaluatedInputs := make(map[string]interface{})
-			for key, val := range inputsMap {
-				valStr, isString := val.(string)
+		evaluatedInputs := make(map[string]interface{})
+		for _, inputItem := range inputsRaw {
+			paramDetails, ok := inputItem.(map[string]interface{})
+			if !ok {
+				log.Printf("Skipping an input parameter because it's not a valid object")
+				continue
+			}
 
-				if isString && (isPython || containsPythonExpression(valStr)) {
-					evaluatedInput, err := EvaluatePythonExpression(ctx, valStr)
-					if err != nil {
-						log.Printf("Failed to evaluate Python expression for key %s: %v. Using original.", key, err)
-						evaluatedInputs[key] = valStr
+			paramName, nameOk := paramDetails["name"].(string)
+			data := paramDetails["data"]
+			isPython, _ := paramDetails["python"].(bool)
+
+			if !nameOk || paramName == "" {
+				log.Printf("Skipping an input parameter due to missing or invalid 'name'")
+				continue
+			}
+
+			if isPython {
+				dataStr, isString := data.(string)
+				if !isString {
+					log.Printf("Parameter '%s' is marked for python evaluation but data is not a string. Using original.", paramName)
+					evaluatedInputs[paramName] = data
+					continue
+				}
+
+				evaluatedInput, err := EvaluatePythonExpression(ctx, dataStr)
+				if err != nil {
+					log.Printf("Failed to evaluate Python expression for key %s: %v. Using original.", paramName, err)
+					evaluatedInputs[paramName] = dataStr
+				} else {
+					// Attempt to unmarshal the result, as it might be a JSON-like string (e.g., list)
+					var decodedValue interface{}
+					if err := json.Unmarshal([]byte(evaluatedInput), &decodedValue); err == nil {
+						evaluatedInputs[paramName] = decodedValue
 					} else {
-						// Attempt to unmarshal the result, as it might be a JSON-like string (e.g., list)
-						var decodedValue interface{}
-						if err := json.Unmarshal([]byte(evaluatedInput), &decodedValue); err == nil {
-							evaluatedInputs[key] = decodedValue
-						} else {
-							evaluatedInputs[key] = evaluatedInput
-						}
+						evaluatedInputs[paramName] = evaluatedInput
 					}
-				} else {
-					evaluatedInputs[key] = val
 				}
+			} else {
+				evaluatedInputs[paramName] = data
 			}
-			testCaseMap["inputs"] = evaluatedInputs
 		}
+		testCaseMap["inputs"] = evaluatedInputs
 	}
 	return testCasesData
 }
 
-// containsPythonExpression checks if a string contains Python-like expressions
-func containsPythonExpression(input string) bool {
-	// Check for string multiplication patterns
-	if strings.Contains(input, "*") || strings.Contains(input, "+") {
-		// Check for quoted strings
-		if strings.Contains(input, "'") || strings.Contains(input, "\"") {
-			return true
-		}
-	}
-	return false
-}
+// // containsPythonExpression checks if a string contains Python-like expressions
+// func containsPythonExpression(input string) bool {
+// 	// Check for string multiplication patterns
+// 	if strings.Contains(input, "*") || strings.Contains(input, "+") {
+// 		// Check for quoted strings
+// 		if strings.Contains(input, "'") || strings.Contains(input, "\"") {
+// 			return true
+// 		}
+// 	}
+// 	return false
+// }
 
 // EvaluatePythonExpression evaluates a Python expression by sending it to the executor service.
 func EvaluatePythonExpression(ctx context.Context, expr string) (string, error) {
 	log.Printf("Evaluating Python expression via executor: %s", TruncateForLogging(expr, 200))
 
-	// The executor service will handle the Python evaluation
-	evaluated, err := EvaluatePythonInExecutor(ctx, expr)
+	// Prepend 'import random' if the expression uses it and doesn't already import it.
+	if strings.Contains(expr, "random.") && !strings.Contains(expr, "import random") {
+		expr = "import random\n" + expr
+	}
+
+	// If the AI-provided expression doesn't contain a print statement, wrap it in one.
+	// This ensures the value of the expression is captured by stdout.
+	if !strings.Contains(expr, "print(") {
+		expr = fmt.Sprintf("print(%s)", expr)
+	}
+
+	// Execute the code directly, assuming the executor captures stdout.
+	// This avoids double-printing issues from a wrapping function.
+	evaluated, err := ExecuteCodeInExecutor(ctx, expr, "python", "")
 	if err != nil {
 		return "", fmt.Errorf("evaluation via executor failed: %w", err)
 	}
@@ -726,7 +743,7 @@ You are an expert algorithm engineer tasked with implementing a solution to a co
 `, problemStatement, functionSignature)
 
 	// Generate structured output
-	jsonOutput, err := GenerateStructuredOutput(ctx, prompt, schema)
+	jsonOutput, err := GenerateStructuredOutput(ctx, prompt, schema, 0.1)
 	if err != nil {
 		return nil, fmt.Errorf("failed to generate brute force solution: %w", err)
 	}
@@ -776,7 +793,7 @@ You are an expert algorithm engineer tasked with implementing a solution to a co
 - The function should be standalone and not rely on any class structure unless absolutely necessary for the language (like Java).
 `, problemStatement, functionSignature)
 
-	jsonOutput, err := GenerateStructuredOutput(ctx, prompt, schema)
+	jsonOutput, err := GenerateStructuredOutput(ctx, prompt, schema, 0.1)
 	if err != nil {
 		return nil, fmt.Errorf("failed to generate correct solution: %w", err)
 	}
@@ -789,14 +806,29 @@ You are an expert algorithm engineer tasked with implementing a solution to a co
 	return &result, nil
 }
 
+func createFunctionName(title string) string {
+	// Convert to lowercase
+	name := strings.ToLower(title)
+	// Replace spaces with underscores
+	name = strings.ReplaceAll(name, " ", "_")
+	// Remove all non-alphanumeric characters except underscores
+	reg := regexp.MustCompile("[^a-z0-9_]+")
+	name = reg.ReplaceAllString(name, "")
+	// Ensure it's a valid identifier (e.g., not starting with a number)
+	if len(name) > 0 && name[0] >= '0' && name[0] <= '9' {
+		name = "_" + name
+	}
+	return name
+}
+
 // GenerateIOParseCode generates code to parse input, a function signature, and code to format output.
-func GenerateIOParseCode(ctx context.Context, testCaseInputs []string, language string, problemID string, statementExamples string) (*IOParseResult, error) {
+func GenerateIOParseCode(ctx context.Context, testCaseInputs []string, language string, problemTitle string, statementExamples string) (*IOParseResult, error) {
 	if client == nil {
 		return nil, fmt.Errorf("AI client not initialized")
 	}
 
 	// Sanitize problemID to be a valid function name
-	funcName := strings.ReplaceAll(problemID, "-", "_")
+	funcName := createFunctionName(problemTitle)
 
 	// Define the schema for the I/O parsing code result
 	schema := &genai.Schema{
@@ -804,7 +836,10 @@ func GenerateIOParseCode(ctx context.Context, testCaseInputs []string, language 
 		Properties: map[string]*genai.Schema{
 			"input_parser_code":  {Type: genai.TypeString},
 			"function_signature": {Type: genai.TypeString},
-			"output_parser_code": {Type: genai.TypeString},
+			"output_parser_code": {
+				Type:        genai.TypeString,
+				Description: fmt.Sprintf("The code that takes the return value from '%s', which will be called with the parsed variables, and prints the result to standard output in the correct format. Do not include the function's implementation; only call the function and print its return value.", funcName),
+			},
 		},
 		Required: []string{"input_parser_code", "function_signature", "output_parser_code"},
 	}
@@ -832,7 +867,7 @@ JSON Input Examples:
 Based on these examples, generate a JSON object with three fields:
 1. "input_parser_code": The code that reads a single line from standard input (stdin), which will be a JSON string. This code must parse the JSON into variables required by the solution function. For Python, use the 'json' library.
 2. "function_signature": The signature of the function that will solve the problem. Name the function '%s'. It should take the parsed variables as arguments.
-3. "output_parser_code": The code that takes the return value from '%s', which will be called with the parsed variables, and prints the result to standard output in the correct format.
+3. "output_parser_code": The code that takes the return value from '%s', which will be called with the parsed variables, and prints the result to standard output in the correct format. Do not include the function's implementation; only call the function and print its return value.
 
 IMPORTANT: The 'input_parser_code' should not call the function. The 'output_parser_code' should contain the call to '%s'.
 `, language, statementExamples, strings.Join(testCaseInputs, "\n---\n"), funcName, funcName, funcName)
@@ -840,7 +875,7 @@ IMPORTANT: The 'input_parser_code' should not call the function. The 'output_par
 	log.Printf("IO Parse Prompt: %s", prompt)
 
 	// Generate structured output
-	jsonOutput, err := GenerateStructuredOutput(ctx, prompt, schema)
+	jsonOutput, err := GenerateStructuredOutput(ctx, prompt, schema, 0.1)
 	if err != nil {
 		return nil, fmt.Errorf("failed to generate I/O parse code: %w", err)
 	}
@@ -855,7 +890,7 @@ IMPORTANT: The 'input_parser_code' should not call the function. The 'output_par
 }
 
 // GenerateExpectedOutputs uses a reference solution to generate expected outputs for test cases
-func GenerateExpectedOutputs(ctx context.Context, problemStatement string, testCases map[string]interface{}, language string, problemID string) (map[string]map[string]string, error) {
+func GenerateExpectedOutputs(ctx context.Context, problemStatement string, problemDetails *ProblemDetails, testCases map[string]interface{}, language string, problemID string, problemTitle string) (map[string]map[string]string, error) {
 	if client == nil {
 		return nil, fmt.Errorf("AI client not initialized")
 	}
@@ -942,7 +977,7 @@ func GenerateExpectedOutputs(ctx context.Context, problemStatement string, testC
 	statementExamplesStr := statementExamplesStrBuilder.String()
 
 	// Generate the I/O parsing code and function signature
-	ioParseResult, err := GenerateIOParseCode(ctx, sampleInputs, language, problemID, statementExamplesStr)
+	ioParseResult, err := GenerateIOParseCode(ctx, sampleInputs, language, problemTitle, statementExamplesStr)
 	if err != nil {
 		return nil, fmt.Errorf("failed to generate I/O parsing code: %w", err)
 	}
@@ -968,13 +1003,34 @@ func GenerateExpectedOutputs(ctx context.Context, problemStatement string, testC
 	log.Printf("[Output Parser Code]:\n%s", ioParseResult.OutputParserCode)
 	log.Println("--- END DEBUG ---")
 
-	// In a goroutine, save the generated code to the database
+	// In a goroutine, save the generated code and problem details to the database
 	go func() {
 		// Create a new context for the goroutine
 		bgCtx := context.Background()
+
+		// Save generated code
 		err := database.SaveGeneratedCode(bgCtx, problemID, language, ioParseResult.InputParserCode, solutionResult.SolutionCode, ioParseResult.OutputParserCode)
 		if err != nil {
 			log.Printf("Error saving generated code to database: %v", err)
+		}
+
+		// Save problem details
+		if problemDetails != nil {
+			problemToSave := models.Problem{
+				ProblemID:       problemDetails.ProblemID,
+				Title:           problemDetails.Title,
+				Difficulty:      problemDetails.Difficulty,
+				Statement:       problemDetails.FormattedStatement,
+				ConstraintsText: problemDetails.Constraints,
+				Tags:            problemDetails.Tags,
+				// Set default values for fields not provided by AI
+				TimeLimitMs:   2000, // Default to 2s
+				MemoryLimitMB: 256,  // Default to 256MB
+			}
+			err := database.SaveProblem(bgCtx, &problemToSave)
+			if err != nil {
+				log.Printf("Error saving problem details to database: %v", err)
+			}
 		}
 	}()
 
@@ -1160,6 +1216,8 @@ Format your response as a JSON object with these exact keys:
 		// Trim hyphens from start and end
 		problemDetails.ProblemID = strings.Trim(problemDetails.ProblemID, "-")
 	}
+
+	problemDetails.ProblemID = createUniqueProblemID(problemDetails.ProblemID)
 
 	return &problemDetails, nil
 }

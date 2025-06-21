@@ -22,6 +22,7 @@ type GenerateExpectedOutputsRequest struct {
 	ProblemStatement string                 `json:"problem_statement"`
 	TestCases        map[string]interface{} `json:"test_cases"`
 	Language         string                 `json:"language"`
+	ProblemDetails   *ai.ProblemDetails     `json:"problem_details,omitempty"`
 }
 
 // GenerateBruteForceSolutionHandler generates a brute force solution for a problem
@@ -103,11 +104,19 @@ func GenerateExpectedOutputsHandler(w http.ResponseWriter, r *http.Request) {
 		req.Language = "python" // Default to Python if not specified
 	}
 
+	// Extract problem ID and title from ProblemDetails if available, otherwise use empty strings
+	var problemID string
+	var problemTitle string
+	if req.ProblemDetails != nil {
+		problemID = req.ProblemDetails.ProblemID
+		problemTitle = req.ProblemDetails.Title
+	}
+
 	// Generate expected outputs using AI and execution
 	ctx, cancel := context.WithTimeout(context.Background(), 120*time.Second) // Longer timeout for AI and execution
 	defer cancel()
 
-	expectedOutputs, err := ai.GenerateExpectedOutputs(ctx, req.ProblemStatement, req.TestCases, req.Language, "")
+	expectedOutputs, err := ai.GenerateExpectedOutputs(ctx, req.ProblemStatement, req.ProblemDetails, req.TestCases, req.Language, problemID, problemTitle)
 	if err != nil {
 		log.Printf("Failed to generate expected outputs: %v", err)
 		utils.SendJSONError(w, "Failed to generate expected outputs: "+err.Error(), http.StatusInternalServerError)

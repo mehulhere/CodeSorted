@@ -1,0 +1,8 @@
+Successfully connected to MongoDB!
+Successfully created unique index on 'username'.
+Successfully created unique index on 'email'.
+Executing code in DOCKER in  python
+Executing code in DOCKER in  python
+Executing code in DOCKER in  python
+Executing code in DOCKER in  python
+Executing code in DOCKER in  python

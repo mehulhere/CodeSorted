@@ -6,6 +6,8 @@ import (
 	"log"
 	"time"
 
+	"backend/internal/models"
+
 	"go.mongodb.org/mongo-driver/bson"
 	"go.mongodb.org/mongo-driver/mongo"
 	"go.mongodb.org/mongo-driver/mongo/options"
@@ -178,4 +180,51 @@ func DisconnectDB() {
 		log.Fatalf("Failed to disconnect from MongoDB: %v", err)
 	}
 	fmt.Println("Connection to MongoDB closed.")
+}
+
+// SaveProblem creates or updates a problem in the database.
+func SaveProblem(ctx context.Context, problem *models.Problem) error {
+	collection := GetCollection("OJ", "problems")
+
+	// Set timestamps
+	now := time.Now()
+	if problem.ID.IsZero() {
+		problem.CreatedAt = now
+	}
+	problem.UpdatedAt = now
+
+	// Use upsert to either insert a new problem or update an existing one based on problem_id
+	opts := options.Update().SetUpsert(true)
+	filter := bson.M{"problem_id": problem.ProblemID}
+	update := bson.M{"$set": problem}
+
+	_, err := collection.UpdateOne(ctx, filter, update, opts)
+	if err != nil {
+		log.Printf("Error saving problem to database: %v", err)
+		return fmt.Errorf("failed to save problem: %w", err)
+	}
+
+	log.Printf("Successfully saved problem with ID: %s", problem.ProblemID)
+	return nil
+}
+
+// GetProblemByID retrieves a single problem from the database by its custom problem_id.
+func GetProblemByID(ctx context.Context, problemID string) (*models.Problem, error) {
+	if DB == nil {
+		return nil, fmt.Errorf("mongodb client is not initialized")
+	}
+
+	collection := GetCollection("OJ", "problems")
+	filter := bson.M{"problem_id": problemID}
+
+	var result models.Problem
+	err := collection.FindOne(ctx, filter).Decode(&result)
+	if err != nil {
+		if err == mongo.ErrNoDocuments {
+			return nil, fmt.Errorf("no problem found for problem_id: %s", problemID)
+		}
+		return nil, fmt.Errorf("failed to fetch problem: %w", err)
+	}
+
+	return &result, nil
 }

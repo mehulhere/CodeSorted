@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"log"
 	"net/http"
+	"strings"
 	"time"
 )
 
@@ -45,8 +46,76 @@ func ExecuteCodeHandler(w http.ResponseWriter, r *http.Request) {
 	// We assume the user's code is the body of the function signature stored in the artifacts.
 	// NOTE: The stored SolutionCode in the artifact is a complete, working solution,
 	// but for this endpoint, we use the user's provided code.
-	fullCode := fmt.Sprintf(
-		`
+	var fullCode string
+	if payload.Language == "python" {
+		escapedUserCode := strings.ReplaceAll(payload.Code, `"""`, `\"\"\"`)
+
+		// Indent the parser and output code to be correctly placed inside the python function.
+		// This is critical for the code to be in the correct scope.
+		indent := "    "
+		indentedInputParser := indent + strings.ReplaceAll(strings.TrimSpace(artifacts.InputParserCode), "\n", "\n"+indent)
+		indentedOutputParser := indent + strings.ReplaceAll(strings.TrimSpace(artifacts.OutputParserCode), "\n", "\n"+indent)
+
+		fullCode = fmt.Sprintf(`
+import sys
+import types
+import traceback
+
+def execute_user_code():
+    user_code_str = """
+%s
+"""
+    # Create a fake module to execute user's code in
+    module_name = 'user_solution'
+    user_module = types.ModuleType(module_name)
+    user_module.__file__ = f'{module_name}.py'
+
+    # Compile the user's code with a fake filename for better tracebacks
+    filename = 'user_solution.py'
+    code_obj = compile(user_code_str, filename, 'exec')
+
+    # Execute user's code in the module's namespace
+    # This populates the module with any functions the user defined
+    exec(code_obj, user_module.__dict__)
+    
+    # Make the user's functions available to the parser/caller code
+    globals().update(user_module.__dict__)
+
+# ====== PARSER CODE ======
+# This part reads from stdin and prepares function arguments
+%s
+    
+# ====== OUTPUT CODE ======
+# This part calls the user's function with prepared arguments and prints the result
+%s
+
+try:
+    execute_user_code()
+except Exception:
+    exc_type, exc_value, exc_tb = sys.exc_info()
+    tb_list = traceback.format_exception(exc_type, exc_value, exc_tb)
+    
+    cleaned_traceback = []
+    # Find the start of the user's code in the traceback
+    for i, line in enumerate(tb_list):
+        if "user_solution.py" in line:
+            cleaned_traceback = tb_list[i:]
+            break
+            
+    # Prepend the "Traceback..." header, which is always the first element
+    if cleaned_traceback:
+        final_tb = [tb_list[0]] + cleaned_traceback
+    else:
+        # If user's file not in trace, the error is in the wrapper. Show full trace.
+        final_tb = tb_list
+
+    sys.stderr.write("".join(final_tb))
+    sys.exit(1)
+`, escapedUserCode, indentedInputParser, indentedOutputParser)
+	} else {
+		// Keep original logic for other languages
+		fullCode = fmt.Sprintf(
+			`
 # ====== PARSER CODE ======
 %s
 
@@ -56,10 +125,11 @@ func ExecuteCodeHandler(w http.ResponseWriter, r *http.Request) {
 # ====== OUTPUT CODE ======
 %s
 `,
-		artifacts.InputParserCode,
-		payload.Code, // The user's function code
-		artifacts.OutputParserCode,
-	)
+			artifacts.InputParserCode,
+			payload.Code, // The user's function code
+			artifacts.OutputParserCode,
+		)
+	}
 
 	// Determine test cases
 	testCases := payload.TestCases

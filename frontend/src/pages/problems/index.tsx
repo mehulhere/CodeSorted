@@ -6,7 +6,7 @@ import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Badge } from '@/components/ui/badge';
-import { Search, SlidersHorizontal, ArrowUpDown, X } from 'lucide-react';
+import { Search, SlidersHorizontal, ArrowUpDown, X, RefreshCw } from 'lucide-react';
 import '@/app/globals.css';
 
 // Add acceptance rate to the problem list item type
@@ -45,27 +45,27 @@ export default function ProblemsPage() {
         return Array.from(skillSet).sort();
     }, [problems]);
 
-    useEffect(() => {
-        const fetchProblems = async () => {
-            setIsLoading(true);
-            setError(null);
-            try {
-                const response = await fetch(`${process.env.NEXT_PUBLIC_BACKEND_URL}/problems`);
-                if (!response.ok) {
-                    const errorData: ApiError = await response.json();
-                    setError(errorData.message || `Failed to fetch problems: ${response.status}`);
-                    return;
-                }
-                const data: EnhancedProblemListItemType[] = await response.json();
-                setProblems(data);
-            } catch (err) {
-                setError(err instanceof Error ? err.message : 'An unknown error occurred.');
-                console.error("Fetch problems error:", err);
-            } finally {
-                setIsLoading(false);
+    const fetchProblems = async () => {
+        setIsLoading(true);
+        setError(null);
+        try {
+            const response = await fetch(`${process.env.NEXT_PUBLIC_BACKEND_URL}/problems`, { cache: 'no-store' });
+            if (!response.ok) {
+                const errorData: ApiError = await response.json();
+                setError(errorData.message || `Failed to fetch problems: ${response.status}`);
+                return;
             }
-        };
+            const data: EnhancedProblemListItemType[] = await response.json();
+            setProblems(data);
+        } catch (err) {
+            setError(err instanceof Error ? err.message : 'An unknown error occurred.');
+            console.error("Fetch problems error:", err);
+        } finally {
+            setIsLoading(false);
+        }
+    };
 
+    useEffect(() => {
         fetchProblems();
     }, []);
 
@@ -191,7 +191,15 @@ export default function ProblemsPage() {
                         <h1 className="text-4xl font-extrabold text-gray-900">
                             Problem Set
                         </h1>
-                        <div>
+                        <div className="flex items-center gap-2">
+                            <Button
+                                onClick={() => fetchProblems()}
+                                variant="outline"
+                                className="p-2"
+                                title="Refresh problems list"
+                            >
+                                <RefreshCw className={`h-5 w-5 ${isLoading ? 'animate-spin' : ''}`} />
+                            </Button>
                             <Button
                                 onClick={() => window.location.href = '/problems/create'}
                                 className="bg-green-600 hover:bg-green-700"

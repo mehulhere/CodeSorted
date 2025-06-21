@@ -219,15 +219,31 @@ export const createProblem = async (problemData: any) => {
   return post('/admin/problems', problemData);
 };
 
-export const generateTestCases = async (problemStatement: string, constraints: string, problemId: string) => {
-  const response = await api.post('/api/generate-testcases', {
-    problem_statement: problemStatement,
-    constraints: constraints,
-    problem_id: problemId,
-  });
-  return response.data;
-};
+/**
+ * Generates test cases for a problem
+ * @param problemDetails The details of the problem
+ * @returns A map of test cases
+ */
+export async function generateTestCases(problemDetails: ProblemDetails) {
+    const problemStatement = problemDetails.formatted_statement;
+    const problemId = problemDetails.problem_id;
+    const problemTitle = problemDetails.title;
 
+    return post('/api/generate-testcases', {
+        problem_statement: problemStatement,
+        problem_id: problemId,
+        problem_title: problemTitle,
+        problem_details: problemDetails,
+    });
+}
+
+/**
+ * Adds a bulk of test cases to a problem
+ * @param problemId The ID of the problem
+ * @param testCases Array of test cases
+ * @param sampleCount The number of sample test cases
+ * @returns Confirmation of bulk test case addition
+ */
 export const bulkAddTestCases = async (problemId: string, testCases: any, sampleCount: number) => {
   return post('/api/bulk-add-testcases', {
     problem_db_id: problemId,

@@ -29,6 +29,7 @@
     "react-dom": "^19.0.0",
     "react-resizable-panels": "^3.0.3",
     "recharts": "^2.15.3",
+    "swr": "^2.3.3",
     "tailwind-merge": "^3.3.1",
     "tailwindcss-animate": "^1.0.7"
   },

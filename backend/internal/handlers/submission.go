@@ -262,34 +262,32 @@ func processSubmission(submissionID primitive.ObjectID) {
 		return
 	}
 
-	// Determine file path
+	// Read the user's code from the file
 	submissionDir := filepath.Join("./submissions", submissionID.Hex())
-	languageToExecute := submission.Language // Default to the submission's language
-
-	if submission.Language == "pseudocode" {
-		// For pseudocode submissions, we execute the converted Python file
-		languageToExecute = "python"
-	}
-
-	fileExtension := utils.GetFileExtension(languageToExecute)
+	fileExtension := utils.GetFileExtension(submission.Language)
 	codeFilePath := filepath.Join(submissionDir, "code"+fileExtension)
-	log.Printf("Processing submission %s: Language=%s, Executable=%s, Path=%s", submissionID.Hex(), submission.Language, languageToExecute, codeFilePath)
-
-	// Read code file first, as it's needed for AI analysis later
-	code, err := os.ReadFile(codeFilePath)
+	userCodeBytes, err := os.ReadFile(codeFilePath)
 	if err != nil {
 		log.Printf("Failed to read code file for submission %s: %v", submissionID.Hex(), err)
 		updateSubmissionStatus(submissionID, models.StatusRuntimeError, 0, 0, 0, 0, "", "")
 		return
 	}
+	userCode := string(userCodeBytes)
 
-	// Create test case status file
-	testCaseStatusPath := filepath.Join(submissionDir, "testcasesStatus.txt")
-	testCaseStatusFile, err := os.Create(testCaseStatusPath)
+	// Fetch the generated code artifacts to wrap the user's solution
+	generatedCode, err := database.GetGeneratedCode(ctx, submission.ProblemID, submission.Language)
 	if err != nil {
-		log.Printf("Failed to create test case status file: %v", err)
+		log.Printf("Failed to get generated code for problem %s, lang %s: %v", submission.ProblemID, submission.Language, err)
+		updateSubmissionStatus(submissionID, models.StatusRuntimeError, 0, 0, 0, 0, "", "")
+		return
 	}
-	defer testCaseStatusFile.Close()
+
+	// Construct the final code by wrapping the user's code with the parser
+	finalCode := fmt.Sprintf("%s\n\n%s\n\n%s",
+		generatedCode.InputParserCode,
+		userCode,
+		generatedCode.OutputParserCode,
+	)
 
 	// Execute each test case
 	var passedCount int
@@ -306,12 +304,12 @@ func processSubmission(submissionID primitive.ObjectID) {
 		defer execCancel()
 
 		// Execute code with test case input
-		result, err := executeCode(execCtx, languageToExecute, codeFilePath, testCase.Input, problem.TimeLimitMs)
+		result, err := executeCode(execCtx, submission.Language, finalCode, testCase.Input, problem.TimeLimitMs)
 		if err != nil {
 			log.Printf("Error executing code for submission %s: %v", submissionID.Hex(), err)
 			// Decide on a status for execution failure
 			status := "EXECUTION_FAILED"
-			testCaseStatusFile.WriteString(status + "\n\n")
+			testCaseResults = append(testCaseResults, status)
 			continue
 		}
 
@@ -380,7 +378,7 @@ func processSubmission(submissionID primitive.ObjectID) {
 			}
 		}
 		// Write status to test case status file
-		testCaseStatusFile.WriteString(status + "\n\n")
+		testCaseResults = append(testCaseResults, status)
 	}
 
 	// Determine final status
@@ -392,7 +390,7 @@ func processSubmission(submissionID primitive.ObjectID) {
 		// Analyze complexity only if accepted
 		aiCtx, aiCancel := context.WithTimeout(context.Background(), 30*time.Second) // 30-second timeout for AI
 		defer aiCancel()
-		complexity, err := ai.AnalyzeCodeComplexity(aiCtx, string(code), submission.Language)
+		complexity, err := ai.AnalyzeCodeComplexity(aiCtx, finalCode, submission.Language)
 		if err != nil {
 			log.Printf("AI COMPLEXITY ANALYSIS FAILED for submission %s: %v", submissionID.Hex(), err)
 			// Don't fail the whole submission, just log the error
@@ -558,28 +556,24 @@ func updateProblemStats(ctx context.Context, problemID, timeComplexity, memoryCo
 }
 
 // Execute code with given input
-func executeCode(ctx context.Context, language, codePath, input string, timeLimitMs int) (types.ExecutionResult, error) {
-	// This is a simplified version - in a real system, you would use a sandboxed execution environment
-	// For now, we'll just use the existing ExecuteCodeHandler logic but adapted for our needs
+func executeCode(ctx context.Context, language, code, input string, timeLimitMs int) (*types.ExecutionResult, error) {
+	// For now, we're assuming the execution service can handle a raw string of code.
+	// In a real implementation, you might need to write this to a temporary file.
 
-	// Read the code file
-	codeBytes, err := os.ReadFile(codePath)
+	result, err := ai.ExecuteCode(language, code, input)
 	if err != nil {
-		return types.ExecutionResult{}, fmt.Errorf("failed to read code file: %v", err)
+		return nil, fmt.Errorf("execution failed: %w", err)
 	}
 
-	// Create execution request
-	execRequest := types.ExecutionRequest{
-		Language:    language,
-		Code:        string(codeBytes),
-		Input:       input,
-		TimeLimitMs: timeLimitMs,
-		Parser:      "", // Empty string as default
+	// Convert ai.ExecuteCodeResult to types.ExecutionResult
+	executionResult := &types.ExecutionResult{
+		Status:          result.Status,
+		Output:          result.Output,
+		ExecutionTimeMs: result.ExecutionTimeMs,
+		MemoryUsedKB:    result.MemoryUsedKB,
 	}
 
-	// Execute the code
-	result, err := utils.ExecuteCode(ctx, execRequest)
-	return result, err
+	return executionResult, nil
 }
 
 // GetSubmissionsHandler retrieves a list of submissions
