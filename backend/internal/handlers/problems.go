@@ -99,6 +99,7 @@ func GetProblemsHandler(w http.ResponseWriter, r *http.Request) {
 
 // getProblemHandler (singular problem)
 func GetProblemHandler(w http.ResponseWriter, r *http.Request) {
+	log.Println("GetProblemHandler called")
 	if r.Method != http.MethodGet {
 		utils.SendJSONError(w, "Method not allowed. Only GET is accepted.", http.StatusMethodNotAllowed)
 		return
@@ -149,25 +150,53 @@ func GetProblemHandler(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
+	log.Printf("Found problem '%s' with DB ID: %s", problemData.Title, problemData.ID.Hex())
 
 	// Fetch sample test cases
 	var fetchedSampleTestCases []models.TestCase
-	testCasesCollection := database.GetCollection("OJ", "testcases")
-	findOptions := options.Find()
-	findOptions.SetSort(primitive.D{{Key: "sequence_number", Value: 1}})
-	findOptions.SetLimit(2)
-	testCaseFilter := primitive.M{"problem_db_id": problemData.ID}
+	testCasesCollection := database.GetCollection("OJ", "test_cases")
+
+	// Explicitly use the ObjectID for the query
+	problemDBID := problemData.ID
+
+	// First, try to fetch explicitly marked sample test cases
+	findOptions := options.Find().SetSort(bson.D{{Key: "sequence_number", Value: 1}})
+	log.Printf("Querying for sample test cases with problem_db_id: %s", problemDBID.Hex())
+	testCaseFilter := bson.M{
+		"problem_db_id": problemDBID,
+		"is_sample":     true,
+	}
 
 	cursor, err := testCasesCollection.Find(ctx, testCaseFilter, findOptions)
 	if err != nil {
 		log.Println("Error fetching sample test cases from DB for problem "+problemData.ID.Hex()+":", err)
 		// fetchedSampleTestCases will remain empty or nil
 	} else {
-		defer cursor.Close(ctx)
 		if err = cursor.All(ctx, &fetchedSampleTestCases); err != nil {
 			log.Println("Error decoding sample test cases for problem "+problemData.ID.Hex()+":", err)
 			fetchedSampleTestCases = nil // Ensure it's nil if decoding fails
 		}
+		cursor.Close(ctx)
+	}
+	log.Printf("Initial query for sample test cases (is_sample: true) found %d documents for problem_db_id %s.", len(fetchedSampleTestCases), problemDBID.Hex())
+
+	// If no explicitly marked samples are found, fall back to legacy behavior: get top 2
+	if len(fetchedSampleTestCases) == 0 {
+		log.Printf("No sample test cases found for problem_db_id %s with is_sample=true. Falling back to legacy mode.", problemDBID.Hex())
+		fallbackFindOptions := options.Find().SetSort(bson.D{{Key: "sequence_number", Value: 1}}).SetLimit(2)
+		fallbackFilter := bson.M{"problem_db_id": problemDBID}
+
+		fallbackCursor, err := testCasesCollection.Find(ctx, fallbackFilter, fallbackFindOptions)
+		if err != nil {
+			log.Println("Error fetching legacy sample test cases from DB for problem "+problemData.ID.Hex()+":", err)
+		} else {
+			defer fallbackCursor.Close(ctx)
+			if err = fallbackCursor.All(ctx, &fetchedSampleTestCases); err != nil {
+				log.Println("Error decoding legacy sample test cases for problem "+problemData.ID.Hex()+":", err)
+				fetchedSampleTestCases = nil
+			}
+		}
+		log.Printf("Fallback query for sample test cases found %d documents for problem_db_id %s.", len(fetchedSampleTestCases), problemDBID.Hex())
 	}
 
 	// Define a response structure that embeds problemData and adds sample test cases

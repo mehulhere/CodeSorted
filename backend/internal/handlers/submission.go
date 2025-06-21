@@ -95,7 +95,6 @@ func SubmitSolutionHandler(w http.ResponseWriter, r *http.Request) {
 		Language:    submissionData.Language,
 		Status:      models.StatusPending, // Initially set as pending
 		SubmittedAt: time.Now(),
-		UseParser:   submissionData.UseParser, // Store whether we're using the parser
 	}
 
 	// Save to database
@@ -241,28 +240,29 @@ func processSubmission(submissionID primitive.ObjectID) {
 
 	// Get test cases for the problem
 	testCasesCollection := database.GetCollection("OJ", "test_cases")
-	cursor, err := testCasesCollection.Find(ctx, bson.M{"problem_db_id": problem.ID})
+	findOptions := options.Find().SetSort(bson.D{{Key: "sequence_number", Value: 1}})
+	cursor, err := testCasesCollection.Find(ctx, bson.M{"problem_db_id": problem.ID}, findOptions)
 	if err != nil {
-		log.Printf("Failed to retrieve test cases for problem %s: %v", submission.ProblemID, err)
+		log.Printf("Failed to find test cases for problem %s: %v", submission.ProblemID, err)
 		updateSubmissionStatus(submissionID, models.StatusRuntimeError, 0, 0, 0, 0, "", "")
 		return
 	}
 	defer cursor.Close(ctx)
 
 	var testCases []models.TestCase
-	if err = cursor.All(ctx, &testCases); err != nil {
-		log.Printf("Failed to decode test cases: %v", err)
+	if err := cursor.All(ctx, &testCases); err != nil {
+		log.Printf("Failed to decode test cases for problem %s: %v", submission.ProblemID, err)
 		updateSubmissionStatus(submissionID, models.StatusRuntimeError, 0, 0, 0, 0, "", "")
 		return
 	}
 
-	if len(testCases) == 0 {
-		log.Printf("No test cases found for problem %s", submission.ProblemID)
-		updateSubmissionStatus(submissionID, models.StatusRuntimeError, 0, 0, 0, 0, "", "")
-		return
+	// Prepare test case inputs
+	var testCaseInputs []string
+	for _, tc := range testCases {
+		testCaseInputs = append(testCaseInputs, tc.Input)
 	}
 
-	// Read the user's code from the file
+	// Read the user's code from the file, as it's not stored in the DB model directly
 	submissionDir := filepath.Join("./submissions", submissionID.Hex())
 	fileExtension := utils.GetFileExtension(submission.Language)
 	codeFilePath := filepath.Join(submissionDir, "code"+fileExtension)
@@ -274,147 +274,76 @@ func processSubmission(submissionID primitive.ObjectID) {
 	}
 	userCode := string(userCodeBytes)
 
-	// Fetch the generated code artifacts to wrap the user's solution
-	generatedCode, err := database.GetGeneratedCode(ctx, submission.ProblemID, submission.Language)
+	// Execute the code against all test cases using the centralized function
+	execCtx, cancelExec := context.WithTimeout(context.Background(), 120*time.Second) // Generous timeout for all test cases
+	defer cancelExec()
+
+	executionResult, err := runCodeAgainstTestCases(execCtx, submission.Language, submission.ProblemID, userCode, testCaseInputs)
 	if err != nil {
-		log.Printf("Failed to get generated code for problem %s, lang %s: %v", submission.ProblemID, submission.Language, err)
+		log.Printf("Code execution failed for submission %s: %v", submissionID.Hex(), err)
 		updateSubmissionStatus(submissionID, models.StatusRuntimeError, 0, 0, 0, 0, "", "")
 		return
 	}
 
-	// Construct the final code by wrapping the user's code with the parser
-	finalCode := fmt.Sprintf("%s\n\n%s\n\n%s",
-		generatedCode.InputParserCode,
-		userCode,
-		generatedCode.OutputParserCode,
-	)
+	// Process the results
+	var overallStatus models.SubmissionStatus = models.StatusAccepted
+	var totalExecutionTime, totalMemoryUsed, testCasesPassed int
 
-	// Execute each test case
-	var passedCount int
-	totalCount := len(testCases)
-	var testCaseResults []string
-	var finalErrorStatus models.SubmissionStatus = ""
+	for i, result := range executionResult.Results {
+		totalExecutionTime += int(result.ExecutionTimeMs)
+		totalMemoryUsed += result.MemoryUsedKB
 
-	maxExecutionTime := 0
-	maxMemoryUsed := 0
-
-	for i, testCase := range testCases {
-		// Create a context with timeout based on problem's time limit
-		execCtx, execCancel := context.WithTimeout(context.Background(), time.Duration(problem.TimeLimitMs)*time.Millisecond)
-		defer execCancel()
-
-		// Execute code with test case input
-		result, err := executeCode(execCtx, submission.Language, finalCode, testCase.Input, problem.TimeLimitMs)
-		if err != nil {
-			log.Printf("Error executing code for submission %s: %v", submissionID.Hex(), err)
-			// Decide on a status for execution failure
-			status := "EXECUTION_FAILED"
-			testCaseResults = append(testCaseResults, status)
-			continue
-		}
-
-		// Write test case result to file
-		outputFilePath := filepath.Join(submissionDir, fmt.Sprintf("output_%d.txt", i+1))
-		if err := os.WriteFile(outputFilePath, []byte(result.Output), 0644); err != nil {
-			log.Printf("Failed to write output file: %v", err)
-		}
-
-		// Update max execution time and memory
-		if result.ExecutionTimeMs > maxExecutionTime {
-			maxExecutionTime = result.ExecutionTimeMs
-		}
-		if result.MemoryUsedKB > maxMemoryUsed {
-			maxMemoryUsed = result.MemoryUsedKB
-		}
-
-		// Check result against expected output
-		status := fmt.Sprintf("Test Case %d: ", i+1)
-
-		if err != nil {
-			if err.Error() == "context deadline exceeded" {
-				status += "TIME_LIMIT_EXCEEDED"
-			} else if strings.Contains(err.Error(), "memory limit") {
-				status += "MEMORY_LIMIT_EXCEEDED"
-			} else if strings.Contains(err.Error(), "compilation") {
-				status += "COMPILATION_ERROR\n" + result.Output
-			} else {
-				status += "RUNTIME_ERROR\n" + result.Output
-			}
-		} else if result.Status == "compilation_error" {
-			// Explicitly check for compilation errors from the result status
-			status += "COMPILATION_ERROR\n" + result.Output
-		} else if result.Status == "runtime_error" {
-			status += "RUNTIME_ERROR\n" + result.Output
-		} else if result.Status == "time_limit_exceeded" {
-			status += "TIME_LIMIT_EXCEEDED"
-		} else {
-			// Compare output (trim whitespace)
-			expectedOutput := strings.TrimSpace(testCase.ExpectedOutput)
-			actualOutput := strings.TrimSpace(result.Output)
-
-			if expectedOutput == actualOutput {
-				status += "PASSED"
-				passedCount++
-			} else {
-				status += "WRONG_ANSWER\n"
-				status += fmt.Sprintf("Expected:\n%s\n\nActual:\n%s", expectedOutput, actualOutput)
-			}
-		}
-
-		// Append the status of this test case
-		testCaseResults = append(testCaseResults, result.Status)
 		if result.Status != "success" {
-			if finalErrorStatus == "" { // Record the first error encountered
-				switch result.Status {
-				case "compilation_error":
-					finalErrorStatus = models.StatusCompilationError
-				case "runtime_error":
-					finalErrorStatus = models.StatusRuntimeError
-				case "time_limit_exceeded":
-					finalErrorStatus = models.StatusTimeLimitExceeded
-				default:
-					finalErrorStatus = models.StatusWrongAnswer
-				}
+			// If any test case fails, the submission is not accepted
+			if result.Status == "timeout" {
+				overallStatus = models.StatusTimeLimitExceeded
+			} else {
+				overallStatus = models.StatusRuntimeError
 			}
+			break // Stop processing further test cases
 		}
-		// Write status to test case status file
-		testCaseResults = append(testCaseResults, status)
+
+		// Compare the actual output with the expected output.
+		expected := strings.TrimSpace(testCases[i].ExpectedOutput)
+		actual := strings.TrimSpace(result.Stdout)
+
+		if expected != actual {
+			overallStatus = models.StatusWrongAnswer
+			log.Printf(
+				"Submission %s failed on test case %d. Expected: '%s', Got: '%s'",
+				submissionID.Hex(),
+				i+1,
+				expected,
+				actual,
+			)
+			break // Stop processing on the first wrong answer.
+		}
+
+		testCasesPassed++
 	}
 
-	// Determine final status
-	var finalStatus models.SubmissionStatus
-	var timeComplexity, memoryComplexity string
+	// If any test case failed, the overall status will be updated above.
+	// If all passed, it remains "ACCEPTED".
 
-	if passedCount == totalCount && totalCount > 0 {
-		finalStatus = models.StatusAccepted
-		// Analyze complexity only if accepted
-		aiCtx, aiCancel := context.WithTimeout(context.Background(), 30*time.Second) // 30-second timeout for AI
+	// For now, complexity analysis is done only on acceptance.
+	var timeComplexity, memoryComplexity string
+	if overallStatus == models.StatusAccepted {
+		aiCtx, aiCancel := context.WithTimeout(context.Background(), 30*time.Second)
 		defer aiCancel()
-		complexity, err := ai.AnalyzeCodeComplexity(aiCtx, finalCode, submission.Language)
+		complexity, err := ai.AnalyzeCodeComplexity(aiCtx, userCode, submission.Language)
 		if err != nil {
 			log.Printf("AI COMPLEXITY ANALYSIS FAILED for submission %s: %v", submissionID.Hex(), err)
-			// Don't fail the whole submission, just log the error
 		} else {
-			log.Printf("AI COMPLEXITY ANALYSIS SUCCEEDED for submission %s: Time=%s, Memory=%s",
-				submissionID.Hex(), complexity.TimeComplexity, complexity.MemoryComplexity)
 			timeComplexity = complexity.TimeComplexity
 			memoryComplexity = complexity.MemoryComplexity
-			// Update aggregated stats
-			updateProblemStats(aiCtx, submission.ProblemID, timeComplexity, memoryComplexity)
 		}
-	} else if finalErrorStatus != "" {
-		finalStatus = finalErrorStatus
-	} else if passedCount > 0 {
-		finalStatus = models.StatusWrongAnswer // Partial credit could be a future feature
-	} else {
-		finalStatus = models.StatusWrongAnswer // Or could be another status based on errors
 	}
 
-	log.Printf("Submission %s processed. Status: %s, Time: %dms, Memory: %dKB, Passed: %d/%d, TimeComplexity: %s, MemoryComplexity: %s",
-		submissionID.Hex(), finalStatus, maxExecutionTime, maxMemoryUsed, passedCount, totalCount, timeComplexity, memoryComplexity)
-
-	// Persist the final status to the database
-	updateSubmissionStatus(submissionID, finalStatus, maxExecutionTime, maxMemoryUsed, passedCount, totalCount, timeComplexity, memoryComplexity)
+	updateSubmissionStatus(submissionID, overallStatus,
+		totalExecutionTime, totalMemoryUsed,
+		testCasesPassed, len(testCases),
+		timeComplexity, memoryComplexity,
+	)
 
 	// Update user statistics when a submission is processed
 	go func() {
@@ -428,14 +357,14 @@ func processSubmission(submissionID primitive.ObjectID) {
 		}
 
 		// Update user language statistics
-		if err := UpdateUserLanguageStats(submission.UserID, submission.Language, finalStatus); err != nil {
+		if err := UpdateUserLanguageStats(submission.UserID, submission.Language, overallStatus); err != nil {
 			log.Printf("Failed to update language stats for submission %s: %v", submissionID.Hex(), err)
 		} else {
 			log.Printf("Successfully updated language stats for submission %s", submissionID.Hex())
 		}
 
 		// Update user skills based on problem tags (only for accepted solutions)
-		if finalStatus == models.StatusAccepted {
+		if overallStatus == models.StatusAccepted {
 			problemObjID := problem.ID // Use the actual problem's ObjectID
 			fmt.Println("Problem ObjectID:", problemObjID)
 			fmt.Println("Problem ObjectID Hex:", problemObjID.Hex())
@@ -460,8 +389,9 @@ func processSubmission(submissionID primitive.ObjectID) {
 
 // Update submission status in database
 func updateSubmissionStatus(submissionID primitive.ObjectID, status models.SubmissionStatus,
-	executionTimeMs, memoryUsedKB, testCasesPassed, testCasesTotal int, timeComplexity, memoryComplexity string) {
-
+	executionTimeMs, memoryUsedKB, testCasesPassed, testCasesTotal int,
+	timeComplexity, memoryComplexity string,
+) {
 	submissionsCollection := database.GetCollection("OJ", "submissions")
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
@@ -879,27 +809,17 @@ func GetSubmissionDetailsHandler(w http.ResponseWriter, r *http.Request) {
 		code = []byte("// Code file not found")
 	}
 
-	// Read test case status if available
-	testCaseStatusPath := filepath.Join(submissionDir, "testcasesStatus.txt")
-	testCaseStatus, err := os.ReadFile(testCaseStatusPath)
-	if err != nil {
-		log.Printf("Failed to read test case status file: %v", err)
-		testCaseStatus = []byte("Test case results not available")
-	}
-
 	// Create response object
 	response := struct {
 		models.Submission
-		Username       string `json:"username,omitempty"`
-		ProblemTitle   string `json:"problem_title,omitempty"`
-		Code           string `json:"code,omitempty"`
-		TestCaseStatus string `json:"test_case_status,omitempty"`
+		Username     string `json:"username,omitempty"`
+		ProblemTitle string `json:"problem_title,omitempty"`
+		Code         string `json:"code,omitempty"`
 	}{
-		Submission:     submission,
-		Username:       user.Username,
-		ProblemTitle:   problem.Title,
-		Code:           string(code),
-		TestCaseStatus: string(testCaseStatus),
+		Submission:   submission,
+		Username:     user.Username,
+		ProblemTitle: problem.Title,
+		Code:         string(code),
 	}
 
 	// Return response

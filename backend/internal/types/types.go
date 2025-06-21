@@ -55,6 +55,7 @@ type TestCaseResult struct {
 	Stdout          string `json:"stdout"`
 	Stderr          string `json:"stderr"`
 	ExecutionTimeMs int64  `json:"execution_time_ms"`
+	MemoryUsedKB    int    `json:"memory_used_kb"`
 	Error           string `json:"error,omitempty"`
 	Status          string `json:"status"`
 }

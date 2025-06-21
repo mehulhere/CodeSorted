@@ -195,7 +195,7 @@ func TestAddTestCaseHandler(t *testing.T) {
 	}
 
 	// Cleanup - delete the created test case
-	testCasesCollection := database.GetCollection("OJ", "testcases")
+	testCasesCollection := database.GetCollection("OJ", "test_cases")
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 

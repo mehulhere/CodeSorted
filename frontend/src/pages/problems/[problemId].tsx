@@ -14,7 +14,6 @@ import Link from 'next/link';
 import type { ProblemType, ThreadType, CommentType, ThreadsResponse, CommentsResponse, ApiError } from '@/types/problem'; // Adjust path
 // import { useNotification } from '@/components/ui/notification';
 import { ApiErrorResponse } from '@/lib/api';
-import { CodeSubmitOptions } from '@/components/ui/CodeSubmitOptions';
 
 // Type definitions for API responses
 interface CodeCompletionResponse {
@@ -37,10 +36,6 @@ interface ExecuteCodeResponse {
 interface SubmitSolutionResponse {
     submission_id: string;
 }
-
-// interface ConvertPseudocodeResponse {
-//     python_code: string;
-// }
 
 interface AIHintResponse {
     hints: string[];
@@ -98,21 +93,10 @@ export default function SingleProblemPage() {
     const [discussionView, setDiscussionView] = useState<'list' | 'thread'>('list');
 
     const [hasMounted, setHasMounted] = useState(false);
-    // useEffect(() => {
-    //     const MyComponent = () => {
-    //         document.body.style.overflow = 'hidden';
-
-    //         return () => {
-    //             document.body.style.overflow = ''; // Clean up to avoid side effects
-    //         };
-    //     };
-    //     MyComponent();
-    // }, []);
 
     useEffect(() => {
         setHasMounted(true);
     }, []);
-
 
     const [activeTab, setActiveTab] = useState('pseudocode');
     const debounceTimeoutRef = useRef<NodeJS.Timeout | null>(null);
@@ -121,9 +105,6 @@ export default function SingleProblemPage() {
     const [editorInstance, setEditorInstance] = useState<editor.IStandaloneCodeEditor | null>(null);
     const [monacoInstance, setMonacoInstance] = useState<Monaco | null>(null);
     const lastSuggestionRef = useRef<string>('');
-
-    // Add state for using the parser
-    const [useParser, setUseParser] = useState<boolean>(true);
 
     const onEditorMount = (editor: editor.IStandaloneCodeEditor, monaco: Monaco) => {
         setEditorInstance(editor);
@@ -866,17 +847,47 @@ export default function SingleProblemPage() {
                                     <div className="p-4">
                                         {/* Problem Statement */}
                                         <div className="mb-6">
-                                            <div className="prose prose-indigo max-w-none text-gray-800"
-                                                dangerouslySetInnerHTML={{ __html: problem.statement.replace(/\n/g, '<br />') }}
-                                            />
+                                            <div className="prose prose-indigo max-w-none text-gray-800">
+                                                <p>{problem.statement.split('Example 1:')[0]}</p>
+                                            </div>
+                                        </div>
+
+                                        {/* Examples Section */}
+                                        <h2 className="text-lg font-semibold mt-6 mb-3">Examples</h2>
+                                        <div className="space-y-4">
+                                            {parseExamples(problem.statement).map((example, idx) => (
+                                                <div key={idx} className="border border-gray-200 rounded-md overflow-hidden">
+                                                    <h3 className="text-sm font-medium text-gray-700 p-3 border-b border-gray-200 bg-gray-50">Example {idx + 1}:</h3>
+                                                    <div className="p-3">
+                                                        <div className="mb-2">
+                                                            <div className="text-xs font-medium text-gray-600 mb-1">Input:</div>
+                                                            <div className="bg-gray-800 text-white p-2 rounded text-sm font-mono">{example.input}</div>
+                                                        </div>
+                                                        <div className="mb-2">
+                                                            <div className="text-xs font-medium text-gray-600 mb-1">Output:</div>
+                                                            <div className="bg-gray-800 text-white p-2 rounded text-sm font-mono">{example.output}</div>
+                                                        </div>
+                                                        {example.explanation && (
+                                                            <div>
+                                                                <div className="text-xs font-medium text-gray-600 mb-1">Explanation:</div>
+                                                                <div className="text-sm text-gray-700">{example.explanation}</div>
+                                                            </div>
+                                                        )}
+                                                    </div>
+                                                </div>
+                                            ))}
                                         </div>
 
                                         {/* Constraints */}
                                         <div className="mb-6">
                                             <h2 className="text-lg font-semibold text-gray-800 mb-2">Constraints</h2>
-                                            <div className="prose prose-indigo max-w-none text-gray-800"
-                                                dangerouslySetInnerHTML={{ __html: problem.constraints_text?.replace(/\n/g, '<br />') || 'N/A' }}
-                                            />
+                                            <div className="bg-gray-50 p-4 rounded-md border border-gray-200">
+                                                <ul className="list-disc list-inside space-y-1 text-gray-700">
+                                                    {(problem.constraints_text || '').split('\n').filter(c => c.trim()).map((constraint, idx) => (
+                                                        <li key={idx} className="text-sm font-mono">{constraint}</li>
+                                                    ))}
+                                                </ul>
+                                            </div>
                                             <div className="mt-3 grid grid-cols-2 gap-4">
                                                 <div>
                                                     <p className="text-sm font-medium text-gray-700">Time Limit</p>
@@ -888,32 +899,6 @@ export default function SingleProblemPage() {
                                                 </div>
                                             </div>
                                         </div>
-
-                                        {/* Sample Test Cases */}
-                                        {problem.sample_test_cases && problem.sample_test_cases.length > 0 && (
-                                            <div>
-                                                <h2 className="text-lg font-semibold text-gray-800 mb-3">Examples</h2>
-                                                {problem.sample_test_cases.map((tc, index) => (
-                                                    <div key={index} className="mb-4 p-3 border border-gray-200 rounded-md bg-gray-50">
-                                                        <h3 className="text-sm font-medium text-gray-700 mb-2">Example {index + 1}</h3>
-                                                        <div className="mb-2">
-                                                            <p className="text-xs font-medium text-gray-600">Input:</p>
-                                                            <pre className="text-xs bg-white p-2 rounded border">{tc.input}</pre>
-                                                        </div>
-                                                        <div>
-                                                            <p className="text-xs font-medium text-gray-600">Output:</p>
-                                                            <pre className="text-xs bg-white p-2 rounded border">{tc.expected_output}</pre>
-                                                        </div>
-                                                        {tc.notes && (
-                                                            <div className="mt-2">
-                                                                <p className="text-xs font-medium text-gray-600">Explanation:</p>
-                                                                <p className="text-xs text-gray-700">{tc.notes}</p>
-                                                            </div>
-                                                        )}
-                                                    </div>
-                                                ))}
-                                            </div>
-                                        )}
 
                                         {/* AI Hints Section */}
                                         <div className="mt-6">
@@ -1306,11 +1291,6 @@ export default function SingleProblemPage() {
                                         </button>
                                     </div>
                                 </div>
-
-                                {/* Add CodeSubmitOptions component */}
-                                <div className="mt-2">
-                                    <CodeSubmitOptions useParser={useParser} setUseParser={setUseParser} />
-                                </div>
                             </div>
 
                             {/* Editor Area */}
@@ -1386,25 +1366,22 @@ export default function SingleProblemPage() {
 
                                     {/* Test Cases and Console */}
                                     <ResizablePanel defaultSize={35} minSize={20}>
-                                        <div className="h-full flex flex-col bg-white">
+                                        <div className="h-full flex flex-col bg-[#1e1e1e] text-gray-200">
                                             {/* Tabs */}
-                                            <div className="h-10 bg-white border-b border-gray-200 flex items-center px-4">
-                                                <div className="flex">
-                                                    <div className="flex items-center mr-4">
+                                            <div className="h-10 bg-[#1e1e1e] border-b border-gray-800 flex items-center px-4">
+                                                <div className="flex-grow overflow-x-auto whitespace-nowrap pr-4">
+                                                    <div className="flex items-center">
                                                         {customTestCases.map((_, index) => (
                                                             <button
                                                                 key={index}
-                                                                className={`px-3 py-1 text-xs mr-2 rounded-full ${activeTestCase === index
-                                                                    ? 'bg-indigo-600 text-white'
-                                                                    : 'bg-gray-200 text-gray-700 hover:bg-gray-300'
-                                                                    }`}
+                                                                className={`px-3 py-1 text-xs mr-2 rounded-full flex-shrink-0 relative ${activeTestCase === index ? 'bg-indigo-600 text-white' : 'bg-gray-700 text-gray-300 hover:bg-gray-600'}`}
                                                                 onClick={() => setActiveTestCase(index)}
                                                             >
                                                                 Case {index + 1}
                                                             </button>
                                                         ))}
                                                         <button
-                                                            className="px-3 py-1 text-xs bg-gray-200 text-gray-700 hover:bg-gray-300 rounded-full"
+                                                            className="px-3 py-1 text-xs bg-gray-700 text-gray-300 hover:bg-gray-600 rounded-full"
                                                             onClick={handleAddTestCase}
                                                         >
                                                             +
@@ -1414,28 +1391,28 @@ export default function SingleProblemPage() {
                                             </div>
 
                                             {/* Input/Output Area */}
-                                            <div className="flex-grow grid grid-cols-2 gap-4 p-4 overflow-hidden min-h-[260px]">
+                                            <div className="flex-grow grid grid-cols-2 gap-4 p-4 overflow-hidden min-h-[260px] bg-[#1e1e1e]">
                                                 <div className="space-y-4">
                                                     {/* Input */}
                                                     <div className="flex flex-col">
-                                                        <p className="text-xs font-medium text-gray-700 mb-1">Input:</p>
+                                                        <p className="text-xs font-medium text-gray-400 mb-1">Input:</p>
                                                         <textarea
-                                                            className="p-2 text-sm font-mono border border-gray-300 rounded-md focus:outline-none focus:ring-1 focus:ring-indigo-500 text-gray-800 h-[40px]"
+                                                            className="p-2 text-sm font-mono border border-gray-700 rounded-md focus:outline-none focus:ring-1 focus:ring-indigo-500 bg-[#2d2d2d] text-gray-200 h-auto min-h-[40px] resize-y"
                                                             value={testCaseInput}
                                                             onChange={(e) => handleTestCaseInputChange(e.target.value)}
                                                             placeholder="Enter input for this test case..."
-                                                            rows={2}
+                                                            rows={Math.max(2, (testCaseInput || '').split('\n').length)}
                                                         />
                                                     </div>
 
                                                     {/* Expected Output */}
                                                     <div className="flex flex-col">
-                                                        <p className="text-xs font-medium text-gray-700 mb-1">Expected Output:</p>
+                                                        <p className="text-xs font-medium text-gray-400 mb-1">Expected Output:</p>
                                                         <textarea
-                                                            className="p-2 text-sm font-mono border border-gray-300 rounded-md focus:outline-none focus:ring-1 focus:ring-indigo-500 text-gray-800 h-[40px]"
+                                                            className="p-2 text-sm font-mono border border-gray-700 rounded-md focus:outline-none focus:ring-1 focus:ring-indigo-500 bg-[#2d2d2d] text-gray-200 h-[40px]"
                                                             value={customTestCases[activeTestCase]?.expected || ''}
                                                             onChange={(e) => handleTestCaseExpectedChange(e.target.value)}
-                                                            placeholder="Enter expected output for verification..."
+                                                            placeholder="Enter expected output..."
                                                             rows={2}
                                                         />
                                                     </div>
@@ -1443,126 +1420,75 @@ export default function SingleProblemPage() {
 
                                                 {/* Output */}
                                                 <div className="flex flex-col min-h-[20px]">
-                                                    <p className="text-xs font-medium text-gray-700 mb-1">Output:</p>
-                                                    <div className="h-[200px] flex-grow p-2 text-sm font-mono border border-gray-300 rounded-md bg-gray-50 overflow-auto whitespace-pre-wrap text-gray-800">
+                                                    <p className="text-xs font-medium text-gray-400 mb-1">Output:</p>
+                                                    <div className="h-[200px] flex-grow p-2 text-sm font-mono border border-gray-700 rounded-md bg-[#2d2d2d] overflow-auto whitespace-pre-wrap text-gray-200">
                                                         {isExecuting ? (
-                                                            <div className="text-gray-600">Running code against all test cases...</div>
+                                                            <div className="text-gray-400">Running code...</div>
                                                         ) : executionError ? (
-                                                            <div className="text-red-600">{executionError}</div>
-                                                        ) : testCaseResults.length > 0 ? (
-                                                            <>
-                                                                {/* Test Result Header */}
-                                                                <div className="bg-gray-800 text-white p-2 flex items-center">
-                                                                    <div className="flex items-center">
-                                                                        <span className={`w-2 h-2 rounded-full mr-2 ${testCaseResults.every(r => r.status === 'success')
-                                                                            ? 'bg-green-500'
-                                                                            : 'bg-red-500'
-                                                                            }`}></span>
-                                                                        <span className="font-medium">
-                                                                            {testCaseResults.every(r => r.status === 'success')
-                                                                                ? 'Accepted'
-                                                                                : testCaseResults.some(r => r.status === 'compilation_error')
-                                                                                    ? 'Compilation Error'
-                                                                                    : testCaseResults.some(r => r.status === 'runtime_error')
-                                                                                        ? 'Runtime Error'
-                                                                                        : testCaseResults.some(r => r.status === 'time_limit_exceeded')
-                                                                                            ? 'Time Limit Exceeded'
-                                                                                            : 'Failed'}
-                                                                        </span>
-                                                                    </div>
-                                                                    <div className="ml-4 text-xs text-gray-300">
-                                                                        Runtime: {testCaseResults[activeResultTab]?.executionTimeMs || 0} ms
-                                                                    </div>
-                                                                </div>
+                                                            <div className="text-red-400">{executionError}</div>
+                                                        ) : testCaseResults.length > 0 && testCaseResults[activeResultTab] ? (
+                                                            (() => {
+                                                                const result = testCaseResults[activeResultTab];
+                                                                const testCase = result.testCase;
 
-                                                                {/* Test Case Tabs */}
-                                                                <div className="bg-gray-700 text-white px-2 pt-1 flex">
-                                                                    {testCaseResults.map((_, index) => (
-                                                                        <button
-                                                                            key={index}
-                                                                            className={`px-3 py-1 text-xs mr-1 rounded-t ${activeResultTab === index
-                                                                                ? 'bg-gray-50 text-gray-800'
-                                                                                : 'bg-gray-600 text-gray-200 hover:bg-gray-500'
-                                                                                }`}
-                                                                            onClick={() => setActiveResultTab(index)}
-                                                                        >
-                                                                            <span className={`w-2 h-2 rounded-full inline-block mr-1 ${testCaseResults[index].status === 'success'
-                                                                                ? 'bg-green-500'
-                                                                                : 'bg-red-500'
-                                                                                }`}></span>
-                                                                            Case {index + 1}
-                                                                        </button>
-                                                                    ))}
-                                                                </div>
+                                                                let statusText: React.ReactNode = 'Failed';
+                                                                let statusColor = 'text-red-400';
 
-                                                                {/* Current Test Case Result */}
-                                                                <div className="p-2 text-sm font-mono whitespace-pre-wrap flex-grow">
-                                                                    {testCaseResults[activeResultTab] && (
-                                                                        <div className="space-y-2">
-                                                                            {/* Output - Always show output section even if empty */}
+                                                                if (result.status === 'success') {
+                                                                    const isCorrect = testCase && result.stdout.trim() === (testCase.expected || '').trim();
+                                                                    if (isCorrect) {
+                                                                        statusText = 'Accepted';
+                                                                        statusColor = 'text-green-400';
+                                                                    } else {
+                                                                        statusText = 'Wrong Answer';
+                                                                    }
+                                                                } else if (result.status) {
+                                                                    statusText = result.status.replace(/_/g, ' ').replace(/\b\w/g, (l: string) => l.toUpperCase());
+                                                                }
+
+                                                                return (
+                                                                    <div className="space-y-2">
+                                                                        <div>
+                                                                            <div className="font-semibold text-xs text-gray-400 mb-1">Your Output:</div>
+                                                                            <div className="pl-2 border-l-2 border-green-500">
+                                                                                {result.stdout || "(No output)"}
+                                                                            </div>
+                                                                        </div>
+
+                                                                        {result.stderr && (
                                                                             <div>
-                                                                                <div className="font-semibold text-xs text-gray-700 mb-1">Your Output:</div>
-                                                                                <div className="pl-2 border-l-2 border-green-400">
-                                                                                    {testCaseResults[activeResultTab].stdout || "(No output)"}
+                                                                                <div className="font-semibold text-xs text-red-400 mb-1">Error:</div>
+                                                                                <div className="pl-2 border-l-2 border-red-500 text-red-400">
+                                                                                    {result.stderr}
                                                                                 </div>
                                                                             </div>
+                                                                        )}
 
-                                                                            {/* Error */}
-                                                                            {(testCaseResults[activeResultTab].stderr || testCaseResults[activeResultTab].error) && (
-                                                                                <div>
-                                                                                    <div className="font-semibold text-xs text-red-700 mb-1">Error:</div>
-                                                                                    <div className="pl-2 border-l-2 border-red-400 text-red-600">
-                                                                                        {testCaseResults[activeResultTab].stderr || testCaseResults[activeResultTab].error}
-                                                                                    </div>
+                                                                        {testCase?.expected && (
+                                                                            <div>
+                                                                                <div className="font-semibold text-xs text-gray-400 mb-1">Expected Output:</div>
+                                                                                <div className="pl-2 border-l-2 border-blue-400">
+                                                                                    {testCase.expected}
                                                                                 </div>
-                                                                            )}
+                                                                            </div>
+                                                                        )}
 
-                                                                            {/* Expected Output if available */}
-                                                                            {testCaseResults[activeResultTab].testCase?.expected && (
-                                                                                <div>
-                                                                                    <div className="font-semibold text-xs text-gray-700 mb-1">Expected:</div>
-                                                                                    <div className="pl-2 border-l-2 border-blue-400">
-                                                                                        {testCaseResults[activeResultTab].testCase.expected}
-                                                                                    </div>
-                                                                                </div>
-                                                                            )}
-
-                                                                            {/* Comparison Result */}
-                                                                            {testCaseResults[activeResultTab].status === 'wrong_answer' && (
-                                                                                <div className="mt-1 text-xs text-red-600">
-                                                                                    Your output does not match the expected output.
-                                                                                </div>
-                                                                            )}
-
-                                                                            {/* Runtime Error Message */}
-                                                                            {testCaseResults[activeResultTab].status === 'runtime_error' && (
-                                                                                <div className="mt-1 text-xs text-red-600">
-                                                                                    Runtime Error: Your code threw an exception during execution.
-                                                                                </div>
-                                                                            )}
+                                                                        <div className="text-xs text-gray-400 mt-2">
+                                                                            Status: <span className={statusColor}>{statusText}</span> |
+                                                                            Time: {result.executionTimeMs}ms
                                                                         </div>
-                                                                    )}
-                                                                </div>
-                                                            </>
-                                                        ) : submissionResult?.error ? (
-                                                            <div className="text-red-600">Submission error: {submissionResult.error}</div>
+                                                                    </div>
+                                                                );
+                                                            })()
                                                         ) : (
-                                                            <div className="text-gray-500">
-                                                                Click &quot;Run&quot; to execute your code against all test cases.
+                                                            <div className="text-gray-400">
+                                                                Click "Run" to execute your code against the test case(s).
                                                             </div>
                                                         )}
                                                     </div>
                                                 </div>
                                             </div>
                                         </div>
-
-                                        {/* Authentication Banner - shown when not logged in */}
-                                        {!isLoggedIn && (
-                                            <div className="mx-4 mb-2 p-2 bg-yellow-50 border border-yellow-200 rounded text-yellow-800 text-sm">
-                                                <p className="font-medium">Authentication Required</p>
-                                                <p>Please <Link href="/login" className="underline">sign in</Link> to submit solutions and save your progress.</p>
-                                            </div>
-                                        )}
                                     </ResizablePanel>
                                 </ResizablePanelGroup>
                             </div>
@@ -1573,3 +1499,39 @@ export default function SingleProblemPage() {
         </>
     );
 }
+
+// Add a helper function to parse examples from the formatted statement
+const parseExamples = (statement: string): Array<{ input: string; output: string; explanation?: string }> => {
+    const examples: Array<{ input: string; output: string; explanation?: string }> = [];
+
+    const exampleMatches = statement.match(/Example\s+\d+:[\s\S]*?Input:[\s\S]*?Output:[\s\S]*?(?=Example\s+\d+:|$)/gi);
+
+    if (!exampleMatches) return examples;
+
+    exampleMatches.forEach(exampleText => {
+        const inputMatch = exampleText.match(/Input:\s*`([\s\S]+?)`/i);
+        const outputMatch = exampleText.match(/Output:\s*`([\s\S]+?)`/i);
+        const explanationMatch = exampleText.match(/Explanation:\s*([\s\S]+)/i);
+
+        if (inputMatch && outputMatch) {
+            let explanation = explanationMatch ? explanationMatch[1].trim() : undefined;
+
+            // Clean up explanation by removing unwanted formatting characters if it exists
+            if (explanation) {
+                explanation = explanation
+                    .replace(/```\s*\*\*/g, '') // Remove ``` **
+                    .replace(/`/g, '')        // Remove `
+                    .replace(/\*\*/g, '')       // Remove **
+                    .trim();
+            }
+
+            examples.push({
+                input: inputMatch[1].trim(),
+                output: outputMatch[1].trim(),
+                explanation: explanation
+            });
+        }
+    });
+
+    return examples;
+};

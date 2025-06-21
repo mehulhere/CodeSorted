@@ -9,6 +9,7 @@ import (
 	"log"
 	"os"
 	"regexp"
+	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -1003,37 +1004,6 @@ func GenerateExpectedOutputs(ctx context.Context, problemStatement string, probl
 	log.Printf("[Output Parser Code]:\n%s", ioParseResult.OutputParserCode)
 	log.Println("--- END DEBUG ---")
 
-	// In a goroutine, save the generated code and problem details to the database
-	go func() {
-		// Create a new context for the goroutine
-		bgCtx := context.Background()
-
-		// Save generated code
-		err := database.SaveGeneratedCode(bgCtx, problemID, language, ioParseResult.InputParserCode, solutionResult.SolutionCode, ioParseResult.OutputParserCode)
-		if err != nil {
-			log.Printf("Error saving generated code to database: %v", err)
-		}
-
-		// Save problem details
-		if problemDetails != nil {
-			problemToSave := models.Problem{
-				ProblemID:       problemDetails.ProblemID,
-				Title:           problemDetails.Title,
-				Difficulty:      problemDetails.Difficulty,
-				Statement:       problemDetails.FormattedStatement,
-				ConstraintsText: problemDetails.Constraints,
-				Tags:            problemDetails.Tags,
-				// Set default values for fields not provided by AI
-				TimeLimitMs:   2000, // Default to 2s
-				MemoryLimitMB: 256,  // Default to 256MB
-			}
-			err := database.SaveProblem(bgCtx, &problemToSave)
-			if err != nil {
-				log.Printf("Error saving problem details to database: %v", err)
-			}
-		}
-	}()
-
 	// Step 4: Execute the combined code for each test case to get the expected output
 	log.Println("Step 4: Executing code to generate expected outputs...")
 	generatedOutputs := make(map[string]map[string]string)
@@ -1094,6 +1064,80 @@ func GenerateExpectedOutputs(ctx context.Context, problemStatement string, probl
 			"output": finalOutput,
 		}
 	}
+
+	// In a goroutine, save the generated code, problem details, and test cases
+	go func() {
+		bgCtx := context.Background()
+
+		// Save generated code
+		if err := database.SaveGeneratedCode(bgCtx, problemID, language, ioParseResult.InputParserCode, solutionResult.SolutionCode, ioParseResult.OutputParserCode); err != nil {
+			log.Printf("Error saving generated code to database: %v", err)
+		}
+
+		// Save problem details and then test cases
+		if problemDetails != nil {
+			problemToSave := models.Problem{
+				ProblemID:       problemDetails.ProblemID,
+				Title:           problemDetails.Title,
+				Difficulty:      problemDetails.Difficulty,
+				Statement:       problemDetails.FormattedStatement,
+				ConstraintsText: problemDetails.Constraints,
+				Tags:            problemDetails.Tags,
+				TimeLimitMs:     2000,
+				MemoryLimitMB:   256,
+			}
+			if err := database.SaveProblem(bgCtx, &problemToSave); err != nil {
+				log.Printf("Error saving problem details to database: %v", err)
+				return // Can't save test cases if problem failed
+			}
+
+			// Get the newly saved problem to retrieve its ObjectID
+			var savedProblem models.Problem
+			problemsCollection := database.GetCollection("OJ", "problems")
+			if err := problemsCollection.FindOne(bgCtx, bson.M{"problem_id": problemDetails.ProblemID}).Decode(&savedProblem); err != nil {
+				log.Printf("Error fetching saved problem to get ID for test cases: %v", err)
+				return
+			}
+
+			// Prepare test cases for insertion
+			var testCasesToSave []interface{}
+			keys := make([]string, 0, len(generatedOutputs))
+			for k := range generatedOutputs {
+				keys = append(keys, k)
+			}
+			sort.Slice(keys, func(i, j int) bool {
+				numI, _ := strconv.Atoi(strings.TrimPrefix(keys[i], "test_case_"))
+				numJ, _ := strconv.Atoi(strings.TrimPrefix(keys[j], "test_case_"))
+				return numI < numJ
+			})
+
+			for i, key := range keys {
+				testData := generatedOutputs[key]
+				isSample := (i < 3) // Mark first 3 test cases as samples
+
+				tc := models.TestCase{
+					ProblemDBID:    savedProblem.ID,
+					Input:          testData["input"],
+					ExpectedOutput: testData["output"],
+					IsSample:       isSample,
+					Points:         1,
+					Notes:          key,
+					SequenceNumber: i + 1,
+					CreatedAt:      time.Now(),
+				}
+				testCasesToSave = append(testCasesToSave, tc)
+			}
+
+			if len(testCasesToSave) > 0 {
+				testCasesCollection := database.GetCollection("OJ", "test_cases")
+				if _, err := testCasesCollection.InsertMany(bgCtx, testCasesToSave); err != nil {
+					log.Printf("Error saving test cases to database: %v", err)
+				} else {
+					log.Printf("Successfully saved %d test cases for problem %s", len(testCasesToSave), problemDetails.ProblemID)
+				}
+			}
+		}
+	}()
 
 	log.Printf("Successfully generated %d expected outputs.", len(generatedOutputs))
 	return generatedOutputs, nil

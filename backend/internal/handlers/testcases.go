@@ -70,7 +70,7 @@ func AddTestCaseHandler(w http.ResponseWriter, r *http.Request) { // Only allowe
 		CreatedAt:      time.Now(),
 	}
 
-	testCasesCollection := database.GetCollection("OJ", "testcases")
+	testCasesCollection := database.GetCollection("OJ", "test_cases")
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 
@@ -152,14 +152,9 @@ func BulkAddTestCasesHandler(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Parse request body
-	type BulkTestCaseInput struct {
-		Input       string `json:"input"`
-		IsPythonGen bool   `json:"python"`
-	}
-
 	type BulkAddTestCasesRequest struct {
 		ProblemDBID string                       `json:"problem_db_id"`
-		TestCases   map[string]BulkTestCaseInput `json:"test_cases"`
+		TestCases   map[string]map[string]string `json:"test_cases"`
 		SampleCount int                          `json:"sample_count"` // Number of test cases to mark as samples
 	}
 
@@ -205,46 +200,43 @@ func BulkAddTestCasesHandler(w http.ResponseWriter, r *http.Request) {
 	defer cancelEval()
 
 	// Evaluate Python expressions in test cases
-	for testName, testInput := range req.TestCases {
-		if testInput.IsPythonGen {
+	for testName, testData := range req.TestCases {
+		if testData["python"] == "true" {
 			// Use the AI service to evaluate Python expressions
-			evaluatedInput, err := ai.EvaluatePythonExpression(evalCtx, testInput.Input)
+			evaluatedInput, err := ai.EvaluatePythonExpression(evalCtx, testData["input"])
 			if err != nil {
 				log.Printf("Failed to evaluate Python expression for test case %s: %v. Using original input.", testName, err)
 				// Keep the original input if evaluation fails
 				continue
 			}
-			req.TestCases[testName] = BulkTestCaseInput{
-				Input:       evaluatedInput,
-				IsPythonGen: false, // Mark as no longer needing Python evaluation
+			req.TestCases[testName] = map[string]string{
+				"input":  evaluatedInput,
+				"python": "false", // Mark as no longer needing Python evaluation
+				"output": testData["output"],
 			}
-			log.Printf("Evaluated Python expression for test case %s: %s -> %s", testName, ai.TruncateForLogging(testInput.Input, 100), ai.TruncateForLogging(evaluatedInput, 100))
+			log.Printf("Evaluated Python expression for test case %s: %s -> %s", testName, ai.TruncateForLogging(testData["input"], 100), ai.TruncateForLogging(evaluatedInput, 100))
 		}
 	}
 
 	// Prepare test cases for insertion
-	testCasesCollection := database.GetCollection("OJ", "testcases")
+	testCasesCollection := database.GetCollection("OJ", "test_cases")
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 
 	var testCases []models.TestCase
 	sequenceNumber := 1
 
-	for testName, testInput := range req.TestCases {
-		// Generate a simple empty expected output for now
-		// In a real implementation, you would need to run the reference solution
-		// against the input to get the expected output
-		expectedOutput := ""
+	for testName, testData := range req.TestCases {
+		// The actual input is in the "input" key of the inner map.
+		actualInput := testData["input"]
+		expectedOutput := testData["output"]
 
-		// Determine if this test case should be a sample (for demonstration)
 		isSample := sequenceNumber <= req.SampleCount
-
-		// Create notes
 		notes := testName
 
 		testCases = append(testCases, models.TestCase{
 			ProblemDBID:    problemObjectID,
-			Input:          testInput.Input,
+			Input:          actualInput,
 			ExpectedOutput: expectedOutput,
 			IsSample:       isSample,
 			Points:         1, // Default points value
