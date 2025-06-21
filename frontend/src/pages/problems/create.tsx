@@ -57,6 +57,13 @@ interface ExecuteCodeResponse {
     }>;
 }
 
+type ExecutionResult = {
+    stdout: string;
+    stderr: string;
+    status: string;
+    executionTimeMs: number;
+} | null;
+
 export default function CreateProblemPage() {
     const router = useRouter();
     const editorRef = useRef<editor.IStandaloneCodeEditor | null>(null);
@@ -92,7 +99,8 @@ export default function CreateProblemPage() {
     ]);
     const [activeTestCaseIndex, setActiveTestCaseIndex] = useState(0);
     const [isExecuting, setIsExecuting] = useState<boolean>(false);
-    const [executionResult, setExecutionResult] = useState<{ stdout: string; stderr: string; status: string; executionTimeMs: number } | null>(null);
+    const [executionResult, setExecutionResult] = useState<ExecutionResult>(null);
+    const [allExecutionResults, setAllExecutionResults] = useState<ExecutionResult[] | null>(null);
     const [executionError, setExecutionError] = useState<string | null>(null);
     const [formattedInput, setFormattedInput] = useState('');
 
@@ -254,9 +262,9 @@ export default function CreateProblemPage() {
             return;
         }
 
-        const activeTestCase = testCases[activeTestCaseIndex];
-        if (!activeTestCase) {
-            setExecutionError("No active test case selected");
+        const inputs = testCases.map(tc => tc.input);
+        if (inputs.length === 0) {
+            setExecutionError("No test cases to run against");
             return;
         }
 
@@ -273,17 +281,23 @@ export default function CreateProblemPage() {
             const response = await executeCode(
                 selectedLanguage,
                 currentCode,
-                [activeTestCase.input],
+                inputs,
                 problemDetails.problem_id
             ) as ExecuteCodeResponse;
 
             if (response.results && response.results.length > 0) {
-                setExecutionResult({
-                    stdout: response.results[0].stdout,
-                    stderr: response.results[0].stderr,
-                    status: response.results[0].status,
-                    executionTimeMs: response.results[0].execution_time_ms
-                });
+                // Since we now run all test cases, we display results for each one.
+                // We'll store the whole response and process it in the render logic.
+                const processedResults = response.results.map(res => ({
+                    stdout: res.stdout,
+                    stderr: res.stderr,
+                    status: res.status,
+                    executionTimeMs: res.execution_time_ms
+                }));
+                // For now, let's just handle one result display, but with multiple results available.
+                // We will create a new state to hold all results.
+                setAllExecutionResults(processedResults);
+                setExecutionResult(processedResults[activeTestCaseIndex]);
             } else {
                 setExecutionError("No execution results returned");
             }
@@ -709,10 +723,22 @@ Only one valid answer exists."
                                                         {testCases.map((_, index) => (
                                                             <button
                                                                 key={index}
-                                                                className={`px-3 py-1 text-xs mr-2 rounded-full flex-shrink-0 ${activeTestCaseIndex === index ? 'bg-indigo-600 text-white' : 'bg-gray-700 text-gray-300 hover:bg-gray-600'}`}
-                                                                onClick={() => setActiveTestCaseIndex(index)}
+                                                                className={`px-3 py-1 text-xs mr-2 rounded-full flex-shrink-0 relative ${activeTestCaseIndex === index ? 'bg-indigo-600 text-white' : 'bg-gray-700 text-gray-300 hover:bg-gray-600'}`}
+                                                                onClick={() => {
+                                                                    setActiveTestCaseIndex(index);
+                                                                    // Update the main execution result view when changing tabs
+                                                                    if (allExecutionResults && allExecutionResults[index]) {
+                                                                        setExecutionResult(allExecutionResults[index]);
+                                                                    } else {
+                                                                        setExecutionResult(null);
+                                                                    }
+                                                                }}
                                                             >
                                                                 Case {index + 1}
+                                                                {allExecutionResults && allExecutionResults[index] && (
+                                                                    <span className={`absolute -top-1 -right-1 block h-2 w-2 rounded-full ${allExecutionResults[index].status === 'success' && testCases[index]?.expectedOutput.trim() === allExecutionResults[index].stdout.trim() ? 'bg-green-500' : 'bg-red-500'
+                                                                        }`}></span>
+                                                                )}
                                                             </button>
                                                         ))}
                                                     </div>
@@ -721,8 +747,13 @@ Only one valid answer exists."
                                                     <button
                                                         className="px-3 py-1 text-xs bg-gray-700 text-gray-300 hover:bg-gray-600 rounded-full"
                                                         onClick={() => {
-                                                            setTestCases([...testCases, { input: '', expectedOutput: '' }]);
+                                                            const newTestCases = [...testCases, { input: '', expectedOutput: '' }];
+                                                            setTestCases(newTestCases);
                                                             setActiveTestCaseIndex(testCases.length);
+                                                            // Also reset execution results for the new tab
+                                                            if (allExecutionResults) {
+                                                                setAllExecutionResults([...allExecutionResults, null]);
+                                                            }
                                                         }}
                                                     >
                                                         +

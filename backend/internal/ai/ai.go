@@ -790,7 +790,7 @@ You are an expert algorithm engineer tasked with implementing a solution to a co
 }
 
 // GenerateIOParseCode generates code to parse input, a function signature, and code to format output.
-func GenerateIOParseCode(ctx context.Context, testCaseInputs []string, language string, problemID string) (*IOParseResult, error) {
+func GenerateIOParseCode(ctx context.Context, testCaseInputs []string, language string, problemID string, statementExamples string) (*IOParseResult, error) {
 	if client == nil {
 		return nil, fmt.Errorf("AI client not initialized")
 	}
@@ -811,11 +811,20 @@ func GenerateIOParseCode(ctx context.Context, testCaseInputs []string, language 
 
 	// Create the prompt
 	prompt := fmt.Sprintf(`
-You are an expert programmer. Your task is to write code that parses a raw JSON string input into variables for a function, defines the function signature, and then formats the function's output back into a string. You will be given examples of raw JSON input.
+You are an expert programmer. Your task is to write code that parses a raw JSON string input into variables for a function, defines the function signature, and then formats the function's output back into a string.
+
+You will be given two sets of examples:
+1. **Statement Examples**: These are from the problem description and show the high-level input/output format. The input here is NOT JSON.
+2. **JSON Input Examples**: These show the specific JSON format your parser will receive from stdin. Your generated 'input_parser_code' must handle this JSON format.
 
 Language: %s
 
-Input Examples:
+Statement Examples:
+---
+%s
+---
+
+JSON Input Examples:
 ---
 %s
 ---
@@ -826,7 +835,7 @@ Based on these examples, generate a JSON object with three fields:
 3. "output_parser_code": The code that takes the return value from '%s', which will be called with the parsed variables, and prints the result to standard output in the correct format.
 
 IMPORTANT: The 'input_parser_code' should not call the function. The 'output_parser_code' should contain the call to '%s'.
-`, language, strings.Join(testCaseInputs, "\n---\n"), funcName, funcName, funcName)
+`, language, statementExamples, strings.Join(testCaseInputs, "\n---\n"), funcName, funcName, funcName)
 
 	log.Printf("IO Parse Prompt: %s", prompt)
 
@@ -921,8 +930,19 @@ func GenerateExpectedOutputs(ctx context.Context, problemStatement string, testC
 		return nil, fmt.Errorf("could not find any valid sample inputs to generate I/O code")
 	}
 
+	// Parse examples from the problem statement to provide more context
+	statementExamples := parseStatementExamples(problemStatement)
+	var statementExamplesStrBuilder strings.Builder
+	for i, ex := range statementExamples {
+		statementExamplesStrBuilder.WriteString(fmt.Sprintf("Example %d:\nInput:\n%s\nOutput:\n%s\n", i+1, ex.Input, ex.Output))
+		if i < len(statementExamples)-1 {
+			statementExamplesStrBuilder.WriteString("---\n")
+		}
+	}
+	statementExamplesStr := statementExamplesStrBuilder.String()
+
 	// Generate the I/O parsing code and function signature
-	ioParseResult, err := GenerateIOParseCode(ctx, sampleInputs, language, problemID)
+	ioParseResult, err := GenerateIOParseCode(ctx, sampleInputs, language, problemID, statementExamplesStr)
 	if err != nil {
 		return nil, fmt.Errorf("failed to generate I/O parsing code: %w", err)
 	}
@@ -1163,6 +1183,30 @@ func TruncateForLogging(s string, maxLen int) string {
 	}
 
 	return s[:firstPart] + "..." + s[len(s)-lastPart:]
+}
+
+// StatementExample holds the input and output for an example from the problem statement.
+type StatementExample struct {
+	Input  string
+	Output string
+}
+
+// parseStatementExamples extracts input/output examples from a problem statement's markdown.
+func parseStatementExamples(statement string) []StatementExample {
+	var examples []StatementExample
+	// This regex looks for 'Example', then 'Input:' in a code block, then 'Output:' in a code block.
+	re := regexp.MustCompile(`(?is)Example\s*\d+:.*?Input:\s*` + "```" + `\s*([\s\S]+?)\s*` + "```" + `.*?Output:\s*` + "```" + `\s*([\s\S]+?)\s*` + "```")
+	matches := re.FindAllStringSubmatch(statement, -1)
+
+	for _, match := range matches {
+		if len(match) == 3 {
+			examples = append(examples, StatementExample{
+				Input:  strings.TrimSpace(match[1]),
+				Output: strings.TrimSpace(match[2]),
+			})
+		}
+	}
+	return examples
 }
 
 // fixPythonExpressions handles Python expressions in the test cases JSON
