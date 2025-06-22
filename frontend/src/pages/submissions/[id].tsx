@@ -17,21 +17,27 @@ import {
 // Define submission detail type
 interface SubmissionDetail {
     id: string;
-    user_id: string;
-    username: string;
     problem_id: string;
     problem_title: string;
+    user_id: string;
+    username: string;
     language: string;
     code: string;
     status: string;
     execution_time_ms: number;
     memory_used_kb: number;
-    submitted_at: string;
     test_cases_passed: number;
     test_cases_total: number;
-    test_case_status: string;
-    time_complexity: string;
-    memory_complexity: string;
+    submitted_at: string;
+    time_complexity?: string;
+    memory_complexity?: string;
+    failed_test_case_details?: {
+        input: string;
+        expected_output: string;
+        actual_output: string;
+        error?: string;
+    };
+    test_case_status?: string;
 }
 
 interface ProblemStats {
@@ -72,6 +78,27 @@ const calculatePercentile = (userComplexity: string, distribution: { [key: strin
     const percentile = (submissionsWithWorseComplexity / totalSubmissions) * 100;
 
     return percentile;
+};
+
+interface ComplexityAnalysisProps {
+    title: string;
+    userComplexity: string;
+    percentile: number;
+    distribution: { [key: string]: number } | undefined;
+}
+
+const formatTestCaseInput = (input: string): string => {
+    try {
+        const parsedInput = JSON.parse(input);
+        if (typeof parsedInput === 'object' && parsedInput !== null) {
+            return Object.entries(parsedInput)
+                .map(([key, value]) => `${key}: ${JSON.stringify(value)}`)
+                .join('\n');
+        }
+        return String(parsedInput);
+    } catch (error) {
+        return input;
+    }
 };
 
 export default function SubmissionDetailPage() {
@@ -197,6 +224,8 @@ export default function SubmissionDetailPage() {
                 return 'bg-orange-100 text-orange-800';
             case 'PENDING':
                 return 'bg-blue-100 text-blue-800';
+            case 'PROCESSING':
+                return 'bg-blue-100 text-blue-800';
             default:
                 return 'bg-gray-100 text-gray-800';
         }
@@ -218,6 +247,8 @@ export default function SubmissionDetailPage() {
                 return '🔧';
             case 'PENDING':
                 return '⏳';
+            case 'PROCESSING':
+                return '⏳';
             default:
                 return '❓';
         }
@@ -238,6 +269,8 @@ export default function SubmissionDetailPage() {
             case 'COMPILATION_ERROR':
                 return 'Your code failed to compile or had syntax errors.';
             case 'PENDING':
+                return 'Your submission is being processed...';
+            case 'PROCESSING':
                 return 'Your submission is being processed...';
             default:
                 return 'Unknown status.';
@@ -289,120 +322,213 @@ export default function SubmissionDetailPage() {
     const timePercentile = submission.time_complexity && stats ? calculatePercentile(submission.time_complexity, stats.time_complexity_distribution) : 0;
     const memoryPercentile = submission.memory_complexity && stats ? calculatePercentile(submission.memory_complexity, stats.memory_complexity_distribution) : 0;
 
-    return (
-        <>
-            <Head>
-                <title>Submission Details | OJ - Online Judge</title>
-                <meta name="description" content="View submission details" />
-            </Head>
-
-
-            <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
-                <div className="flex items-center mb-6">
-                    <Link href="/submissions" className="text-indigo-600 hover:text-indigo-800 mr-4">
-                        ← Back to Submissions
+    if (!isLoggedIn && submission && submission.username !== 'Guest') {
+        return (
+            <div className="min-h-screen bg-gray-100 flex flex-col justify-center items-center">
+                <div className="text-center p-8 bg-white rounded-lg shadow-md">
+                    <h1 className="text-2xl font-bold text-gray-800 mb-4">Access Denied</h1>
+                    <p className="text-gray-600 mb-6">This submission belongs to another user. Please <Link href="/login" className="text-indigo-600 hover:underline">log in</Link> to view your own submissions.</p>
+                    <Link href="/problems" passHref>
+                        <button className="px-6 py-2 text-white bg-indigo-600 rounded-md hover:bg-indigo-700">
+                            Back to Problems
+                        </button>
                     </Link>
-                    <h1 className="text-3xl font-bold text-white">Submission Details</h1>
                 </div>
+            </div>
+        )
+    }
 
-                <div className="bg-gray-800 rounded-lg shadow-xl p-6">
-                    {/* Header */}
-                    <div className="flex justify-between items-start mb-6">
-                        <div>
-                            <h1 className="text-3xl font-bold text-white">{submission.problem_title}</h1>
-                            <div className="mt-2">
-                                <span
-                                    className={`px-3 py-1 text-sm font-medium rounded-full ${submission.status === 'ACCEPTED' ? 'bg-green-900 text-green-300' : 'bg-red-900 text-red-300'
-                                        }`}
-                                >
-                                    {submission.status}
-                                </span>
-                                <span className="ml-4 text-gray-400">
-                                    Submitted on {new Date(submission.submitted_at).toLocaleString()}
-                                </span>
+    return (
+        <div className="min-h-screen bg-gray-50">
+            <Head>
+                <title>Submission Details - {submission.problem_title}</title>
+            </Head>
+            <header className="bg-white shadow-sm">
+                <div className="max-w-7xl mx-auto py-4 px-4 sm:px-6 lg:px-8">
+                    <Link href={`/submissions?problemId=${submission.problem_id}`} legacyBehavior>
+                        <a className="text-sm font-medium text-gray-600 hover:text-gray-900">
+                            &larr; Back to Submissions
+                        </a>
+                    </Link>
+                </div>
+            </header>
+            <main>
+                <div className="max-w-7xl mx-auto py-6 sm:px-6 lg:px-8">
+                    <div className="bg-white rounded-lg shadow-lg overflow-hidden">
+                        <div className="p-6 border-b border-gray-200">
+                            <div className="flex justify-between items-center mb-2">
+                                <div className="flex items-center space-x-4">
+                                    <h1 className="text-3xl font-bold text-gray-900">{submission.problem_title}</h1>
+                                    <span className={`px-3 py-1 text-sm font-semibold rounded-full ${getStatusClass(submission.status)}`}>
+                                        {submission.status.replace('_', ' ')}
+                                    </span>
+                                </div>
+                                <div className="flex items-center space-x-4">
+                                    {submission.status === "ACCEPTED" && (
+                                        <Link href={`/problems/${submission.problem_id}`} passHref>
+                                            <button className="px-4 py-2 text-sm font-medium text-white bg-indigo-600 rounded-md hover:bg-indigo-700">
+                                                Editorial
+                                            </button>
+                                        </Link>
+                                    )}
+                                    {isAdmin && (
+                                        <button
+                                            onClick={() => router.push(`/admin/problems/${submission.problem_id}`)}
+                                            className="px-4 py-2 text-sm font-medium text-white bg-gray-700 rounded-md hover:bg-gray-800"
+                                        >
+                                            Admin View
+                                        </button>
+                                    )}
+                                </div>
+                            </div>
+                            <p className="text-sm text-gray-600">
+                                Submitted by <Link href={`/profile/${submission.username}`} className="font-medium text-indigo-600 hover:underline">{submission.username}</Link> on {formatDate(submission.submitted_at)}
+                            </p>
+                        </div>
+
+                        {/* Status Banner */}
+                        <div className="p-6">
+                            <div className={`p-4 rounded-lg flex items-center ${getStatusClass(submission.status)}`}>
+                                <span className="text-2xl mr-4">{getStatusIcon(submission.status)}</span>
+                                <div>
+                                    <h2 className="font-bold text-lg">{submission.status.replace('_', ' ')}</h2>
+                                    <p className="text-sm">{getStatusDescription(submission.status)}</p>
+                                </div>
                             </div>
                         </div>
-                        <button className="bg-gray-700 hover:bg-gray-600 text-white font-bold py-2 px-4 rounded">
-                            Editorial
-                        </button>
-                    </div>
 
-                    {/* Stats */}
-                    <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8">
-                        {/* Runtime */}
-                        <div className="bg-gray-900 p-4 rounded-lg">
-                            <h3 className="text-sm font-medium text-gray-400">Runtime</h3>
-                            <p className="text-2xl font-semibold text-white">{submission.execution_time_ms} ms</p>
-                            <p className="text-sm text-gray-500">Beats --.--%</p>
-                        </div>
-                        {/* Memory */}
-                        <div className="bg-gray-900 p-4 rounded-lg">
-                            <h3 className="text-sm font-medium text-gray-400">Memory</h3>
-                            <p className="text-2xl font-semibold text-white">{(submission.memory_used_kb / 1024).toFixed(2)} MB</p>
-                            <p className="text-sm text-gray-500">Beats --.--%</p>
-                        </div>
-                        {/* Test Cases */}
-                        <div className="bg-gray-900 p-4 rounded-lg">
-                            <h3 className="text-sm font-medium text-gray-400">Testcases</h3>
-                            <p className="text-2xl font-semibold text-white">{submission.test_cases_passed} / {submission.test_cases_total}</p>
-                            {submission.test_cases_passed === submission.test_cases_total && submission.test_cases_total > 0 ? (
-                                <p className="text-sm text-green-500">All passed</p>
-                            ) : (
-                                <p className="text-sm text-red-500">{submission.test_cases_total - submission.test_cases_passed} failed</p>
-                            )}
-                        </div>
-                    </div>
+                        {/* First Failed Test Case */}
+                        {submission.status !== "ACCEPTED" && submission.status !== "PENDING" && submission.failed_test_case_details && (
+                            <div className="p-6 border-t border-gray-200">
+                                <h2 className="text-xl font-semibold mb-4 text-gray-800">First Failed Test Case</h2>
+                                <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+                                    <div className="bg-gray-50 p-4 rounded-lg">
+                                        <h3 className="text-sm font-medium text-gray-600 mb-2">Input</h3>
+                                        <pre className="text-sm font-mono bg-white p-3 rounded-md border text-gray-800 whitespace-pre-wrap">{formatTestCaseInput(submission.failed_test_case_details.input)}</pre>
+                                    </div>
+                                    <div className="bg-gray-50 p-4 rounded-lg">
+                                        <h3 className="text-sm font-medium text-gray-600 mb-2">Expected Output</h3>
+                                        <pre className="text-sm font-mono bg-white p-3 rounded-md border text-gray-800 whitespace-pre-wrap">{submission.failed_test_case_details.expected_output}</pre>
+                                    </div>
+                                    <div className="bg-red-50 p-4 rounded-lg border border-red-200">
+                                        <h3 className="text-sm font-medium text-red-700 mb-2">Your Output / Error</h3>
+                                        <pre className="text-sm font-mono bg-white p-3 rounded-md border text-red-800 whitespace-pre-wrap">{submission.failed_test_case_details.actual_output}</pre>
+                                    </div>
+                                </div>
+                            </div>
+                        )}
 
-                    {/* Complexity Analysis */}
-                    {submission.status === 'ACCEPTED' && (
-                        <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mb-8">
-                            <ComplexityAnalysis
-                                title="Time Complexity"
-                                userComplexity={submission.time_complexity}
-                                percentile={timePercentile}
-                                distribution={stats?.time_complexity_distribution}
-                            />
-                            <ComplexityAnalysis
-                                title="Memory Complexity"
-                                userComplexity={submission.memory_complexity}
-                                percentile={memoryPercentile}
-                                distribution={stats?.memory_complexity_distribution}
-                            />
-                        </div>
-                    )}
+                        {/* Main Content Area */}
+                        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 p-6">
+                            {/* Left side: Metrics */}
+                            <div className="col-span-1">
+                                <div className="bg-white rounded-lg shadow-md p-6">
+                                    <h2 className="text-xl font-semibold mb-4 text-gray-800">Metrics</h2>
+                                    <div className="grid grid-cols-2 gap-4">
+                                        <div className="bg-gray-50 p-4 rounded-lg">
+                                            <h3 className="text-sm font-medium text-gray-600 mb-2">Runtime</h3>
+                                            <p className="text-2xl font-semibold text-gray-800">{submission.execution_time_ms} ms</p>
+                                            <p className="text-sm text-gray-600">Beats --.--%</p>
+                                        </div>
+                                        <div className="bg-gray-50 p-4 rounded-lg">
+                                            <h3 className="text-sm font-medium text-gray-600 mb-2">Memory</h3>
+                                            <p className="text-2xl font-semibold text-gray-800">{(submission.memory_used_kb / 1024).toFixed(2)} MB</p>
+                                            <p className="text-sm text-gray-600">Beats --.--%</p>
+                                        </div>
+                                        <div className="bg-gray-50 p-4 rounded-lg">
+                                            <h3 className="text-sm font-medium text-gray-600 mb-2">Testcases</h3>
+                                            <p className="text-2xl font-semibold text-gray-800">{submission.test_cases_passed} / {submission.test_cases_total}</p>
+                                            {submission.test_cases_passed === submission.test_cases_total && submission.test_cases_total > 0 ? (
+                                                <p className="text-sm text-green-600">All passed</p>
+                                            ) : (
+                                                <p className="text-sm text-red-600">{submission.test_cases_total - submission.test_cases_passed} failed</p>
+                                            )}
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
 
-                    {/* Code */}
-                    <div className="bg-gray-900 rounded-lg">
-                        <div className="px-4 py-2 border-b border-gray-700">
-                            <h3 className="text-lg font-semibold text-white">Code</h3>
-                            <p className="text-sm text-gray-400">{submission.language}</p>
-                        </div>
-                        <div className="p-4">
-                            <div className="bg-gray-50 rounded-md overflow-x-auto">
-                                <pre className="p-4 text-sm text-gray-800 font-mono whitespace-pre">
-                                    {submission.code}
-                                </pre>
+                            {/* Right side: Code and Complexity Analysis */}
+                            <div className="col-span-2">
+                                {/* Code */}
+                                <div className="bg-white rounded-lg shadow-md mb-6">
+                                    <div className="p-4 border-b border-gray-200">
+                                        <h2 className="text-xl font-semibold text-gray-800">Code</h2>
+                                        <p className="text-sm text-gray-600">{submission.language}</p>
+                                    </div>
+                                    <div className="p-4">
+                                        <div className="bg-gray-50 rounded-md overflow-x-auto">
+                                            <pre className="p-4 text-sm text-gray-800 font-mono whitespace-pre">
+                                                {submission.code}
+                                            </pre>
+                                        </div>
+                                    </div>
+                                </div>
+
+                                {/* Failed Test Case Details */}
+                                {submission.status !== 'ACCEPTED' && submission.failed_test_case_details && (
+                                    <div className="bg-white rounded-lg shadow-md mt-6">
+                                        <div className="p-4 border-b border-gray-200">
+                                            <h2 className="text-xl font-semibold text-red-600">Failed Test Case</h2>
+                                        </div>
+                                        <div className="p-6 grid grid-cols-1 md:grid-cols-3 gap-4">
+                                            <div className="bg-gray-50 p-4 rounded-lg">
+                                                <h3 className="font-semibold text-gray-700 mb-2">Input</h3>
+                                                <pre className="text-sm text-gray-800 font-mono whitespace-pre-wrap">{formatTestCaseInput(submission.failed_test_case_details.input)}</pre>
+                                            </div>
+                                            <div className="bg-gray-50 p-4 rounded-lg">
+                                                <h3 className="font-semibold text-gray-700 mb-2">Expected Output</h3>
+                                                <pre className="text-sm text-gray-800 font-mono whitespace-pre-wrap">{submission.failed_test_case_details.expected_output}</pre>
+                                            </div>
+                                            <div className="bg-gray-50 p-4 rounded-lg">
+                                                <h3 className="font-semibold text-gray-700 mb-2">Your Output</h3>
+                                                <pre className="text-sm text-red-600 font-mono whitespace-pre-wrap">
+                                                    {submission.failed_test_case_details.error || submission.failed_test_case_details.actual_output}
+                                                </pre>
+                                            </div>
+                                        </div>
+                                    </div>
+                                )}
+
+                                {/* Complexity Analysis */}
+                                {submission.status === 'ACCEPTED' && submission.time_complexity && submission.memory_complexity && stats && (
+                                    <div className="bg-white rounded-lg shadow-md">
+                                        <div className="p-4 border-b border-gray-200">
+                                            <h2 className="text-xl font-semibold text-gray-800">Complexity Analysis</h2>
+                                            <p className="text-sm text-gray-600">AI-generated complexity analysis of your accepted solution.</p>
+                                        </div>
+                                        <div className="grid grid-cols-1 md:grid-cols-2 gap-6 p-6">
+                                            <ComplexityAnalysis
+                                                title="Time Complexity"
+                                                userComplexity={submission.time_complexity}
+                                                percentile={timePercentile}
+                                                distribution={stats?.time_complexity_distribution}
+                                            />
+                                            <ComplexityAnalysis
+                                                title="Memory Complexity"
+                                                userComplexity={submission.memory_complexity}
+                                                percentile={memoryPercentile}
+                                                distribution={stats?.memory_complexity_distribution}
+                                            />
+                                        </div>
+                                    </div>
+                                )}
                             </div>
                         </div>
                     </div>
                 </div>
             </main>
-        </>
+        </div>
     );
 }
 
 // New component for the complexity chart
-const ComplexityAnalysis = ({ title, userComplexity, percentile, distribution }: {
-    title: string,
-    userComplexity: string,
-    percentile: number,
-    distribution: { [key: string]: number } | undefined
-}) => {
+const ComplexityAnalysis: React.FC<ComplexityAnalysisProps> = ({ title, userComplexity, percentile, distribution }) => {
     if (!userComplexity || !distribution) {
         return (
-            <div className="bg-gray-900 p-4 rounded-lg">
-                <h3 className="text-lg font-medium text-gray-400 mb-2">{title}</h3>
-                <p className="text-gray-500">Complexity analysis not available.</p>
+            <div className="bg-gray-50 p-4 rounded-lg">
+                <h3 className="text-lg font-medium text-gray-700 mb-2">{title}</h3>
+                <p className="text-gray-600">Complexity analysis not available.</p>
             </div>
         );
     }
@@ -416,31 +542,28 @@ const ComplexityAnalysis = ({ title, userComplexity, percentile, distribution }:
         }));
 
     return (
-        <div className="bg-gray-900 p-6 rounded-lg">
+        <div className="bg-gray-50 p-4 rounded-lg">
             <div className="flex justify-between items-center mb-4">
-                <h3 className="text-xl font-semibold text-white">{title}</h3>
-                <span className="text-sm text-gray-400">{userComplexity}</span>
+                <h3 className="text-xl font-semibold text-gray-800">{title}</h3>
+                <span className="text-sm font-medium text-indigo-600 bg-indigo-100 px-2 py-1 rounded">{userComplexity}</span>
             </div>
             <div className="text-left mb-4">
-                <p className="text-3xl font-bold text-white">{percentile.toFixed(2)}%</p>
-                <p className="text-sm text-gray-400">Beats percentile of submissions</p>
+                <p className="text-3xl font-bold text-gray-800">{percentile.toFixed(2)}%</p>
+                <p className="text-sm text-gray-600">Beats percentile of submissions</p>
             </div>
             <div style={{ width: '100%', height: 200 }}>
                 <ResponsiveContainer>
-                    <BarChart data={chartData} margin={{ top: 5, right: 20, left: -20, bottom: 5 }}>
-                        <XAxis dataKey="name" stroke="#9ca3af" fontSize={12} tickLine={false} axisLine={false} />
-                        <YAxis stroke="#9ca3af" fontSize={12} tickLine={false} axisLine={false} />
+                    <BarChart data={chartData} margin={{ top: 20, right: 20, bottom: 20, left: -20 }}>
+                        <CartesianGrid strokeDasharray="3 3" vertical={false} />
+                        <XAxis dataKey="name" tick={{ fontSize: 12 }} />
+                        <YAxis tick={{ fontSize: 12 }} />
                         <Tooltip
-                            cursor={{ fill: 'rgba(107, 114, 128, 0.1)' }}
-                            contentStyle={{
-                                backgroundColor: '#1f2937',
-                                borderColor: '#4b5563',
-                                color: '#d1d5db',
-                            }}
+                            contentStyle={{ backgroundColor: '#fff', border: '1px solid #ddd' }}
+                            labelStyle={{ color: '#333' }}
                         />
-                        <Bar dataKey="count" fill="#4f46e5">
+                        <Bar dataKey="count" name="Submissions">
                             {chartData.map((entry, index) => (
-                                <Cell key={`cell-${index}`} fill={entry.isCurrentUser ? '#818cf8' : '#4f46e5'} />
+                                <Cell key={`cell-${index}`} fill={entry.isCurrentUser ? '#4f46e5' : '#a5b4fc'} />
                             ))}
                         </Bar>
                     </BarChart>
@@ -448,4 +571,4 @@ const ComplexityAnalysis = ({ title, userComplexity, percentile, distribution }:
             </div>
         </div>
     );
-} 
+}; 

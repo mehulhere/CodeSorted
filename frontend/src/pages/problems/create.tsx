@@ -6,7 +6,7 @@ import { ResizableHandle, ResizablePanel, ResizablePanelGroup } from '@/componen
 import { Button } from '@/components/ui/button';
 import { Textarea } from '@/components/ui/textarea';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
-import { AlertCircle, CheckCircle2, Loader, MessageSquare, Lightbulb } from 'lucide-react';
+import { AlertCircle, CheckCircle2, Loader, MessageSquare, Lightbulb, ArrowDown } from 'lucide-react';
 import {
     createProblem,
     generateTestCases,
@@ -15,7 +15,10 @@ import {
     generateProblemDetails,
     ProblemDetails,
     executeCode,
-    submitSolution
+    submitSolution,
+    getAIHint,
+    getCodeCompletion,
+    convertPseudocode
 } from '@/lib/api';
 import Editor, { Monaco } from '@monaco-editor/react';
 import type { editor } from 'monaco-editor';
@@ -29,6 +32,18 @@ interface AuthStatusResponse {
         email: string;
         isAdmin: boolean;
     };
+}
+
+interface CodeCompletionResponse {
+    suggestion: string;
+}
+
+interface AIHintResponse {
+    hints: string[];
+}
+
+interface ConvertPseudocodeResponse {
+    python_code: string;
 }
 
 interface TestCase {
@@ -94,10 +109,24 @@ export default function CreateProblemPage() {
     const [code, setCode] = useState<string>('// Start coding here...');
     const [selectedLanguage, setSelectedLanguage] = useState<string>('python');
     const [isSubmitting, setIsSubmitting] = useState(false);
+    const [convertedCode, setConvertedCode] = useState<string>('');
+    const [activeEditorTab, setActiveEditorTab] = useState('editor');
 
     // Auth state
     const [isLoggedIn, setIsLoggedIn] = useState(false);
     const [isLoading, setIsLoading] = useState(true);
+
+    // AI Hints state
+    const [isLoadingHint, setIsLoadingHint] = useState<boolean>(false);
+    const [hints, setHints] = useState<string[] | null>(null);
+    const [hintError, setHintError] = useState<string | null>(null);
+    const [visibleHintIndex, setVisibleHintIndex] = useState<number>(-1);
+
+    // Autocomplete state
+    const monacoRef = useRef<Monaco | null>(null);
+    const [editorInstance, setEditorInstance] = useState<editor.IStandaloneCodeEditor | null>(null);
+    const [monacoInstance, setMonacoInstance] = useState<Monaco | null>(null);
+    const lastSuggestionRef = useRef<string>('');
 
     // Test case state
     const [testCases, setTestCases] = useState<{ input: string; expectedOutput: string }[]>([
@@ -159,8 +188,167 @@ export default function CreateProblemPage() {
         setFormattedInput(formatDisplayInput(currentInput));
     }, [activeTestCaseIndex, testCases]);
 
-    function handleEditorDidMount(editor: editor.IStandaloneCodeEditor) {
+    // Effect for autocomplete
+    useEffect(() => {
+        if (!monacoInstance || !editorInstance) return;
+
+        // --- Start of Autocomplete Logic ---
+
+        // 1. Add CSS for Ghost Text
+        const styleElement = document.createElement('style');
+        styleElement.textContent = `
+            .monaco-editor .suggest-preview-text,
+            .monaco-editor .inline-completion-text {
+                opacity: 0.7 !important;
+                color: #7fb5ff !important;
+                font-weight: bold !important;
+            }
+        `;
+        document.head.appendChild(styleElement);
+
+        // 2. Configure Editor Options
+        editorInstance.updateOptions({
+            inlineSuggest: { enabled: true, mode: 'subword' },
+            quickSuggestions: { other: true, comments: true, strings: true },
+            suggestOnTriggerCharacters: true,
+            tabCompletion: 'on',
+            acceptSuggestionOnEnter: 'on'
+        });
+
+        // 3. Define the Completion Provider with proper debouncing and cancellation
+        const inlineCompletionProvider = {
+            provideInlineCompletions: async (
+                model: editor.ITextModel,
+                position: { lineNumber: number; column: number },
+                // eslint-disable-next-line @typescript-eslint/no-explicit-any
+                context: any, // Using any for Monaco editor types compatibility
+                token: { isCancellationRequested: boolean }
+            ) => {
+                // Debounce the request
+                await new Promise(r => setTimeout(r, 500));
+                if (token.isCancellationRequested || !problemDetails) {
+                    return { items: [] };
+                }
+
+                try {
+                    const prefix = model.getValueInRange({
+                        startLineNumber: 1, startColumn: 1,
+                        endLineNumber: position.lineNumber, endColumn: position.column
+                    });
+
+                    const currentLine = model.getLineContent(position.lineNumber).substring(0, position.column - 1);
+
+                    // Get sample test case for providing context to AI
+                    const sampleTestCase = generatedTestCases && Object.values(generatedTestCases).length > 0
+                        ? {
+                            input: Object.values(generatedTestCases)[0].input,
+                            expected_output: Object.values(generatedTestCases)[0].output
+                        }
+                        : undefined;
+
+                    const res = await getCodeCompletion(
+                        prefix,
+                        currentLine,
+                        selectedLanguage,
+                        problemDetails.title, // Pass problem title
+                        sampleTestCase // Pass sample test case
+                    ) as CodeCompletionResponse;
+
+                    if (token.isCancellationRequested || !res.suggestion) {
+                        return { items: [] };
+                    }
+
+                    const suggestion = res.suggestion;
+
+                    lastSuggestionRef.current = suggestion;
+
+                    const isMultiLine = suggestion.includes('\n');
+                    let replaceRange;
+
+                    if (isMultiLine) {
+                        const lines = suggestion.split('\n');
+                        const lastLineLength = lines[lines.length - 1].length;
+                        replaceRange = new monacoInstance.Range(
+                            position.lineNumber,
+                            position.column,
+                            position.lineNumber + lines.length - 1,
+                            lines.length > 1 ? lastLineLength + 1 : position.column + lastLineLength
+                        );
+                    } else {
+                        replaceRange = new monacoInstance.Range(
+                            position.lineNumber,
+                            position.column,
+                            position.lineNumber,
+                            model.getLineContent(position.lineNumber).length + 1
+                        );
+                    }
+
+                    return { items: [{ insertText: suggestion, range: replaceRange }] };
+                } catch (error) {
+                    console.error("Error getting code completion:", error);
+                    return { items: [] }; // Silently fail
+                }
+            },
+            freeInlineCompletions: () => { }
+        };
+
+        const providerRegistration = monacoInstance.languages.registerInlineCompletionsProvider(
+            ['python', 'javascript', 'cpp', 'java', 'pseudocode'],
+            inlineCompletionProvider
+        );
+
+        // 4. Setup Key Listeners
+        const keyDownListener = editorInstance.onKeyDown((e) => {
+            if (e.keyCode === monacoInstance.KeyCode.Tab.valueOf() && !e.shiftKey) {
+                // eslint-disable-next-line @typescript-eslint/no-explicit-any
+                const isSuggestionVisible = (editorInstance as any).getContextKey('inlineSuggestionVisible')?.get();
+
+                if (isSuggestionVisible) {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    editorInstance.getAction('editor.action.inlineSuggest.accept')?.run();
+                }
+            } else if (e.keyCode === monacoInstance.KeyCode.Escape.valueOf()) {
+                editorInstance.getAction('editor.action.inlineSuggest.hide')?.run();
+            }
+
+            if (e.altKey && e.keyCode === monacoInstance.KeyCode.Enter.valueOf()) {
+                e.preventDefault();
+                e.stopPropagation();
+
+                if (lastSuggestionRef.current) {
+                    const position = editorInstance.getPosition();
+                    if (position) {
+                        const model = editorInstance.getModel();
+                        if (model) {
+                            editorInstance.executeEdits('alt-enter-completion', [{
+                                range: {
+                                    startLineNumber: position.lineNumber,
+                                    startColumn: position.column,
+                                    endLineNumber: position.lineNumber,
+                                    endColumn: position.column
+                                },
+                                text: lastSuggestionRef.current
+                            }]);
+                        }
+                    }
+                }
+            }
+        });
+
+        return () => {
+            providerRegistration.dispose();
+            keyDownListener.dispose();
+            document.head.removeChild(styleElement);
+        };
+    }, [monacoInstance, editorInstance, selectedLanguage, problemDetails, generatedTestCases]);
+
+    function onEditorMount(editor: editor.IStandaloneCodeEditor, monaco: Monaco) {
         editorRef.current = editor;
+        setEditorInstance(editor);
+        setMonacoInstance(monaco);
+        monacoRef.current = monaco;
+        editor.getAction('editor.action.toggleTabFocusMode')?.run();
     }
 
     function handleEditorChange(value: string | undefined) {
@@ -177,6 +365,8 @@ export default function CreateProblemPage() {
         }
         setSelectedLanguage(value);
         setCode('// Start coding here...');
+        setConvertedCode('');
+        setActiveEditorTab('editor');
     };
 
     const handleGenerateProblemDetails = async () => {
@@ -211,6 +401,41 @@ export default function CreateProblemPage() {
             setError('Failed to generate problem details. Please try again or refine your problem statement.');
         } finally {
             setIsGeneratingDetails(false);
+        }
+    };
+
+    const handleGetHint = async () => {
+        if (!editorRef.current || !problemDetails) return;
+
+        const currentCode = editorRef.current.getValue();
+        setIsLoadingHint(true);
+        setHintError(null);
+
+        try {
+            const response = await getAIHint(
+                problemDetails.formatted_statement,
+                currentCode,
+                selectedLanguage
+            ) as AIHintResponse;
+
+            const maxHints = problemDetails.difficulty === 'Easy' ? 1 :
+                problemDetails.difficulty === 'Medium' ? 2 : 3;
+
+            const limitedHints = response.hints.slice(0, maxHints);
+            setHints(limitedHints);
+            setVisibleHintIndex(0);
+        } catch (error) {
+            console.error("Error getting hints:", error);
+            const errorMessage = error instanceof Error ? error.message : "Failed to get hints. Please try again.";
+            setHintError(errorMessage);
+        } finally {
+            setIsLoadingHint(false);
+        }
+    };
+
+    const handleShowNextHint = () => {
+        if (hints && visibleHintIndex < hints.length - 1) {
+            setVisibleHintIndex(visibleHintIndex + 1);
         }
     };
 
@@ -575,6 +800,72 @@ Only one valid answer exists."
                                                     </div>
                                                 </div>
 
+                                                {/* AI Hints Section */}
+                                                <div className="mt-6">
+                                                    <div className="flex items-center justify-between mb-3">
+                                                        <h2 className="text-lg font-semibold text-gray-800 flex items-center">
+                                                            <Lightbulb className="w-5 h-5 mr-2 text-yellow-500" />
+                                                            Hints
+                                                            {problemDetails && (
+                                                                <span className="ml-2 text-xs bg-gray-100 text-gray-600 px-2 py-1 rounded-full">
+                                                                    {problemDetails.difficulty === 'Easy' ? '1 hint' :
+                                                                        problemDetails.difficulty === 'Medium' ? '2 hints' :
+                                                                            '3 hints'} available
+                                                                </span>
+                                                            )}
+                                                        </h2>
+                                                        {!isLoadingHint && !hints && (
+                                                            <Button
+                                                                onClick={handleGetHint}
+                                                                className="px-3 py-1 text-sm bg-yellow-500 hover:bg-yellow-600 text-white rounded-md"
+                                                            >
+                                                                Get Hint
+                                                            </Button>
+                                                        )}
+                                                    </div>
+
+                                                    <div className="p-3 border border-gray-200 rounded-md bg-gray-50">
+                                                        {isLoadingHint ? (
+                                                            <div className="flex justify-center items-center p-4">
+                                                                <Loader className="w-5 h-5 mr-2 animate-spin text-yellow-500" />
+                                                                <p className="text-sm text-gray-600">Generating hints...</p>
+                                                            </div>
+                                                        ) : hintError ? (
+                                                            <div className="p-3 text-sm text-red-600 bg-red-50 rounded-md">
+                                                                <AlertCircle className="w-4 h-4 inline-block mr-2" />
+                                                                {hintError}
+                                                            </div>
+                                                        ) : hints && visibleHintIndex >= 0 ? (
+                                                            <div className="space-y-4">
+                                                                {hints.slice(0, visibleHintIndex + 1).map((hint, idx) => (
+                                                                    <div key={idx} className={`p-3 rounded-md ${idx === visibleHintIndex ? 'bg-yellow-50 border border-yellow-200' : 'bg-white border border-gray-100'}`}>
+                                                                        <div className="flex items-start">
+                                                                            <div className="bg-yellow-100 text-yellow-800 rounded-full w-6 h-6 flex items-center justify-center mr-2 flex-shrink-0">
+                                                                                {idx + 1}
+                                                                            </div>
+                                                                            <p className="text-sm text-gray-700">{hint}</p>
+                                                                        </div>
+                                                                    </div>
+                                                                ))}
+
+                                                                {visibleHintIndex < hints.length - 1 && (
+                                                                    <Button
+                                                                        onClick={handleShowNextHint}
+                                                                        className="w-full mt-2 px-3 py-1 text-sm bg-yellow-100 hover:bg-yellow-200 text-yellow-800 rounded-md flex items-center justify-center"
+                                                                    >
+                                                                        <ArrowDown className="w-4 h-4 mr-1" />
+                                                                        Show Next Hint
+                                                                    </Button>
+                                                                )}
+                                                            </div>
+                                                        ) : (
+                                                            <p className="text-sm text-gray-500 p-2">
+                                                                Click "Get Hint" if you're stuck.
+                                                            </p>
+                                                        )}
+                                                    </div>
+                                                </div>
+
                                                 <div className="mb-6">
                                                     <h2 className="text-lg font-semibold text-gray-800 mb-2">Test Cases</h2>
                                                     {isGeneratingTestCases ? (
@@ -725,33 +1016,54 @@ Only one valid answer exists."
                                             {/* Editor Tabs */}
                                             <div className="flex items-center px-4 py-2 bg-[#1e1e1e] border-b border-gray-800">
                                                 <div className="flex">
-                                                    <div className="px-3 py-1 text-xs bg-[#2d2d2d] text-gray-300 rounded-t border-t border-l border-r border-gray-700">
+                                                    <button
+                                                        className={`px-3 py-1 text-xs rounded-t border-t border-l border-r border-gray-700 ${activeEditorTab === 'editor' ? 'bg-[#2d2d2d] text-gray-300' : 'bg-[#1e1e1e] text-gray-400'}`}
+                                                        onClick={() => setActiveEditorTab('editor')}
+                                                    >
                                                         Editor
-                                                    </div>
+                                                    </button>
+                                                    {selectedLanguage === 'pseudocode' && convertedCode && (
+                                                        <button
+                                                            className={`px-3 py-1 text-xs rounded-t border-t border-l border-r border-gray-700 ${activeEditorTab === 'converted' ? 'bg-[#2d2d2d] text-gray-300' : 'bg-[#1e1e1e] text-gray-400'}`}
+                                                            onClick={() => setActiveEditorTab('converted')}
+                                                        >
+                                                            Converted
+                                                        </button>
+                                                    )}
                                                 </div>
                                             </div>
 
                                             <div className="flex-grow">
-                                                <Editor
-                                                    height="100%"
-                                                    language={selectedLanguage === 'cpp' ? 'cpp' : selectedLanguage}
-                                                    value={code}
-                                                    onChange={handleEditorChange}
-                                                    onMount={handleEditorDidMount}
-                                                    theme="vs-dark"
-                                                    options={{
-                                                        minimap: { enabled: false },
-                                                        scrollBeyondLastLine: false,
-                                                        fontSize: 14,
-                                                        lineNumbers: 'on',
-                                                        roundedSelection: false,
-                                                        scrollbar: {
-                                                            vertical: 'visible',
-                                                            horizontal: 'visible',
-                                                        },
-                                                        automaticLayout: true,
-                                                    }}
-                                                />
+                                                {activeEditorTab === 'editor' ? (
+                                                    <Editor
+                                                        height="100%"
+                                                        language={selectedLanguage === 'cpp' ? 'cpp' : selectedLanguage}
+                                                        value={code}
+                                                        onChange={handleEditorChange}
+                                                        onMount={onEditorMount}
+                                                        theme="vs-dark"
+                                                        options={{
+                                                            minimap: { enabled: false },
+                                                            scrollBeyondLastLine: false,
+                                                            fontSize: 14,
+                                                            lineNumbers: 'on',
+                                                            roundedSelection: false,
+                                                            scrollbar: {
+                                                                vertical: 'visible',
+                                                                horizontal: 'visible',
+                                                            },
+                                                            automaticLayout: true,
+                                                        }}
+                                                    />
+                                                ) : (
+                                                    <Editor
+                                                        height="100%"
+                                                        language="python"
+                                                        value={convertedCode}
+                                                        theme="vs-dark"
+                                                        options={{ readOnly: true }}
+                                                    />
+                                                )}
                                             </div>
                                         </div>
                                     </ResizablePanel>
