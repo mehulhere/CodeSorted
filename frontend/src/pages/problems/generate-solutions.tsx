@@ -6,7 +6,7 @@ import { Textarea } from '@/components/ui/textarea';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from '@/components/ui/card';
 import { Loader, AlertCircle } from 'lucide-react';
-import { generateBruteForceSolution, generateExpectedOutputs, generateTestCases } from '@/lib/api';
+import { generateBruteForceSolution, generateExpectedOutputs, generateTestCases, ProblemDetails } from '@/lib/api';
 
 // Custom auth hook
 const useAuthStatus = () => {
@@ -95,7 +95,17 @@ export default function GenerateSolutionsPage() {
         setError(null);
 
         try {
-            const response = await generateTestCases(problemStatement) as TestCasesResponse;
+            // Create a ProblemDetails object from the problem statement
+            const problemDetails: ProblemDetails = {
+                title: "Generated Problem",
+                formatted_statement: problemStatement,
+                difficulty: "medium",
+                constraints: "",
+                tags: [],
+                problem_id: `gen-${Date.now()}`
+            };
+
+            const response = await generateTestCases(problemDetails) as TestCasesResponse;
             setTestCases(response.test_cases);
         } catch (err) {
             console.error('Failed to generate test cases:', err);

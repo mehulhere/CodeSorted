@@ -13,7 +13,7 @@ import (
 	"backend/internal/types"
 )
 
-// ExecuteCode runs code in a Docker container and returns the result
+// ExecuteCode runs code in a Docker container or AWS Lambda and returns the result
 func ExecuteCode(language string, code string, input string) (*types.ExecutionResult, error) {
 	// Create an execution request
 	execReq := types.ExecutionRequest{
@@ -23,6 +23,12 @@ func ExecuteCode(language string, code string, input string) (*types.ExecutionRe
 		TimeLimitMs: 10000, // 10 seconds
 	}
 
+	// For Python, use AWS Lambda instead of local executor
+	if language == "python" {
+		return ExecuteCodeWithLambda(execReq)
+	}
+
+	// For other languages, use the local executor as before
 	// Convert the request to JSON
 	reqBody, err := json.Marshal(execReq)
 	if err != nil {
@@ -36,8 +42,6 @@ func ExecuteCode(language string, code string, input string) (*types.ExecutionRe
 	// Determine the executor URL based on language
 	var executorURL string
 	switch language {
-	case "python":
-		executorURL = "http://localhost:8001/execute"
 	case "javascript":
 		executorURL = "http://localhost:8002/execute"
 	case "cpp":

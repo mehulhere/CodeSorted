@@ -112,21 +112,36 @@ except Exception:
 	for i, testInput := range testCases {
 		execResult, err := ai.ExecuteCode(language, fullCode, testInput)
 
+		// Initialize the result with default values
 		result.Results[i] = types.TestCaseResult{
-			ExecutionTimeMs: int64(execResult.ExecutionTimeMs),
-			MemoryUsedKB:    execResult.MemoryUsedKB,
-			Status:          execResult.Status,
+			Status: "error",
 		}
+
 		if err != nil {
 			result.Results[i].Error = err.Error()
-			result.Results[i].Status = "error"
+			hasError = true
+			continue
 		}
+
+		// Check if execResult is nil before accessing its fields
+		if execResult == nil {
+			result.Results[i].Error = "Execution result is nil"
+			hasError = true
+			continue
+		}
+
+		// Now it's safe to access execResult fields
+		result.Results[i].ExecutionTimeMs = int64(execResult.ExecutionTimeMs)
+		result.Results[i].MemoryUsedKB = execResult.MemoryUsedKB
+		result.Results[i].Status = execResult.Status
+
 		if execResult.Status == "success" {
 			result.Results[i].Stdout = execResult.Output
 		} else {
 			result.Results[i].Stderr = execResult.Output
 			hasError = true
 		}
+
 		if result.Results[i].ExecutionTimeMs > maxExecutionTime {
 			maxExecutionTime = result.Results[i].ExecutionTimeMs
 		}

@@ -36,6 +36,7 @@ const GlassCard: React.FC<GlassCardProps> = ({
         sm: 'p-3',
         md: 'p-4',
         lg: 'p-6',
+        xl: 'p-8',
         none: 'p-0',
     }[padding];
 

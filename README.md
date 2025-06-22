@@ -247,3 +247,253 @@ The platform integrates several AI-powered features:
    - Appropriate difficulty level and tags
    - Problem constraints
    - Test cases (both sample and hidden)
+
+## High-Level Design Document: Cloud Architecture
+
+### 🚀 TLDR
+This document outlines the architecture of our cloud-based Online Judge platform with a Go backend deployed on EC2 and language executors on AWS Lambda, providing a scalable, secure solution for running user code submissions.
+
+### 1. System Architecture Overview
+
+```mermaid
+graph TD
+    User[User Browser] -->|HTTPS| Frontend[Next.js Frontend]
+    Frontend -->|API Calls| Backend[Go Backend on EC2]
+    Backend -->|JWT Auth| Auth[Authentication Service]
+    Backend -->|CRUD Operations| DB[(MongoDB Database)]
+    Backend -->|Code Execution| Lambda[AWS Lambda Executors]
+    Backend -->|AI Operations| AI[AI Services]
+    
+    subgraph "AWS EC2"
+        Backend
+        Auth
+    end
+    
+    subgraph "AWS Lambda"
+        Lambda -->|Python| PyExecutor[Python Executor]
+        Lambda -->|JavaScript| JSExecutor[JavaScript Executor]
+        Lambda -->|C++| CppExecutor[C++ Executor]
+        Lambda -->|Java| JavaExecutor[Java Executor]
+    end
+    
+    subgraph "MongoDB Atlas"
+        DB
+    end
+```
+
+### 2. Component Breakdown
+
+#### 2.1 Frontend (Next.js)
+- **Technology**: Next.js, React 19, TypeScript, Tailwind CSS
+- **Key Features**:
+  - User authentication with JWT and social login options
+  - Problem browsing and filtering
+  - Monaco code editor with syntax highlighting
+  - Submission history and analytics
+  - User profiles with achievement badges and ranking
+  - Admin dashboard for problem management
+
+#### 2.2 Backend (Go on EC2)
+- **Technology**: Go 1.24+, MongoDB driver, JWT authentication
+- **Deployment**: AWS EC2 instance with Nginx as reverse proxy
+- **Key Components**:
+  - RESTful API endpoints
+  - JWT-based authentication with HTTP-only cookies
+  - Rate limiting for resource-intensive operations
+  - Problem and submission management
+  - User statistics tracking
+  - Integration with AWS Lambda for code execution
+
+#### 2.3 Code Execution System (AWS Lambda)
+- **Architecture**: Serverless functions for each supported language
+- **Supported Languages**:
+  - Python (Lambda function)
+  - JavaScript (Lambda function)
+  - C++ (Lambda function)
+  - Java (Lambda function)
+- **Security Features**:
+  - Isolated execution environments
+  - Resource constraints (memory, CPU)
+  - Execution timeouts
+  - Input sanitization
+
+#### 2.4 Database (MongoDB)
+- **Deployment**: MongoDB Atlas or self-hosted MongoDB
+- **Collections**:
+  - `users`: User accounts and authentication data
+  - `problems`: Problem statements, constraints, and metadata
+  - `testcases`: Test cases for problems
+  - `submissions`: User code submissions and evaluation results
+  - `problem_stats`: Aggregated statistics for problems
+  - `user_stats`: Problem-solving statistics for users
+  - `profiles`: User profile information including achievements
+
+#### 2.5 AI Integration
+- **Features**:
+  - Code complexity analysis
+  - Pseudocode to Python conversion
+  - Intelligent code completion
+  - Progressive hints system
+  - AI-assisted problem creation
+
+### 3. Data Flow
+
+#### 3.1 Code Submission and Execution Flow
+```mermaid
+sequenceDiagram
+    participant User as User
+    participant Frontend as Frontend
+    participant Backend as Go Backend
+    participant Lambda as AWS Lambda
+    participant DB as MongoDB
+    
+    User->>Frontend: Submit solution
+    Frontend->>Backend: POST /submit
+    Backend->>DB: Store submission (PENDING)
+    Backend->>Lambda: Invoke language-specific executor
+    Lambda->>Lambda: Execute code in isolated environment
+    Lambda->>Backend: Return execution results
+    Backend->>DB: Update submission status
+    Backend->>Frontend: Return submission ID
+    Frontend->>Backend: GET /submissions/{id}
+    Backend->>Frontend: Return submission details
+    Frontend->>User: Display results
+```
+
+#### 3.2 Authentication Flow
+```mermaid
+sequenceDiagram
+    participant User as User
+    participant Frontend as Frontend
+    participant Backend as Go Backend
+    participant DB as MongoDB
+    
+    User->>Frontend: Login credentials
+    Frontend->>Backend: POST /login
+    Backend->>DB: Verify credentials
+    Backend->>Frontend: Set HTTP-only JWT cookie
+    Frontend->>User: Redirect to dashboard
+    
+    User->>Frontend: Request protected resource
+    Frontend->>Backend: Request with JWT cookie
+    Backend->>Backend: Validate JWT
+    Backend->>Frontend: Return protected resource
+```
+
+### 4. AWS Infrastructure
+
+#### 4.1 EC2 Configuration
+- **Instance Type**: t2.medium (recommended minimum)
+- **OS**: Amazon Linux 2023 or Ubuntu Server LTS
+- **Security Groups**:
+  - Allow HTTP/HTTPS (ports 80/443)
+  - Allow SSH (port 22) with restricted IPs
+- **Storage**: 20GB+ EBS volume
+- **Networking**: Public subnet with Elastic IP
+
+#### 4.2 Lambda Configuration
+- **Python Executor**:
+  - Runtime: Python 3.11
+  - Memory: 256MB
+  - Timeout: 10 seconds
+  - Layers: Required Python packages
+  
+- **JavaScript Executor**:
+  - Runtime: Node.js 18.x
+  - Memory: 256MB
+  - Timeout: 10 seconds
+  
+- **C++ Executor**:
+  - Runtime: Custom runtime (Amazon Linux 2)
+  - Memory: 512MB
+  - Timeout: 15 seconds
+  
+- **Java Executor**:
+  - Runtime: Java 17
+  - Memory: 512MB
+  - Timeout: 15 seconds
+
+#### 4.3 Security Configuration
+- **VPC**: Private subnet for Lambda functions
+- **IAM Roles**:
+  - EC2 role with Lambda invocation permissions
+  - Lambda execution roles with minimal permissions
+- **API Gateway**: Optional for direct Lambda access
+- **CloudWatch**: Logging and monitoring
+
+### 5. Deployment Pipeline
+
+```mermaid
+graph LR
+    Code[Source Code] -->|Git Push| CI[CI/CD Pipeline]
+    CI -->|Build| Build[Build & Test]
+    Build -->|Deploy Backend| EC2[EC2 Deployment]
+    Build -->|Deploy Lambdas| Lambda[Lambda Deployment]
+    Build -->|Deploy Frontend| Frontend[Frontend Deployment]
+```
+
+#### 5.1 Backend Deployment Steps
+1. Build Go application
+2. Run tests
+3. Create systemd service file
+4. Configure Nginx as reverse proxy
+5. Set up SSL with Let's Encrypt
+6. Configure environment variables
+7. Start application
+
+#### 5.2 Lambda Deployment Steps
+1. Package code for each language executor
+2. Configure environment variables
+3. Set resource limits
+4. Deploy to AWS Lambda
+5. Configure IAM permissions
+
+### 6. Scaling Considerations
+
+#### 6.1 Horizontal Scaling
+- **EC2**: Auto Scaling Group for backend instances
+- **Lambda**: Automatic scaling by AWS
+- **Load Balancer**: Application Load Balancer for multiple EC2 instances
+
+#### 6.2 Database Scaling
+- **Sharding**: Distribute data across multiple MongoDB instances
+- **Indexing**: Proper indexes for frequent queries
+- **Caching**: Redis for frequently accessed data
+
+### 7. Monitoring and Logging
+
+#### 7.1 AWS CloudWatch
+- **Metrics**: CPU, memory, network usage
+- **Alarms**: Set up for critical thresholds
+- **Logs**: Centralized logging for EC2 and Lambda
+
+#### 7.2 Application Monitoring
+- **Health Checks**: Endpoint for system status
+- **Error Tracking**: Centralized error logging
+- **Performance Metrics**: Execution times, memory usage
+
+### 8. Cost Optimization
+
+#### 8.1 EC2 Optimization
+- **Reserved Instances**: For predictable workloads
+- **Spot Instances**: For non-critical components
+- **Right-sizing**: Match instance type to workload
+
+#### 8.2 Lambda Optimization
+- **Memory Allocation**: Optimize based on execution requirements
+- **Execution Duration**: Minimize cold starts
+- **Concurrency**: Set appropriate limits
+
+### 9. Future Enhancements
+
+#### 9.1 Technical Improvements
+- **CDN Integration**: CloudFront for static assets
+- **Multi-region Deployment**: For global availability
+- **Containerization**: Docker and ECS/EKS for better isolation
+- **GraphQL API**: For more efficient data fetching
+
+#### 9.2 Feature Roadmap
+- **Real-time Collaboration**: Collaborative code editing
+- **Contest System**: Timed coding competitions
+- **Advanced Analytics**: ML-based performance insights
+- **Mobile Application**: Native mobile experience
