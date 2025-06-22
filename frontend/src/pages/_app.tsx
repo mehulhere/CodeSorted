@@ -5,6 +5,7 @@ import { NotificationProvider, useNotification } from '../components/ui/notifica
 import { setRateLimitErrorHandler, ApiErrorResponse } from '../lib/api';
 import '../app/globals.css';
 import { AuthProvider } from '@/lib/AuthContext';
+import { ThemeProvider } from '@/providers/ThemeProvider';
 
 function MyApp({ Component, pageProps }: AppProps) {
     const { showNotification } = useNotification();
@@ -23,7 +24,7 @@ function MyApp({ Component, pageProps }: AppProps) {
     }, [showNotification]);
 
     return (
-        <div className="min-h-screen flex flex-col">
+        <div className="min-h-screen flex flex-col transition-colors duration-300">
             <Navbar />
             <main className="flex-grow">
                 <Component {...pageProps} />
@@ -34,10 +35,12 @@ function MyApp({ Component, pageProps }: AppProps) {
 
 export default function App(props: AppProps) {
     return (
-        <NotificationProvider>
-            <AuthProvider>
-                <MyApp {...props} />
-            </AuthProvider>
-        </NotificationProvider>
+        <ThemeProvider defaultTheme="system" defaultCodeTheme="github">
+            <NotificationProvider>
+                <AuthProvider>
+                    <MyApp {...props} />
+                </AuthProvider>
+            </NotificationProvider>
+        </ThemeProvider>
     );
-} 
+}

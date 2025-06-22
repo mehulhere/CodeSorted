@@ -673,19 +673,9 @@ export default function CreateProblemPage() {
                                                 id="rawProblemStatement"
                                                 value={rawProblemStatement}
                                                 onChange={(e) => setRawProblemStatement(e.target.value)}
-                                                placeholder="Given an array of integers, return indices of the two numbers such that they add up to a specific target.
-                                                
-Example 1:
-Input: nums = [2,7,11,15], target = 9
-Output: [0,1]
-Explanation: Because nums[0] + nums[1] = 2 + 7 = 9, we return [0, 1].
-
-Constraints:
-2 <= nums.length <= 10^4
--10^9 <= nums[i] <= 10^9
--10^9 <= target <= 10^9
-Only one valid answer exists."
-                                                className="w-full min-h-[400px] font-mono text-sm"
+                                                placeholder="Add the problem statement here"
+                                                className="w-full min-h-[400px] font-mono text-sm text-gray-900 dark:text-gray-100"
+                                                style={{ color: '#000000' }}
                                             />
                                         </div>
 
@@ -977,15 +967,15 @@ Only one valid answer exists."
                             <div className="p-4 border-b border-gray-200 bg-gray-50">
                                 <div className="flex items-center justify-between">
                                     <Select value={selectedLanguage} onValueChange={handleLanguageChange}>
-                                        <SelectTrigger className="w-48">
-                                            <SelectValue placeholder="Select Language" />
+                                        <SelectTrigger className="w-48" style={{ color: '#000000' }}>
+                                            <SelectValue placeholder="Select Language" style={{ color: '#000000' }} />
                                         </SelectTrigger>
                                         <SelectContent>
-                                            <SelectItem value="python">Python</SelectItem>
-                                            <SelectItem value="javascript">JavaScript</SelectItem>
-                                            <SelectItem value="cpp">C++</SelectItem>
-                                            <SelectItem value="java">Java</SelectItem>
-                                            <SelectItem value="pseudocode">Pseudocode</SelectItem>
+                                            <SelectItem value="python" style={{ color: '#000000' }}>Python</SelectItem>
+                                            <SelectItem value="javascript" style={{ color: '#000000' }}>JavaScript</SelectItem>
+                                            <SelectItem value="cpp" style={{ color: '#000000' }}>C++</SelectItem>
+                                            <SelectItem value="java" style={{ color: '#000000' }}>Java</SelectItem>
+                                            <SelectItem value="pseudocode" style={{ color: '#000000' }}>Pseudocode</SelectItem>
                                         </SelectContent>
                                     </Select>
                                     <div className="flex space-x-2">

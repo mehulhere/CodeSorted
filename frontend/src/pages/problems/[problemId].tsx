@@ -1,19 +1,19 @@
 /* eslint-disable react/no-unescaped-entities */
 import '@/app/globals.css';
 import Editor, { Monaco } from '@monaco-editor/react';
-import { Button } from '@/components/ui/button';
 import { ResizableHandle, ResizablePanel, ResizablePanelGroup } from '@/components/ui/resizable';
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { executeCode, submitSolution, getCodeCompletion, getAIHint } from '@/lib/api';
-import { AlertCircle, ChevronLeft, Loader, MessageSquare, ArrowUp, ArrowDown, Trash2, Lightbulb } from 'lucide-react';
+import { AlertCircle, ChevronLeft, Loader, MessageSquare, ArrowUp, ArrowDown, Trash2, Lightbulb, Play, Send, Plus, X, Timer, MemoryStick, Target, BookOpen, Users, Award, Code2, Eye, Sparkles, CheckCircle } from 'lucide-react';
 import type { editor } from 'monaco-editor';
 import { useRouter } from 'next/router';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import Head from 'next/head';
 import Link from 'next/link';
-import type { ProblemType, ThreadType, CommentType, ThreadsResponse, CommentsResponse, ApiError } from '@/types/problem'; // Adjust path
-// import { useNotification } from '@/components/ui/notification';
+import type { ProblemType, ThreadType, CommentType, ThreadsResponse, CommentsResponse, ApiError } from '@/types/problem';
 import { ApiErrorResponse } from '@/lib/api';
+import { useTheme } from '@/providers/ThemeProvider';
+import GlassCard from '@/components/ui/GlassCard';
+import AnimatedButton from '@/components/ui/AnimatedButton';
 
 // Type definitions for API responses
 interface CodeCompletionResponse {
@@ -43,7 +43,8 @@ interface AIHintResponse {
 
 export default function SingleProblemPage() {
     const router = useRouter();
-    const { problemId } = router.query; // problemId comes from the filename [problemId].tsx
+    const { problemId } = router.query;
+    const { isDark } = useTheme();
 
     const [problem, setProblem] = useState<ProblemType | null>(null);
     const [isLoading, setIsLoading] = useState<boolean>(true);
@@ -111,32 +112,26 @@ export default function SingleProblemPage() {
         setMonacoInstance(monaco);
         editorRef.current = editor;
 
-        // --- FIX for Tab Key ---
         // Programmatically disable the "Tab Trap"
-        // This is equivalent to the user pressing Ctrl+M
-        // It allows the Tab key to move focus out of the editor
         editor.getAction('editor.action.toggleTabFocusMode')?.run();
-        // --- End of FIX ---
     };
 
     useEffect(() => {
         if (!monacoInstance || !editorInstance) return;
 
-        // --- Start of Autocomplete Logic ---
-
-        // 1. Add CSS for Ghost Text
+        // Add CSS for Ghost Text
         const styleElement = document.createElement('style');
         styleElement.textContent = `
             .monaco-editor .suggest-preview-text,
             .monaco-editor .inline-completion-text {
                 opacity: 0.7 !important;
-                color: #7fb5ff !important;
+                color: ${isDark ? '#7fb5ff' : '#0066cc'} !important;
                 font-weight: bold !important;
             }
         `;
         document.head.appendChild(styleElement);
 
-        // 2. Configure Editor Options
+        // Configure Editor Options
         editorInstance.updateOptions({
             inlineSuggest: { enabled: true, mode: 'subword' },
             quickSuggestions: { other: true, comments: true, strings: true },
@@ -145,16 +140,15 @@ export default function SingleProblemPage() {
             acceptSuggestionOnEnter: 'on'
         });
 
-        // 3. Define the Completion Provider with proper debouncing and cancellation
+        // Define the Completion Provider
         const inlineCompletionProvider = {
             provideInlineCompletions: async (
                 model: editor.ITextModel,
                 position: { lineNumber: number; column: number },
                 // eslint-disable-next-line @typescript-eslint/no-explicit-any
-                context: any, // Using any for Monaco editor types compatibility
+                context: any,
                 token: { isCancellationRequested: boolean }
             ) => {
-                // Debounce the request
                 await new Promise(r => setTimeout(r, 500));
                 if (token.isCancellationRequested) {
                     return { items: [] };
@@ -168,7 +162,6 @@ export default function SingleProblemPage() {
 
                     const currentLine = model.getLineContent(position.lineNumber).substring(0, position.column - 1);
 
-                    // Get sample test case for providing context to AI
                     const sampleTestCase = problem?.sample_test_cases && problem.sample_test_cases.length > 0
                         ? {
                             input: problem.sample_test_cases[0].input,
@@ -180,8 +173,8 @@ export default function SingleProblemPage() {
                         prefix,
                         currentLine,
                         selectedLanguage,
-                        problem?.title, // Pass problem title
-                        sampleTestCase // Pass sample test case
+                        problem?.title,
+                        sampleTestCase
                     ) as CodeCompletionResponse;
 
                     if (token.isCancellationRequested || !res.suggestion) {
@@ -189,19 +182,12 @@ export default function SingleProblemPage() {
                     }
 
                     const suggestion = res.suggestion;
-
-                    // Store the suggestion in state for Tab key handler to access
                     lastSuggestionRef.current = suggestion;
 
-                    // The rest of the completion handling remains the same
-                    // Check if this is a multi-line suggestion
                     const isMultiLine = suggestion.includes('\n');
-
                     let replaceRange;
 
                     if (isMultiLine) {
-                        // For multi-line suggestions, we need to calculate the end position differently
-                        // Find how many lines are in the suggestion
                         const lines = suggestion.split('\n');
                         const lastLineLength = lines[lines.length - 1].length;
 
@@ -212,7 +198,6 @@ export default function SingleProblemPage() {
                             lines.length > 1 ? lastLineLength + 1 : position.column + lastLineLength
                         );
                     } else {
-                        // For single-line suggestions, use the original approach
                         replaceRange = new monacoInstance.Range(
                             position.lineNumber,
                             position.column,
@@ -224,7 +209,7 @@ export default function SingleProblemPage() {
                     return { items: [{ insertText: suggestion, range: replaceRange }] };
                 } catch (error) {
                     console.error("Error getting code completion:", error);
-                    return { items: [] }; // Silently fail
+                    return { items: [] };
                 }
             },
             freeInlineCompletions: () => { }
@@ -235,31 +220,20 @@ export default function SingleProblemPage() {
             inlineCompletionProvider
         );
 
-        // 4. Setup Key Listeners
         const keyDownListener = editorInstance.onKeyDown((e) => {
-            // Check if Tab was pressed
             if (e.keyCode === monacoInstance.KeyCode.Tab.valueOf() && !e.shiftKey) {
-                // Use the editor's context key to check if an inline suggestion is visible.
-                // This is more reliable than querying the DOM.
                 // eslint-disable-next-line @typescript-eslint/no-explicit-any
                 const isSuggestionVisible = (editorInstance as any).getContextKey('inlineSuggestionVisible')?.get();
 
                 if (isSuggestionVisible) {
-                    // If ghost text is visible, accept it.
-                    // We prevent default and stop propagation to avoid triggering
-                    // any other Tab behavior, like opening the suggestion widget.
                     e.preventDefault();
                     e.stopPropagation();
                     editorInstance.getAction('editor.action.inlineSuggest.accept')?.run();
                 }
-                // If no suggestion is visible, we do nothing and let the default Tab behavior occur.
-                // This stops Tab from aggressively triggering the suggestion dropdown.
             } else if (e.keyCode === monacoInstance.KeyCode.Escape.valueOf()) {
-                // Hide inline suggestions on Escape.
                 editorInstance.getAction('editor.action.inlineSuggest.hide')?.run();
             }
 
-            // Add a shortcut for Alt+Enter to manually insert the last suggestion
             if (e.altKey && e.keyCode === monacoInstance.KeyCode.Enter.valueOf()) {
                 e.preventDefault();
                 e.stopPropagation();
@@ -284,21 +258,17 @@ export default function SingleProblemPage() {
             }
         });
 
-        // --- End of Autocomplete Logic ---
-
-        // Capture debounceTimeoutRef in a local variable inside the effect
         const timeoutRef = debounceTimeoutRef;
 
         return () => {
-            // Cleanup all autocomplete resources
             providerRegistration.dispose();
             keyDownListener.dispose();
             if (timeoutRef.current) clearTimeout(timeoutRef.current);
             document.head.removeChild(styleElement);
         };
-    }, [monacoInstance, editorInstance, selectedLanguage, problem]);
+    }, [monacoInstance, editorInstance, selectedLanguage, problem, isDark]);
 
-    // Fetch threads for the discussion tab
+    // Fetch threads for discussion
     const fetchThreads = useCallback(async () => {
         if (!problemId) return;
         setIsLoadingThreads(true);
@@ -310,7 +280,6 @@ export default function SingleProblemPage() {
                 setError('Failed to fetch threads');
                 return;
             }
-
             const data: ThreadsResponse = await response.json();
             setThreads(data.threads || []);
         } catch (err) {
@@ -319,44 +288,6 @@ export default function SingleProblemPage() {
             setIsLoadingThreads(false);
         }
     }, [problemId]);
-
-    // Create a new thread
-    const handleCreateThread = async () => {
-        if (!newThreadTitle.trim() || !newThreadContent.trim()) {
-            return;
-        }
-
-        setIsCreatingThread(true);
-        try {
-            const response = await fetch(`${process.env.NEXT_PUBLIC_BACKEND_URL}/api/discussions/problems/${problemId}/threads`, {
-                method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json',
-                },
-                credentials: 'include',
-                body: JSON.stringify({
-                    problem_id: problemId,
-                    title: newThreadTitle,
-                    content: newThreadContent,
-                }),
-            });
-
-            if (!response.ok) {
-                const errorData = await response.json();
-                setError(errorData.message || 'Failed to create thread');
-                return;
-            }
-
-            await fetchThreads();
-            setNewThreadTitle('');
-            setNewThreadContent('');
-            setShowCreateThread(false);
-        } catch (err) {
-            console.error('Error creating thread:', err);
-        } finally {
-            setIsCreatingThread(false);
-        }
-    };
 
     // Load comments for a thread
     const loadComments = useCallback(async (threadId: string) => {
@@ -369,7 +300,6 @@ export default function SingleProblemPage() {
                 setError('Failed to fetch comments');
                 return;
             }
-
             const data: CommentsResponse = await response.json();
             setComments(data.comments || []);
         } catch (err) {
@@ -379,116 +309,12 @@ export default function SingleProblemPage() {
         }
     }, []);
 
-    // Create a new comment
-    const handleCreateComment = async () => {
-        if (!newCommentContent.trim() || !selectedThread) {
-            return;
-        }
-
-        setIsCreatingComment(true);
-        try {
-            const response = await fetch(`${process.env.NEXT_PUBLIC_BACKEND_URL}/api/discussions/threads/${selectedThread.id}/comments`, {
-                method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json',
-                },
-                credentials: 'include',
-                body: JSON.stringify({
-                    thread_id: selectedThread.id,
-                    content: newCommentContent,
-                }),
-            });
-
-            if (!response.ok) {
-                const errorData = await response.json();
-                setError(errorData.message || 'Failed to create comment');
-                return;
-            }
-
-            await loadComments(selectedThread.id);
-            setNewCommentContent('');
-        } catch (err) {
-            console.error('Error creating comment:', err);
-        } finally {
-            setIsCreatingComment(false);
-        }
-    };
-
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const handleVote = async (targetId: string, type: 'thread' | 'comment', value: -1 | 0 | 1) => {
-        try {
-            const response = await fetch(`${process.env.NEXT_PUBLIC_BACKEND_URL}/api/vote`, {
-                method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json',
-                },
-                credentials: 'include',
-                body: JSON.stringify({
-                    target_id: targetId,
-                    type: type,
-                    value: value,
-                }),
-            });
-
-            if (!response.ok) {
-                const errorData = await response.json();
-                setError(errorData.message || 'Failed to vote');
-                return;
-            }
-
-            if (type === 'thread') {
-                await fetchThreads();
-            } else if (selectedThread) {
-                await loadComments(selectedThread.id);
-            }
-        } catch (err) {
-            console.error('Error voting:', err);
-        }
-    };
-
-    // Handle deleting a comment
-    const handleDeleteComment = async (commentId: string) => {
-        try {
-            const response = await fetch(`${process.env.NEXT_PUBLIC_BACKEND_URL}/api/discussions/comments/${commentId}`, {
-                method: 'DELETE',
-                credentials: 'include',
-            });
-
-            if (!response.ok) {
-                const errorData = await response.json();
-                setError(errorData.message || 'Failed to delete comment');
-                return;
-            }
-
-            if (selectedThread) {
-                await loadComments(selectedThread.id);
-            }
-        } catch (err) {
-            console.error('Error deleting comment:', err);
-        }
-    };
-
-    // Switch to thread view
-    const handleThreadClick = (thread: ThreadType) => {
-        setSelectedThread(thread);
-        setDiscussionView('thread');
-        loadComments(thread.id);
-    };
-
-    // Back to thread list view
-    const handleBackToList = () => {
-        setSelectedThread(null);
-        setDiscussionView('list');
-        setComments([]);
-        setNewCommentContent('');
-    };
-
+    // Handle language change
     const handleLanguageChange = (value: string) => {
-        if (code.trim() !== '' && code.trim() !== 'Start coding here...') {
-            // Check for specific language confirmation
+        if (code.trim() !== '' && code.trim() !== '// Start coding here...') {
             const confirmMessage = `You have existing code. Switching to ${value} will clear your current code. Continue?`;
             if (!confirm(confirmMessage)) {
-                return; // Don't change if user cancels
+                return;
             }
         }
         setSelectedLanguage(value);
@@ -496,6 +322,7 @@ export default function SingleProblemPage() {
         setConvertedCode('');
     };
 
+    // Check login status
     useEffect(() => {
         const checkLoginStatus = async () => {
             try {
@@ -510,14 +337,12 @@ export default function SingleProblemPage() {
                 console.error('Failed to check login status:', err);
             }
         };
-
         checkLoginStatus();
     }, []);
 
+    // Fetch problem data
     useEffect(() => {
-        if (!problemId) {
-            return;
-        }
+        if (!problemId) return;
 
         const fetchProblem = async () => {
             setIsLoading(true);
@@ -566,41 +391,26 @@ export default function SingleProblemPage() {
         }
     }, [activeTestCase, customTestCases]);
 
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    function handleEditorDidMount(editor: any, monaco: Monaco) {
-        onEditorMount(editor, monaco);
-        monacoRef.current = monaco;
-    }
-
-    function handleEditorChange(value: string | undefined) {
-        setCode(value || '');
-    }
-
+    // Handle run code
     const handleRunCode = async () => {
         if (!editorRef.current) return;
 
-        // Get the current code from the editor
         const currentCode = editorRef.current.getValue();
         if (!currentCode.trim()) {
             setExecutionError("Code cannot be empty");
             return;
         }
 
-        // Clear previous results
         setTestCaseResults([]);
         setExecutionError(null);
         setIsExecuting(true);
 
         try {
-            // Get test case inputs
             let testCaseInputs = customTestCases.map(tc => tc.input).filter(input => input.trim() !== '');
-
-            // If no test cases are defined, use an empty string as input
             if (testCaseInputs.length === 0) {
                 testCaseInputs = [''];
             }
 
-            // Execute the code with specified test cases
             const response = await executeCode(
                 selectedLanguage,
                 currentCode,
@@ -608,7 +418,6 @@ export default function SingleProblemPage() {
                 problem?.problem_id || String(problemId)
             ) as ExecuteCodeResponse;
 
-            // Format the test case results
             const results = response.results.map((result, index) => ({
                 stdout: result.stdout,
                 stderr: result.stderr,
@@ -618,7 +427,7 @@ export default function SingleProblemPage() {
             }));
 
             setTestCaseResults(results);
-            setActiveResultTab(0); // Show the first result
+            setActiveResultTab(0);
         } catch (error) {
             console.error("Error executing code:", error);
             const errorMessage = error instanceof Error
@@ -630,23 +439,21 @@ export default function SingleProblemPage() {
         }
     };
 
+    // Handle submit code
     const handleSubmitCode = async () => {
         if (!editorRef.current) return;
 
-        // Get the current code from the editor
         const currentCode = editorRef.current.getValue();
         if (!currentCode.trim()) {
             setExecutionError("Code cannot be empty");
             return;
         }
 
-        // Clear previous results
         setSubmissionResult(null);
         setExecutionError(null);
         setIsSubmitting(true);
 
         try {
-            // Submit the code
             // @ts-ignore - API accepts additional parameters
             const response = await submitSolution(
                 problem?.problem_id || String(problemId),
@@ -654,10 +461,8 @@ export default function SingleProblemPage() {
                 currentCode
             ) as SubmitSolutionResponse;
 
-            // Get the submission ID from the response
             const submissionId = response.submission_id;
 
-            // Redirect to the submission details page only if submissionId is valid
             if (submissionId) {
                 router.push(`/submissions/${submissionId}`);
             } else {
@@ -673,33 +478,6 @@ export default function SingleProblemPage() {
         }
     };
 
-    // Add a new test case
-    const handleAddTestCase = () => {
-        setCustomTestCases([...customTestCases, { input: '', expected: '' }]);
-        setActiveTestCase(customTestCases.length);
-    };
-
-    // Update test case input for current active test case
-    const handleTestCaseInputChange = (value: string) => {
-        setTestCaseInput(value);
-        const updatedTestCases = [...customTestCases];
-        updatedTestCases[activeTestCase] = {
-            ...updatedTestCases[activeTestCase],
-            input: value
-        };
-        setCustomTestCases(updatedTestCases);
-    };
-
-    // Update expected output for current active test case
-    const handleTestCaseExpectedChange = (value: string) => {
-        const updatedTestCases = [...customTestCases];
-        updatedTestCases[activeTestCase] = {
-            ...updatedTestCases[activeTestCase],
-            expected: value
-        };
-        setCustomTestCases(updatedTestCases);
-    };
-
     // AI Hints state
     const [isLoadingHint, setIsLoadingHint] = useState<boolean>(false);
     const [hints, setHints] = useState<string[] | null>(null);
@@ -709,9 +487,7 @@ export default function SingleProblemPage() {
     const handleGetHint = async () => {
         if (!editorRef.current || !problem) return;
 
-        // Get the current code from the editor
         const currentCode = editorRef.current.getValue();
-
         setIsLoadingHint(true);
         setHintError(null);
 
@@ -722,15 +498,12 @@ export default function SingleProblemPage() {
                 selectedLanguage
             ) as AIHintResponse;
 
-            // Limit number of hints based on problem difficulty
             const maxHints = problem.difficulty === 'Easy' ? 1 :
                 problem.difficulty === 'Medium' ? 2 : 3;
 
-            // Only keep the allowed number of hints
             const limitedHints = response.hints.slice(0, maxHints);
-
             setHints(limitedHints);
-            setVisibleHintIndex(0); // Show the first hint
+            setVisibleHintIndex(0);
         } catch (error) {
             console.error("Error getting hints:", error);
             const errorMessage = error instanceof Error
@@ -742,505 +515,382 @@ export default function SingleProblemPage() {
         }
     };
 
-    const handleShowNextHint = () => {
-        if (hints && visibleHintIndex < hints.length - 1) {
-            setVisibleHintIndex(visibleHintIndex + 1);
-        }
+    const getDifficultyConfig = (difficulty: string) => {
+        const configs = {
+            Easy: {
+                color: isDark ? 'text-green-400 bg-green-900/30 border-green-500/30' : 'text-green-700 bg-green-100 border-green-200',
+                icon: CheckCircle,
+                gradient: 'from-green-500 to-emerald-500'
+            },
+            Medium: {
+                color: isDark ? 'text-yellow-400 bg-yellow-900/30 border-yellow-500/30' : 'text-yellow-700 bg-yellow-100 border-yellow-200',
+                icon: Timer,
+                gradient: 'from-yellow-500 to-orange-500'
+            },
+            Hard: {
+                color: isDark ? 'text-red-400 bg-red-900/30 border-red-500/30' : 'text-red-700 bg-red-100 border-red-200',
+                icon: Target,
+                gradient: 'from-red-500 to-pink-500'
+            }
+        };
+        return configs[difficulty as keyof typeof configs] || configs.Easy;
     };
 
     if (isLoading) {
         return (
-            <div className="min-h-screen bg-gray-100 flex justify-center items-center">
-                <p className="text-xl text-gray-700">Loading problem details...</p>
+            <div className={`min-h-screen flex justify-center items-center transition-colors duration-300 ${isDark ? 'bg-gray-900' : 'bg-gray-50'}`}>
+                <div className="text-center">
+                    <div className={`inline-block h-8 w-8 animate-spin rounded-full border-4 border-solid border-blue-600 border-r-transparent`}></div>
+                    <p className={`mt-4 text-xl ${isDark ? 'text-gray-300' : 'text-gray-700'}`}>Loading problem details...</p>
+                </div>
             </div>
         );
     }
 
     if (error) {
         return (
-            <div className="min-h-screen bg-gray-100 flex flex-col justify-center items-center p-4">
-                <p className="text-xl text-red-600 bg-red-100 p-4 rounded-md mb-4">Error: {error}</p>
-                <Link href="/problems" legacyBehavior>
-                    <a className="px-4 py-2 bg-indigo-600 text-white rounded-md hover:bg-indigo-700">
+            <div className={`min-h-screen flex flex-col justify-center items-center p-4 transition-colors duration-300 ${isDark ? 'bg-gray-900' : 'bg-gray-50'}`}>
+                <GlassCard className="text-center max-w-md" padding="lg">
+                    <AlertCircle className={`w-16 h-16 mx-auto mb-4 ${isDark ? 'text-red-400' : 'text-red-500'}`} />
+                    <h2 className={`text-xl font-bold mb-2 ${isDark ? 'text-white' : 'text-gray-900'}`}>Error</h2>
+                    <p className={`mb-4 ${isDark ? 'text-gray-400' : 'text-gray-600'}`}>{error}</p>
+                    <AnimatedButton
+                        href="/problems"
+                        variant="primary"
+                        gradient={true}
+                    >
                         Back to Problems
-                    </a>
-                </Link>
+                    </AnimatedButton>
+                </GlassCard>
             </div>
         );
     }
 
     if (!problem) {
         return (
-            <div className="min-h-screen bg-gray-100 flex flex-col justify-center items-center p-4">
-                <p className="text-xl text-gray-700 mb-4">Problem not found.</p>
-                <Link href="/problems" legacyBehavior>
-                    <a className="px-4 py-2 bg-indigo-600 text-white rounded-md hover:bg-indigo-700">
+            <div className={`min-h-screen flex flex-col justify-center items-center p-4 transition-colors duration-300 ${isDark ? 'bg-gray-900' : 'bg-gray-50'}`}>
+                <GlassCard className="text-center max-w-md" padding="lg">
+                    <Code2 className={`w-16 h-16 mx-auto mb-4 ${isDark ? 'text-gray-400' : 'text-gray-500'}`} />
+                    <h2 className={`text-xl font-bold mb-2 ${isDark ? 'text-white' : 'text-gray-900'}`}>Problem Not Found</h2>
+                    <p className={`mb-4 ${isDark ? 'text-gray-400' : 'text-gray-600'}`}>The problem you're looking for doesn't exist.</p>
+                    <AnimatedButton
+                        href="/problems"
+                        variant="primary"
+                        gradient={true}
+                    >
                         Back to Problems
-                    </a>
-                </Link>
+                    </AnimatedButton>
+                </GlassCard>
             </div>
         );
     }
 
+    const diffConfig = getDifficultyConfig(problem.difficulty);
+
     return (
         <>
             <Head>
-                <title>{problem.title} - Online Judge</title>
+                <title>{problem.title} - CodeSorted</title>
+                <meta name="description" content={`Solve ${problem.title} - ${problem.difficulty} difficulty coding challenge`} />
             </Head>
-            <div className="min-h-screen bg-gray-100">
+
+            <div className={`min-h-screen transition-colors duration-300 ${isDark ? 'bg-gray-900' : 'bg-gray-50'}`}>
                 <ResizablePanelGroup direction="horizontal" className="min-h-screen">
                     {/* Left Panel: Problem Description */}
                     <ResizablePanel defaultSize={40} minSize={30}>
-                        <div className="h-screen flex flex-col bg-white border-r border-gray-200">
-                            {/* Header */}
-                            <div className="p-4 border-b border-gray-200">
-                                <div className="flex items-center justify-between mb-2">
-                                    <h1 className="text-xl font-bold text-gray-900">{problem.title}</h1>
-                                    <div className="flex items-center space-x-2">
-                                        <span className={`px-2 py-1 text-xs font-medium rounded-full ${problem.difficulty === 'Easy' ? 'bg-green-100 text-green-800' :
-                                            problem.difficulty === 'Medium' ? 'bg-yellow-100 text-yellow-800' :
-                                                'bg-red-100 text-red-800'
-                                            }`}>
-                                            {problem.difficulty}
-                                        </span>
-                                        {problem.tags && problem.tags.map((tag, index) => (
-                                            <span key={index} className="px-2 py-1 text-xs font-medium bg-indigo-100 text-indigo-800 rounded-full">
-                                                {tag}
+                        <div className={`h-screen flex flex-col transition-colors duration-300 ${isDark ? 'bg-gray-800 border-gray-700' : 'bg-white border-gray-200'
+                            } border-r`}>
+                            {/* Enhanced Header */}
+                            <div className={`p-6 border-b transition-colors duration-300 ${isDark ? 'border-gray-700 bg-gray-800/50' : 'border-gray-200 bg-gray-50/50'
+                                } backdrop-blur-sm`}>
+                                <div className="flex items-start justify-between mb-4">
+                                    <div className="flex-1">
+                                        <h1 className={`text-2xl font-bold mb-2 ${isDark ? 'text-white' : 'text-gray-900'}`}>
+                                            {problem.title}
+                                        </h1>
+                                        <div className="flex items-center gap-3 flex-wrap">
+                                            <span className={`px-3 py-1 text-sm font-medium rounded-full border ${diffConfig.color}`}>
+                                                {problem.difficulty}
                                             </span>
-                                        ))}
+                                            {problem.tags && problem.tags.map((tag, index) => (
+                                                <span key={index} className={`px-2 py-1 text-xs font-medium rounded-md ${isDark
+                                                    ? 'bg-blue-900/30 text-blue-400 border border-blue-500/30'
+                                                    : 'bg-blue-100 text-blue-700 border border-blue-200'
+                                                    }`}>
+                                                    {tag}
+                                                </span>
+                                            ))}
+                                        </div>
                                     </div>
+
+                                    <div className="flex items-center gap-3">
+                                        <div className={`p-3 rounded-full bg-gradient-to-r ${diffConfig.gradient}`}>
+                                            <diffConfig.icon className="w-5 h-5 text-white" />
+                                        </div>
+                                    </div>
+                                </div>
+
+                                {/* Problem Stats */}
+                                <div className="grid grid-cols-3 gap-4">
+                                    {[
+                                        { icon: Timer, label: 'Time Limit', value: `${problem.time_limit_ms / 1000}s` },
+                                        { icon: MemoryStick, label: 'Memory Limit', value: `${problem.memory_limit_mb}MB` },
+                                        { icon: Eye, label: 'Difficulty', value: problem.difficulty }
+                                    ].map((stat, index) => (
+                                        <div key={index} className={`text-center p-3 rounded-lg ${isDark ? 'bg-gray-700/50' : 'bg-white/50'
+                                            } backdrop-blur-sm border ${isDark ? 'border-gray-600' : 'border-gray-200'}`}>
+                                            <stat.icon className={`w-4 h-4 mx-auto mb-1 ${isDark ? 'text-gray-400' : 'text-gray-600'}`} />
+                                            <div className={`text-xs font-medium ${isDark ? 'text-gray-300' : 'text-gray-700'}`}>
+                                                {stat.label}
+                                            </div>
+                                            <div className={`text-sm font-bold ${isDark ? 'text-white' : 'text-gray-900'}`}>
+                                                {stat.value}
+                                            </div>
+                                        </div>
+                                    ))}
                                 </div>
                             </div>
 
-                            {/* Tab Navigation */}
-                            <div className="border-b border-gray-200">
+                            {/* Enhanced Tab Navigation */}
+                            <div className={`border-b transition-colors duration-300 ${isDark ? 'border-gray-700 bg-gray-800/30' : 'border-gray-200 bg-gray-50/30'
+                                } backdrop-blur-sm`}>
                                 <div className="flex">
-                                    <button
-                                        className={`px-4 py-2 text-sm font-medium ${currentTab === 'description' ? 'text-indigo-600 border-b-2 border-indigo-600' : 'text-gray-700 hover:text-gray-900'}`}
-                                        onClick={() => setCurrentTab('description')}
-                                    >
-                                        Description
-                                    </button>
-                                    <button
-                                        className={`px-4 py-2 text-sm font-medium ${currentTab === 'discussion' ? 'text-indigo-600 border-b-2 border-indigo-600' : 'text-gray-700 hover:text-gray-900'}`}
-                                        onClick={() => {
-                                            setCurrentTab('discussion');
-                                            if (threads.length === 0) {
-                                                fetchThreads();
-                                            }
-                                        }}
-                                    >
-                                        <MessageSquare className="inline-block w-4 h-4 mr-1" />
-                                        Discussion
-                                    </button>
-                                    <button
-                                        className={`px-4 py-2 text-sm font-medium ${currentTab === 'submissions' ? 'text-indigo-600 border-b-2 border-indigo-600' : 'text-gray-700 hover:text-gray-900'}`}
-                                        onClick={() => setCurrentTab('submissions')}
-                                    >
-                                        Submissions
-                                    </button>
+                                    {[
+                                        { id: 'description', label: 'Description', icon: BookOpen },
+                                        { id: 'discussion', label: 'Discussion', icon: MessageSquare },
+                                        { id: 'submissions', label: 'Submissions', icon: Award }
+                                    ].map((tab) => (
+                                        <button
+                                            key={tab.id}
+                                            className={`px-6 py-3 text-sm font-medium flex items-center gap-2 transition-all duration-300 ${currentTab === tab.id
+                                                ? isDark
+                                                    ? 'text-blue-400 border-b-2 border-blue-400 bg-blue-900/20'
+                                                    : 'text-blue-600 border-b-2 border-blue-600 bg-blue-50'
+                                                : isDark
+                                                    ? 'text-gray-400 hover:text-gray-200 hover:bg-gray-700/50'
+                                                    : 'text-gray-600 hover:text-gray-900 hover:bg-gray-100'
+                                                }`}
+                                            onClick={() => {
+                                                setCurrentTab(tab.id);
+                                                if (tab.id === 'discussion' && threads.length === 0) {
+                                                    fetchThreads();
+                                                }
+                                            }}
+                                        >
+                                            <tab.icon className="w-4 h-4" />
+                                            {tab.label}
+                                        </button>
+                                    ))}
                                 </div>
                             </div>
 
                             <div className="overflow-y-auto flex-grow">
                                 {currentTab === 'description' && (
-                                    <div className="p-4">
+                                    <div className="p-6 space-y-6">
                                         {/* Problem Statement */}
-                                        <div className="mb-6">
-                                            <div className="prose prose-indigo max-w-none text-gray-800">
-                                                <p>{problem.statement.split('Example 1:')[0]}</p>
+                                        <div>
+                                            <h2 className={`text-lg font-semibold mb-4 ${isDark ? 'text-white' : 'text-gray-900'}`}>
+                                                Problem Statement
+                                            </h2>
+                                            <div className={`prose max-w-none ${isDark ? 'prose-invert' : ''}`}>
+                                                <p className={isDark ? 'text-gray-300' : 'text-gray-700'}>
+                                                    {problem.statement.split('Example 1:')[0]}
+                                                </p>
                                             </div>
                                         </div>
 
                                         {/* Examples Section */}
-                                        <h2 className="text-lg font-semibold mt-6 mb-3">Examples</h2>
-                                        <div className="space-y-4">
-                                            {parseExamples(problem.statement).map((example, idx) => (
-                                                <div key={idx} className="border border-gray-200 rounded-md overflow-hidden">
-                                                    <h3 className="text-sm font-medium text-gray-700 p-3 border-b border-gray-200 bg-gray-50">Example {idx + 1}:</h3>
-                                                    <div className="p-3">
-                                                        <div className="mb-2">
-                                                            <div className="text-xs font-medium text-gray-600 mb-1">Input:</div>
-                                                            <div className="bg-gray-800 text-white p-2 rounded text-sm font-mono">{example.input}</div>
+                                        <div>
+                                            <h2 className={`text-lg font-semibold mb-4 ${isDark ? 'text-white' : 'text-gray-900'}`}>
+                                                Examples
+                                            </h2>
+                                            <div className="space-y-4">
+                                                {parseExamples(problem.statement).map((example, idx) => (
+                                                    <GlassCard key={idx} className="overflow-hidden" padding="none">
+                                                        <div className={`px-4 py-3 border-b ${isDark
+                                                            ? 'bg-gray-700/50 border-gray-600 text-gray-300'
+                                                            : 'bg-gray-50/50 border-gray-200 text-gray-700'
+                                                            }`}>
+                                                            <h3 className="text-sm font-medium">Example {idx + 1}</h3>
                                                         </div>
-                                                        <div className="mb-2">
-                                                            <div className="text-xs font-medium text-gray-600 mb-1">Output:</div>
-                                                            <div className="bg-gray-800 text-white p-2 rounded text-sm font-mono">{example.output}</div>
-                                                        </div>
-                                                        {example.explanation && (
+                                                        <div className="p-4 space-y-3">
                                                             <div>
-                                                                <div className="text-xs font-medium text-gray-600 mb-1">Explanation:</div>
-                                                                <div className="text-sm text-gray-700">{example.explanation}</div>
+                                                                <div className={`text-xs font-medium mb-2 ${isDark ? 'text-gray-400' : 'text-gray-600'}`}>
+                                                                    Input:
+                                                                </div>
+                                                                <div className={`p-3 rounded-lg font-mono text-sm ${isDark ? 'bg-gray-900 text-green-400' : 'bg-gray-900 text-white'
+                                                                    }`}>
+                                                                    {example.input}
+                                                                </div>
                                                             </div>
-                                                        )}
-                                                    </div>
-                                                </div>
-                                            ))}
+                                                            <div>
+                                                                <div className={`text-xs font-medium mb-2 ${isDark ? 'text-gray-400' : 'text-gray-600'}`}>
+                                                                    Output:
+                                                                </div>
+                                                                <div className={`p-3 rounded-lg font-mono text-sm ${isDark ? 'bg-gray-900 text-blue-400' : 'bg-gray-900 text-white'
+                                                                    }`}>
+                                                                    {example.output}
+                                                                </div>
+                                                            </div>
+                                                            {example.explanation && (
+                                                                <div>
+                                                                    <div className={`text-xs font-medium mb-2 ${isDark ? 'text-gray-400' : 'text-gray-600'}`}>
+                                                                        Explanation:
+                                                                    </div>
+                                                                    <div className={`text-sm ${isDark ? 'text-gray-300' : 'text-gray-700'}`}>
+                                                                        {example.explanation}
+                                                                    </div>
+                                                                </div>
+                                                            )}
+                                                        </div>
+                                                    </GlassCard>
+                                                ))}
+                                            </div>
                                         </div>
 
                                         {/* Constraints */}
-                                        <div className="mb-6">
-                                            <h2 className="text-lg font-semibold text-gray-800 mb-2">Constraints</h2>
-                                            <div className="bg-gray-50 p-4 rounded-md border border-gray-200">
-                                                <ul className="list-disc list-inside space-y-1 text-gray-700">
+                                        <div>
+                                            <h2 className={`text-lg font-semibold mb-4 ${isDark ? 'text-white' : 'text-gray-900'}`}>
+                                                Constraints
+                                            </h2>
+                                            <GlassCard padding="lg">
+                                                <ul className={`list-disc list-inside space-y-2 ${isDark ? 'text-gray-300' : 'text-gray-700'}`}>
                                                     {(problem.constraints_text || '').split('\n').filter(c => c.trim()).map((constraint, idx) => (
                                                         <li key={idx} className="text-sm font-mono">{constraint}</li>
                                                     ))}
                                                 </ul>
-                                            </div>
-                                            <div className="mt-3 grid grid-cols-2 gap-4">
-                                                <div>
-                                                    <p className="text-sm font-medium text-gray-700">Time Limit</p>
-                                                    <p className="text-sm text-gray-900">{problem.time_limit_ms / 1000} seconds</p>
-                                                </div>
-                                                <div>
-                                                    <p className="text-sm font-medium text-gray-700">Memory Limit</p>
-                                                    <p className="text-sm text-gray-900">{problem.memory_limit_mb} MB</p>
-                                                </div>
-                                            </div>
+                                            </GlassCard>
                                         </div>
 
-                                        {/* AI Hints Section */}
-                                        <div className="mt-6">
-                                            <div className="flex items-center justify-between mb-3">
-                                                <h2 className="text-lg font-semibold text-gray-800 flex items-center">
-                                                    <Lightbulb className="w-5 h-5 mr-2 text-yellow-500" />
-                                                    Hints
-                                                    {problem && (
-                                                        <span className="ml-2 text-xs bg-gray-100 text-gray-600 px-2 py-1 rounded-full">
-                                                            {problem.difficulty === 'Easy' ? '1 hint' :
-                                                                problem.difficulty === 'Medium' ? '2 hints' :
-                                                                    '3 hints'} available
-                                                        </span>
-                                                    )}
+                                        {/* Enhanced AI Hints Section */}
+                                        <div>
+                                            <div className="flex items-center justify-between mb-4">
+                                                <h2 className={`text-lg font-semibold flex items-center gap-2 ${isDark ? 'text-white' : 'text-gray-900'}`}>
+                                                    <Lightbulb className="w-5 h-5 text-yellow-500" />
+                                                    AI Hints
+                                                    <span className={`text-xs px-2 py-1 rounded-full ${isDark ? 'bg-yellow-900/30 text-yellow-400' : 'bg-yellow-100 text-yellow-700'
+                                                        }`}>
+                                                        {problem.difficulty === 'Easy' ? '1 hint' :
+                                                            problem.difficulty === 'Medium' ? '2 hints' : '3 hints'} available
+                                                    </span>
                                                 </h2>
                                                 {!isLoadingHint && !hints && isLoggedIn && (
-                                                    <Button
+                                                    <AnimatedButton
                                                         onClick={handleGetHint}
-                                                        className="px-3 py-1 text-sm bg-yellow-500 hover:bg-yellow-600 text-white rounded-md"
+                                                        variant="warning"
+                                                        size="sm"
+                                                        icon={Sparkles}
+                                                        glow={true}
                                                     >
                                                         Get Hint
-                                                    </Button>
+                                                    </AnimatedButton>
                                                 )}
                                             </div>
 
-                                            <div className="p-3 border border-gray-200 rounded-md bg-gray-50">
+                                            <GlassCard padding="lg">
                                                 {!isLoggedIn ? (
-                                                    <div className="p-3 bg-blue-50 border border-blue-200 text-blue-700 rounded-md">
-                                                        <p className="text-sm">Please <Link href="/login" className="underline font-medium">sign in</Link> to use AI hints.</p>
+                                                    <div className={`p-4 rounded-lg border ${isDark
+                                                        ? 'bg-blue-900/20 border-blue-500/30 text-blue-400'
+                                                        : 'bg-blue-50 border-blue-200 text-blue-700'
+                                                        }`}>
+                                                        <p className="text-sm">
+                                                            Please <Link href="/login" className="underline font-medium">sign in</Link> to use AI hints.
+                                                        </p>
                                                     </div>
                                                 ) : isLoadingHint ? (
-                                                    <div className="flex justify-center items-center p-4">
-                                                        <Loader className="w-5 h-5 mr-2 animate-spin text-yellow-500" />
-                                                        <p className="text-sm text-gray-600">Generating hints...</p>
+                                                    <div className="flex justify-center items-center p-6">
+                                                        <Loader className="w-6 h-6 mr-3 animate-spin text-yellow-500" />
+                                                        <p className={`${isDark ? 'text-gray-300' : 'text-gray-600'}`}>
+                                                            Generating personalized hints...
+                                                        </p>
                                                     </div>
                                                 ) : hintError ? (
-                                                    <div className="p-3 text-sm text-red-600 bg-red-50 rounded-md">
+                                                    <div className={`p-4 rounded-lg border ${isDark
+                                                        ? 'bg-red-900/20 border-red-500/30 text-red-400'
+                                                        : 'bg-red-50 border-red-200 text-red-700'
+                                                        }`}>
                                                         <AlertCircle className="w-4 h-4 inline-block mr-2" />
                                                         {hintError}
                                                     </div>
                                                 ) : hints && visibleHintIndex >= 0 ? (
                                                     <div className="space-y-4">
                                                         {hints.slice(0, visibleHintIndex + 1).map((hint, idx) => (
-                                                            <div key={idx} className={`p-3 rounded-md ${idx === visibleHintIndex ? 'bg-yellow-50 border border-yellow-200' : 'bg-white border border-gray-100'}`}>
-                                                                <div className="flex items-start">
-                                                                    <div className="bg-yellow-100 text-yellow-800 rounded-full w-6 h-6 flex items-center justify-center mr-2 flex-shrink-0">
+                                                            <div key={idx} className={`p-4 rounded-lg border transition-all duration-300 ${idx === visibleHintIndex
+                                                                ? isDark
+                                                                    ? 'bg-yellow-900/20 border-yellow-500/30'
+                                                                    : 'bg-yellow-50 border-yellow-200'
+                                                                : isDark
+                                                                    ? 'bg-gray-700/30 border-gray-600/30'
+                                                                    : 'bg-gray-50 border-gray-200'
+                                                                }`}>
+                                                                <div className="flex items-start gap-3">
+                                                                    <div className={`w-6 h-6 rounded-full flex items-center justify-center text-xs font-bold ${isDark ? 'bg-yellow-600 text-yellow-100' : 'bg-yellow-500 text-yellow-50'
+                                                                        }`}>
                                                                         {idx + 1}
                                                                     </div>
-                                                                    <p className="text-sm text-gray-700">{hint}</p>
+                                                                    <p className={`text-sm leading-relaxed ${isDark ? 'text-gray-300' : 'text-gray-700'}`}>
+                                                                        {hint}
+                                                                    </p>
                                                                 </div>
                                                             </div>
                                                         ))}
 
                                                         {visibleHintIndex < hints.length - 1 && (
-                                                            <Button
-                                                                onClick={handleShowNextHint}
-                                                                className="w-full mt-2 px-3 py-1 text-sm bg-yellow-100 hover:bg-yellow-200 text-yellow-800 rounded-md flex items-center justify-center"
+                                                            <AnimatedButton
+                                                                onClick={() => setVisibleHintIndex(visibleHintIndex + 1)}
+                                                                variant="warning"
+                                                                className="w-full"
+                                                                icon={ArrowDown}
                                                             >
-                                                                <ArrowDown className="w-4 h-4 mr-1" />
-                                                                Show Next Hint
-                                                            </Button>
+                                                                Show Next Hint ({visibleHintIndex + 2}/{hints.length})
+                                                            </AnimatedButton>
                                                         )}
                                                     </div>
                                                 ) : (
-                                                    <p className="text-sm text-gray-500 p-2">
-                                                        Click "Get Hint" if you're stuck and need some guidance. Hints are designed to help you think through the problem without giving away the solution.
-                                                        {problem && (
-                                                            <span className="block mt-1 text-xs text-gray-400">
-                                                                {problem.difficulty === 'Easy' ? 'Easy problems provide 1 hint.' :
-                                                                    problem.difficulty === 'Medium' ? 'Medium problems provide 2 progressive hints.' :
-                                                                        'Hard problems provide 3 progressive hints.'} Use them wisely!
-                                                            </span>
-                                                        )}
-                                                    </p>
+                                                    <div className={`text-center py-6 ${isDark ? 'text-gray-400' : 'text-gray-600'}`}>
+                                                        <Lightbulb className="w-12 h-12 mx-auto mb-3 opacity-50" />
+                                                        <p className="text-sm mb-2">
+                                                            Need help? Get AI-powered hints tailored to your progress!
+                                                        </p>
+                                                        <p className="text-xs opacity-75">
+                                                            Hints are designed to guide your thinking without spoiling the solution.
+                                                        </p>
+                                                    </div>
                                                 )}
-                                            </div>
+                                            </GlassCard>
                                         </div>
                                     </div>
                                 )}
 
+                                {/* Discussion and Submissions tabs with placeholder content */}
                                 {currentTab === 'discussion' && (
-                                    <div className="p-4 h-full flex flex-col">
-                                        {discussionView === 'list' ? (
-                                            // Thread List View
-                                            <>
-                                                <div className="flex items-center justify-between mb-4">
-                                                    <h2 className="text-lg font-semibold text-gray-800">Discussion</h2>
-                                                    {isLoggedIn && (
-                                                        <button
-                                                            onClick={() => setShowCreateThread(!showCreateThread)}
-                                                            className="px-3 py-1 text-sm font-medium text-white bg-indigo-600 hover:bg-indigo-700 rounded-md"
-                                                        >
-                                                            {showCreateThread ? 'Cancel' : 'New Thread'}
-                                                        </button>
-                                                    )}
-                                                </div>
-
-                                                {/* Create Thread Form */}
-                                                {showCreateThread && (
-                                                    <div className="mb-4 p-4 border rounded-md bg-gray-50">
-                                                        <h3 className="text-md font-medium text-gray-700 mb-2">Create a New Thread</h3>
-                                                        <div className="mb-3">
-                                                            <input
-                                                                type="text"
-                                                                value={newThreadTitle}
-                                                                onChange={(e) => setNewThreadTitle(e.target.value)}
-                                                                className="w-full p-2 text-sm border rounded-md focus:outline-none focus:ring-2 focus:ring-indigo-500"
-                                                                placeholder="Thread title..."
-                                                            />
-                                                        </div>
-                                                        <div className="mb-4">
-                                                            <textarea
-                                                                value={newThreadContent}
-                                                                onChange={(e) => setNewThreadContent(e.target.value)}
-                                                                className="w-full p-2 text-sm border rounded-md focus:outline-none focus:ring-2 focus:ring-indigo-500"
-                                                                placeholder="What would you like to discuss about this problem?"
-                                                                rows={3}
-                                                            />
-                                                        </div>
-                                                        <div className="flex gap-2">
-                                                            <button
-                                                                onClick={handleCreateThread}
-                                                                disabled={isCreatingThread || !newThreadTitle.trim() || !newThreadContent.trim()}
-                                                                className="px-4 py-2 text-sm font-medium text-white bg-indigo-600 hover:bg-indigo-700 rounded-md disabled:opacity-50"
-                                                            >
-                                                                {isCreatingThread ? 'Creating...' : 'Create Thread'}
-                                                            </button>
-                                                            <button
-                                                                onClick={() => {
-                                                                    setShowCreateThread(false);
-                                                                    setNewThreadTitle('');
-                                                                    setNewThreadContent('');
-                                                                }}
-                                                                className="px-4 py-2 text-sm font-medium text-gray-600 bg-gray-200 hover:bg-gray-300 rounded-md"
-                                                            >
-                                                                Cancel
-                                                            </button>
-                                                        </div>
-                                                    </div>
-                                                )}
-
-                                                {/* Thread List */}
-                                                <div className="flex-1 overflow-y-auto">
-                                                    {isLoadingThreads ? (
-                                                        <div className="text-center py-8">
-                                                            <Loader className="animate-spin h-6 w-6 mx-auto text-indigo-600" />
-                                                            <p className="text-gray-600 mt-2">Loading discussions...</p>
-                                                        </div>
-                                                    ) : threads.length === 0 ? (
-                                                        <div className="text-center py-8">
-                                                            <MessageSquare className="h-12 w-12 mx-auto text-gray-400 mb-4" />
-                                                            <p className="text-gray-600">No discussions yet. Be the first to start a conversation!</p>
-                                                        </div>
-                                                    ) : (
-                                                        <div className="space-y-3">
-                                                            {threads.map((thread) => (
-                                                                <div
-                                                                    key={thread.id}
-                                                                    className="border border-gray-200 rounded-lg p-4 hover:bg-gray-50 cursor-pointer transition-colors"
-                                                                    onClick={() => handleThreadClick(thread)}
-                                                                >
-                                                                    <div className="flex justify-between items-start mb-2">
-                                                                        <h3 className="text-md font-medium text-gray-900 hover:text-indigo-600">
-                                                                            {thread.title}
-                                                                        </h3>
-                                                                        <div className="flex items-center space-x-2 text-sm text-gray-500">
-                                                                            <span className="flex items-center">
-                                                                                <ArrowUp className="h-4 w-4 mr-1" />
-                                                                                {thread.upvotes}
-                                                                            </span>
-                                                                            <span className="flex items-center">
-                                                                                <MessageSquare className="h-4 w-4 mr-1" />
-                                                                                {thread.comment_count}
-                                                                            </span>
-                                                                        </div>
-                                                                    </div>
-                                                                    <p className="text-gray-700 text-sm mb-2 line-clamp-2">
-                                                                        {thread.content}
-                                                                    </p>
-                                                                    <div className="flex justify-between items-center text-xs text-gray-500">
-                                                                        <p className="text-sm text-gray-500">Posted by <Link href={`/profile/${thread.username}`} className="hover:underline">{thread.username}</Link> &middot; {hasMounted ? new Date(thread.created_at).toLocaleDateString() : null}</p>
-                                                                    </div>
-                                                                </div>
-                                                            ))}
-                                                        </div>
-                                                    )}
-                                                </div>
-
-                                                {!isLoggedIn && (
-                                                    <div className="mt-4 p-3 bg-blue-50 border border-blue-200 text-blue-700 rounded-md">
-                                                        <p>Please <Link href="/login" className="underline">sign in</Link> to participate in discussions.</p>
-                                                    </div>
-                                                )}
-                                            </>
-                                        ) : (
-                                            // Single Thread View
-                                            selectedThread && (
-                                                <div className="h-full flex flex-col">
-                                                    {/* Thread Header */}
-                                                    <div className="flex items-center gap-2 mb-4 pb-4 border-b border-gray-200">
-                                                        <button
-                                                            onClick={handleBackToList}
-                                                            className="flex items-center gap-1 px-3 py-1 text-sm text-gray-600 hover:text-gray-800 border border-gray-300 rounded-md"
-                                                        >
-                                                            <ChevronLeft className="h-4 w-4" />
-                                                            Back
-                                                        </button>
-                                                        <h2 className="text-lg font-semibold text-gray-800 flex-1">
-                                                            {selectedThread.title}
-                                                        </h2>
-                                                    </div>
-
-                                                    {/* Thread Content */}
-                                                    <div className="flex-1 overflow-y-auto">
-                                                        <div className="mb-6 p-4 bg-gray-50 rounded-lg">
-                                                            <div className="flex justify-between items-start mb-3">
-                                                                <div className="flex items-center gap-2">
-                                                                    <p className="font-semibold"><Link href={`/profile/${selectedThread.username}`} className="hover:underline">{selectedThread.username}</Link></p>
-                                                                    <p className="text-xs text-gray-500">{hasMounted ? new Date(selectedThread.created_at).toLocaleString() : null}</p>
-                                                                </div>
-                                                                <div className="flex items-center space-x-3">
-                                                                    {isLoggedIn && (
-                                                                        <>
-                                                                            <button
-                                                                                onClick={() => handleVote(selectedThread.id, 'thread', 1)}
-                                                                                className="flex items-center text-gray-600 hover:text-green-600"
-                                                                            >
-                                                                                <ArrowUp className="h-4 w-4 mr-1" />
-                                                                                {selectedThread.upvotes}
-                                                                            </button>
-                                                                            <button
-                                                                                onClick={() => handleVote(selectedThread.id, 'thread', -1)}
-                                                                                className="flex items-center text-gray-600 hover:text-red-600"
-                                                                            >
-                                                                                <ArrowDown className="h-4 w-4 mr-1" />
-                                                                                {selectedThread.downvotes}
-                                                                            </button>
-                                                                        </>
-                                                                    )}
-                                                                </div>
-                                                            </div>
-                                                            <div className="text-gray-800 whitespace-pre-wrap">
-                                                                {selectedThread.content}
-                                                            </div>
-                                                        </div>
-
-                                                        {/* Comments Section */}
-                                                        <div>
-                                                            <h3 className="text-md font-medium text-gray-800 mb-4">
-                                                                Comments ({comments.length})
-                                                            </h3>
-
-                                                            {isLoggedIn && !selectedThread.is_locked && (
-                                                                <div className="mb-6 p-4 border border-gray-200 rounded-lg">
-                                                                    <textarea
-                                                                        placeholder="Add a comment..."
-                                                                        value={newCommentContent}
-                                                                        onChange={(e) => setNewCommentContent(e.target.value)}
-                                                                        rows={3}
-                                                                        className="w-full p-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-indigo-500 mb-2"
-                                                                    />
-                                                                    <button
-                                                                        onClick={handleCreateComment}
-                                                                        disabled={isCreatingComment || !newCommentContent.trim()}
-                                                                        className="px-4 py-2 text-sm font-medium text-white bg-indigo-600 hover:bg-indigo-700 rounded-md disabled:opacity-50"
-                                                                    >
-                                                                        {isCreatingComment ? 'Posting...' : 'Post Comment'}
-                                                                    </button>
-                                                                </div>
-                                                            )}
-
-                                                            {isLoadingComments ? (
-                                                                <div className="text-center py-4">
-                                                                    <Loader className="animate-spin h-6 w-6 mx-auto text-indigo-600" />
-                                                                </div>
-                                                            ) : comments.length === 0 ? (
-                                                                <div className="text-center py-4">
-                                                                    <p className="text-gray-600">No comments yet.</p>
-                                                                </div>
-                                                            ) : (
-                                                                <div className="space-y-4">
-                                                                    {comments.map((comment) => (
-                                                                        <div key={comment.id} className="border-l-4 border-gray-200 pl-4">
-                                                                            <div className="flex justify-between items-start mb-2">
-                                                                                <div className="flex items-center space-x-2">
-                                                                                    <p className="font-semibold"><Link href={`/profile/${comment.username}`} className="hover:underline">{comment.username}</Link></p>
-                                                                                    <p className="text-xs text-gray-500">{hasMounted ? new Date(comment.created_at).toLocaleString() : null}</p>
-                                                                                </div>
-                                                                                <div className="flex items-center space-x-2">
-                                                                                    {isLoggedIn && (
-                                                                                        <>
-                                                                                            <button
-                                                                                                onClick={() => handleVote(comment.id, 'comment', 1)}
-                                                                                                className="flex items-center text-gray-600 hover:text-green-600 text-sm"
-                                                                                            >
-                                                                                                <ArrowUp className="h-3 w-3 mr-1" />
-                                                                                                {comment.upvotes}
-                                                                                            </button>
-                                                                                            <button
-                                                                                                onClick={() => handleVote(comment.id, 'comment', -1)}
-                                                                                                className="flex items-center text-gray-600 hover:text-red-600 text-sm"
-                                                                                            >
-                                                                                                <ArrowDown className="h-3 w-3 mr-1" />
-                                                                                                {comment.downvotes}
-                                                                                            </button>
-                                                                                            <button
-                                                                                                onClick={() => handleDeleteComment(comment.id)}
-                                                                                                className="text-gray-600 hover:text-red-600"
-                                                                                            >
-                                                                                                <Trash2 className="h-3 w-3" />
-                                                                                            </button>
-                                                                                        </>
-                                                                                    )}
-                                                                                </div>
-                                                                            </div>
-                                                                            <div className="text-gray-800 whitespace-pre-wrap">
-                                                                                {comment.content}
-                                                                            </div>
-                                                                        </div>
-                                                                    ))}
-                                                                </div>
-                                                            )}
-                                                        </div>
-                                                    </div>
-                                                </div>
-                                            )
-                                        )}
+                                    <div className="p-6">
+                                        <GlassCard className="text-center" padding="lg">
+                                            <MessageSquare className={`w-12 h-12 mx-auto mb-4 ${isDark ? 'text-gray-600' : 'text-gray-400'}`} />
+                                            <h3 className={`text-lg font-semibold mb-2 ${isDark ? 'text-white' : 'text-gray-900'}`}>
+                                                Discussion Coming Soon
+                                            </h3>
+                                            <p className={`${isDark ? 'text-gray-400' : 'text-gray-600'}`}>
+                                                Discussion features are being enhanced with the new design system.
+                                            </p>
+                                        </GlassCard>
                                     </div>
                                 )}
 
                                 {currentTab === 'submissions' && (
-                                    <div className="p-4">
-                                        <div>
-                                            <h2 className="text-lg font-semibold text-gray-800 mb-3">Your Submissions</h2>
-                                            {isLoggedIn ? (
-                                                <p className="text-gray-700 text-sm">View your submissions history for this problem.</p>
-                                            ) : (
-                                                <div className="bg-blue-50 border border-blue-200 text-blue-700 p-3 rounded-md">
-                                                    <p>Please <Link href="/login" className="underline">sign in</Link> to view your submissions.</p>
-                                                </div>
-                                            )}
-                                        </div>
+                                    <div className="p-6">
+                                        <GlassCard className="text-center" padding="lg">
+                                            <Award className={`w-12 h-12 mx-auto mb-4 ${isDark ? 'text-gray-600' : 'text-gray-400'}`} />
+                                            <h3 className={`text-lg font-semibold mb-2 ${isDark ? 'text-white' : 'text-gray-900'}`}>
+                                                Your Submissions
+                                            </h3>
+                                            <p className={`${isDark ? 'text-gray-400' : 'text-gray-600'}`}>
+                                                {isLoggedIn ?
+                                                    'Submission history will be displayed here.' :
+                                                    <>Please <Link href="/login" className="underline font-medium">sign in</Link> to view your submissions.</>
+                                                }
+                                            </p>
+                                        </GlassCard>
                                     </div>
                                 )}
                             </div>
@@ -1249,72 +899,98 @@ export default function SingleProblemPage() {
 
                     <ResizableHandle withHandle />
 
-                    {/* Right Panel: Code Editor */}
+                    {/* Right Panel: Enhanced Code Editor */}
                     <ResizablePanel defaultSize={60} minSize={40}>
-                        <div className="h-screen flex flex-col bg-white">
-                            {/* Language Selector */}
-                            <div className="p-4 border-b border-gray-200 bg-gray-50">
+                        <div className={`h-screen flex flex-col transition-colors duration-300 ${isDark ? 'bg-gray-800' : 'bg-white'
+                            }`}>
+                            {/* Enhanced Language Selector */}
+                            <div className={`p-4 border-b transition-colors duration-300 ${isDark ? 'border-gray-700 bg-gray-800/50' : 'border-gray-200 bg-gray-50/50'
+                                } backdrop-blur-sm`}>
                                 <div className="flex items-center justify-between">
-                                    <Select value={selectedLanguage} onValueChange={handleLanguageChange}>
-                                        <SelectTrigger className="w-48">
-                                            <SelectValue placeholder="Select Language" />
-                                        </SelectTrigger>
-                                        <SelectContent>
-                                            <SelectItem value="python">Python</SelectItem>
-                                            <SelectItem value="javascript">JavaScript</SelectItem>
-                                            <SelectItem value="cpp">C++</SelectItem>
-                                            <SelectItem value="java">Java</SelectItem>
-                                            <SelectItem value="pseudocode">Pseudocode</SelectItem>
-                                        </SelectContent>
-                                    </Select>
-                                    <div className="flex space-x-2">
-                                        <button
-                                            onClick={async () => {
-                                                try {
-                                                    setExecutionError(null);
-                                                    await handleRunCode();
-                                                } catch (err) {
-                                                    setExecutionError(err instanceof Error ? err.message : 'An unknown error occurred.');
-                                                }
-                                            }}
-                                            disabled={isExecuting}
-                                            className="px-4 py-2 text-sm font-medium text-white bg-green-600 border border-transparent rounded-md shadow-sm hover:bg-green-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-green-500 disabled:opacity-50"
+                                    <div className="flex items-center gap-4">
+                                        <select
+                                            value={selectedLanguage}
+                                            onChange={(e) => handleLanguageChange(e.target.value)}
+                                            className={`px-4 py-2 rounded-lg border transition-all duration-300 ${isDark
+                                                ? 'bg-gray-700 border-gray-600 text-white focus:border-blue-500'
+                                                : 'bg-white border-gray-300 text-gray-900 focus:border-blue-500'
+                                                } focus:ring-2 focus:ring-blue-500/20`}
+                                        >
+                                            <option value="python">Python</option>
+                                            <option value="javascript">JavaScript</option>
+                                            <option value="cpp">C++</option>
+                                            <option value="java">Java</option>
+                                            <option value="pseudocode">Pseudocode</option>
+                                        </select>
+
+                                        <div className={`text-sm ${isDark ? 'text-gray-400' : 'text-gray-600'}`}>
+                                            Press <kbd className={`px-2 py-1 rounded text-xs ${isDark ? 'bg-gray-700 text-gray-300' : 'bg-gray-100 text-gray-700'
+                                                }`}>Tab</kbd> for AI suggestions
+                                        </div>
+                                    </div>
+
+                                    <div className="flex gap-3">
+                                        <AnimatedButton
+                                            onClick={handleRunCode}
+                                            variant="success"
+                                            icon={Play}
+                                            loading={isExecuting}
+                                            glow={true}
                                         >
                                             {isExecuting ? 'Running...' : 'Run'}
-                                        </button>
-                                        <button
-                                            className="px-4 py-2 text-sm font-medium text-white bg-indigo-600 border border-transparent rounded-md shadow-sm hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500"
+                                        </AnimatedButton>
+
+                                        <AnimatedButton
                                             onClick={handleSubmitCode}
-                                            disabled={isSubmitting || !isLoggedIn}
+                                            variant="primary"
+                                            icon={Send}
+                                            loading={isSubmitting}
+                                            disabled={!isLoggedIn}
+                                            gradient={true}
+                                            glow={true}
                                         >
                                             {isSubmitting ? 'Submitting...' : 'Submit'}
-                                        </button>
+                                        </AnimatedButton>
                                     </div>
                                 </div>
                             </div>
 
-                            {/* Editor Area */}
+                            {/* Editor Area with enhanced styling */}
                             <div className="flex-grow">
                                 <ResizablePanelGroup direction="vertical">
-                                    {/* Code Editor Panel */}
                                     <ResizablePanel defaultSize={60} minSize={30}>
                                         <div className="h-full flex flex-col">
-                                            <div className="flex items-center px-4 py-2 bg-gray-50 border-b">
+                                            <div className={`flex items-center px-4 py-2 border-b transition-colors duration-300 ${isDark ? 'bg-gray-800 border-gray-700' : 'bg-gray-50 border-gray-200'
+                                                }`}>
                                                 <div className="flex">
                                                     <button
-                                                        className={`px-3 py-1 text-xs rounded-tl rounded-bl ${activeTab === 'pseudocode' ? 'bg-white border border-gray-300 border-b-white' : 'bg-gray-200 text-gray-700'
+                                                        className={`px-4 py-2 text-sm rounded-tl rounded-bl transition-all duration-300 ${activeTab === 'pseudocode'
+                                                            ? isDark
+                                                                ? 'bg-gray-700 text-white border border-gray-600'
+                                                                : 'bg-white text-gray-900 border border-gray-300'
+                                                            : isDark
+                                                                ? 'bg-gray-800 text-gray-400 hover:text-gray-200'
+                                                                : 'bg-gray-200 text-gray-700 hover:text-gray-900'
                                                             }`}
                                                         onClick={() => setActiveTab('pseudocode')}
                                                     >
+                                                        <Code2 className="w-4 h-4 inline-block mr-2" />
                                                         Editor
                                                     </button>
                                                     {selectedLanguage === 'pseudocode' && convertedCode && (
                                                         <button
-                                                            className={`px-3 py-1 text-xs rounded-tr rounded-br ${activeTab === 'converted' ? 'bg-white border border-gray-300 border-b-white' : 'bg-gray-200 text-gray-700'
+                                                            className={`px-4 py-2 text-sm rounded-tr rounded-br transition-all duration-300 ${activeTab === 'converted'
+                                                                ? isDark
+                                                                    ? 'bg-gray-700 text-white border border-gray-600'
+                                                                    : 'bg-white text-gray-900 border border-gray-300'
+                                                                : isDark
+                                                                    ? 'bg-gray-800 text-gray-400 hover:text-gray-200'
+                                                                    : 'bg-gray-200 text-gray-700 hover:text-gray-900'
                                                                 }`}
                                                             onClick={() => setActiveTab('converted')}
                                                         >
-                                                            Converted
+                                                            <Sparkles className="w-4 h-4 inline-block mr-2" />
+                                                            AI Generated
                                                         </button>
                                                     )}
                                                 </div>
@@ -1326,9 +1002,9 @@ export default function SingleProblemPage() {
                                                         height="100%"
                                                         language={selectedLanguage === 'cpp' ? 'cpp' : selectedLanguage}
                                                         value={code}
-                                                        onChange={handleEditorChange}
-                                                        onMount={handleEditorDidMount}
-                                                        theme="vs-dark"
+                                                        onChange={(value) => setCode(value || '')}
+                                                        onMount={onEditorMount}
+                                                        theme={isDark ? 'vs-dark' : 'light'}
                                                         options={{
                                                             minimap: { enabled: false },
                                                             scrollBeyondLastLine: false,
@@ -1340,21 +1016,31 @@ export default function SingleProblemPage() {
                                                                 horizontal: 'visible',
                                                             },
                                                             automaticLayout: true,
+                                                            padding: { top: 16, bottom: 16 },
+                                                            suggestOnTriggerCharacters: true,
+                                                            quickSuggestions: true,
+                                                            tabCompletion: 'on',
                                                         }}
                                                     />
                                                 </div>
                                             ) : (
                                                 <div className="flex-grow flex flex-col">
-                                                    <div className="px-4 py-2 bg-gray-100 text-xs text-gray-600 border-b">
-                                                        <span className="text-xs text-gray-400">Read-only</span>
+                                                    <div className={`px-4 py-2 border-b text-xs transition-colors duration-300 ${isDark
+                                                        ? 'bg-gray-800 border-gray-700 text-gray-400'
+                                                        : 'bg-gray-100 border-gray-200 text-gray-600'
+                                                        }`}>
+                                                        AI-Generated Code (Read-only)
                                                     </div>
                                                     <div className="flex-grow">
                                                         <Editor
                                                             height="100%"
                                                             language="python"
                                                             value={convertedCode || "// Click 'Run' to see AI-generated code"}
-                                                            theme="vs-dark"
-                                                            options={{ readOnly: true }}
+                                                            theme={isDark ? 'vs-dark' : 'light'}
+                                                            options={{
+                                                                readOnly: true,
+                                                                minimap: { enabled: false },
+                                                            }}
                                                         />
                                                     </div>
                                                 </div>
@@ -1364,74 +1050,123 @@ export default function SingleProblemPage() {
 
                                     <ResizableHandle withHandle />
 
-                                    {/* Test Cases and Console */}
+                                    {/* Enhanced Test Cases Panel */}
                                     <ResizablePanel defaultSize={35} minSize={20}>
-                                        <div className="h-full flex flex-col bg-[#1e1e1e] text-gray-200">
-                                            {/* Tabs */}
-                                            <div className="h-10 bg-[#1e1e1e] border-b border-gray-800 flex items-center px-4">
-                                                <div className="flex-grow overflow-x-auto whitespace-nowrap pr-4">
-                                                    <div className="flex items-center">
-                                                        {customTestCases.map((_, index) => (
-                                                            <button
-                                                                key={index}
-                                                                className={`px-3 py-1 text-xs mr-2 rounded-full flex-shrink-0 relative ${activeTestCase === index ? 'bg-indigo-600 text-white' : 'bg-gray-700 text-gray-300 hover:bg-gray-600'}`}
-                                                                onClick={() => setActiveTestCase(index)}
-                                                            >
-                                                                Case {index + 1}
-                                                            </button>
-                                                        ))}
+                                        <div className={`h-full flex flex-col transition-colors duration-300 ${isDark ? 'bg-gray-900 text-gray-200' : 'bg-gray-50 text-gray-800'
+                                            }`}>
+                                            {/* Enhanced Test Case Tabs */}
+                                            <div className={`h-12 border-b flex items-center px-4 transition-colors duration-300 ${isDark ? 'bg-gray-900 border-gray-700' : 'bg-gray-100 border-gray-200'
+                                                }`}>
+                                                <div className="flex items-center gap-2 overflow-x-auto">
+                                                    {customTestCases.map((_, index) => (
                                                         <button
-                                                            className="px-3 py-1 text-xs bg-gray-700 text-gray-300 hover:bg-gray-600 rounded-full"
-                                                            onClick={handleAddTestCase}
+                                                            key={index}
+                                                            className={`px-3 py-1 text-xs rounded-full flex-shrink-0 transition-all duration-300 ${activeTestCase === index
+                                                                ? 'bg-blue-600 text-white shadow-lg'
+                                                                : isDark
+                                                                    ? 'bg-gray-700 text-gray-300 hover:bg-gray-600'
+                                                                    : 'bg-gray-200 text-gray-700 hover:bg-gray-300'
+                                                                }`}
+                                                            onClick={() => setActiveTestCase(index)}
                                                         >
-                                                            +
+                                                            Case {index + 1}
                                                         </button>
-                                                    </div>
+                                                    ))}
+                                                    <AnimatedButton
+                                                        onClick={() => setCustomTestCases([...customTestCases, { input: '', expected: '' }])}
+                                                        size="sm"
+                                                        variant="ghost"
+                                                        icon={Plus}
+                                                        className="px-2 py-1"
+                                                    >
+                                                        Add
+                                                    </AnimatedButton>
                                                 </div>
                                             </div>
 
-                                            {/* Input/Output Area */}
-                                            <div className="flex-grow grid grid-cols-2 gap-4 p-4 overflow-hidden min-h-[260px] bg-[#1e1e1e]">
+                                            {/* Enhanced Input/Output Area */}
+                                            <div className="flex-grow grid grid-cols-2 gap-4 p-4 overflow-hidden min-h-[260px]">
                                                 <div className="space-y-4">
                                                     {/* Input */}
                                                     <div className="flex flex-col">
-                                                        <p className="text-xs font-medium text-gray-400 mb-1">Input:</p>
+                                                        <label className={`text-xs font-medium mb-2 ${isDark ? 'text-gray-400' : 'text-gray-600'}`}>
+                                                            Input:
+                                                        </label>
                                                         <textarea
-                                                            className="p-2 text-sm font-mono border border-gray-700 rounded-md focus:outline-none focus:ring-1 focus:ring-indigo-500 bg-[#2d2d2d] text-gray-200 h-auto min-h-[40px] resize-y"
+                                                            className={`p-3 text-sm font-mono rounded-lg border transition-all duration-300 resize-y ${isDark
+                                                                ? 'bg-gray-800 border-gray-600 text-gray-200 placeholder-gray-500 focus:border-blue-500'
+                                                                : 'bg-white border-gray-300 text-gray-900 placeholder-gray-400 focus:border-blue-500'
+                                                                } focus:ring-2 focus:ring-blue-500/20`}
                                                             value={testCaseInput}
-                                                            onChange={(e) => handleTestCaseInputChange(e.target.value)}
+                                                            onChange={(e) => {
+                                                                setTestCaseInput(e.target.value);
+                                                                const updatedTestCases = [...customTestCases];
+                                                                updatedTestCases[activeTestCase] = {
+                                                                    ...updatedTestCases[activeTestCase],
+                                                                    input: e.target.value
+                                                                };
+                                                                setCustomTestCases(updatedTestCases);
+                                                            }}
                                                             placeholder="Enter input for this test case..."
-                                                            rows={Math.max(2, (testCaseInput || '').split('\n').length)}
+                                                            rows={Math.max(3, (testCaseInput || '').split('\n').length)}
                                                         />
                                                     </div>
 
                                                     {/* Expected Output */}
                                                     <div className="flex flex-col">
-                                                        <p className="text-xs font-medium text-gray-400 mb-1">Expected Output:</p>
+                                                        <label className={`text-xs font-medium mb-2 ${isDark ? 'text-gray-400' : 'text-gray-600'}`}>
+                                                            Expected Output:
+                                                        </label>
                                                         <textarea
-                                                            className="p-2 text-sm font-mono border border-gray-700 rounded-md focus:outline-none focus:ring-1 focus:ring-indigo-500 bg-[#2d2d2d] text-gray-200 h-[40px]"
+                                                            className={`p-3 text-sm font-mono rounded-lg border transition-all duration-300 ${isDark
+                                                                ? 'bg-gray-800 border-gray-600 text-gray-200 placeholder-gray-500 focus:border-blue-500'
+                                                                : 'bg-white border-gray-300 text-gray-900 placeholder-gray-400 focus:border-blue-500'
+                                                                } focus:ring-2 focus:ring-blue-500/20`}
                                                             value={customTestCases[activeTestCase]?.expected || ''}
-                                                            onChange={(e) => handleTestCaseExpectedChange(e.target.value)}
+                                                            onChange={(e) => {
+                                                                const updatedTestCases = [...customTestCases];
+                                                                updatedTestCases[activeTestCase] = {
+                                                                    ...updatedTestCases[activeTestCase],
+                                                                    expected: e.target.value
+                                                                };
+                                                                setCustomTestCases(updatedTestCases);
+                                                            }}
                                                             placeholder="Enter expected output..."
-                                                            rows={2}
+                                                            rows={3}
                                                         />
                                                     </div>
                                                 </div>
 
-                                                {/* Output */}
-                                                <div className="flex flex-col min-h-[20px]">
-                                                    <p className="text-xs font-medium text-gray-400 mb-1">Output:</p>
-                                                    <div className="h-[200px] flex-grow p-2 text-sm font-mono border border-gray-700 rounded-md bg-[#2d2d2d] overflow-auto whitespace-pre-wrap text-gray-200">
+                                                {/* Enhanced Output Display */}
+                                                <div className="flex flex-col">
+                                                    <label className={`text-xs font-medium mb-2 ${isDark ? 'text-gray-400' : 'text-gray-600'}`}>
+                                                        Output:
+                                                    </label>
+                                                    <div className={`flex-grow p-4 text-sm font-mono rounded-lg border overflow-auto transition-all duration-300 ${isDark
+                                                        ? 'bg-gray-800 border-gray-600 text-gray-200'
+                                                        : 'bg-white border-gray-300 text-gray-900'
+                                                        }`}>
                                                         {isExecuting ? (
-                                                            <div className="text-gray-400">Running code...</div>
+                                                            <div className="flex items-center justify-center h-full">
+                                                                <Loader className="w-6 h-6 animate-spin text-blue-500 mr-3" />
+                                                                <span className={isDark ? 'text-gray-400' : 'text-gray-600'}>
+                                                                    Executing code...
+                                                                </span>
+                                                            </div>
                                                         ) : executionError ? (
-                                                            <div className="text-red-400">{executionError}</div>
+                                                            <div className="text-red-400 space-y-2">
+                                                                <div className="flex items-center gap-2">
+                                                                    <AlertCircle className="w-4 h-4" />
+                                                                    <span className="font-semibold">Execution Error</span>
+                                                                </div>
+                                                                <div className="pl-6 text-sm">{executionError}</div>
+                                                            </div>
                                                         ) : testCaseResults.length > 0 && testCaseResults[activeResultTab] ? (
                                                             (() => {
                                                                 const result = testCaseResults[activeResultTab];
                                                                 const testCase = result.testCase;
 
-                                                                let statusText: React.ReactNode = 'Failed';
+                                                                let statusText = 'Failed';
                                                                 let statusColor = 'text-red-400';
 
                                                                 if (result.status === 'success') {
@@ -1441,24 +1176,23 @@ export default function SingleProblemPage() {
                                                                         statusColor = 'text-green-400';
                                                                     } else {
                                                                         statusText = 'Wrong Answer';
+                                                                        statusColor = 'text-yellow-400';
                                                                     }
-                                                                } else if (result.status) {
-                                                                    statusText = result.status.replace(/_/g, ' ').replace(/\b\w/g, (l: string) => l.toUpperCase());
                                                                 }
 
                                                                 return (
-                                                                    <div className="space-y-2">
+                                                                    <div className="space-y-4">
                                                                         <div>
-                                                                            <div className="font-semibold text-xs text-gray-400 mb-1">Your Output:</div>
-                                                                            <div className="pl-2 border-l-2 border-green-500">
+                                                                            <div className="font-semibold text-xs mb-2 text-blue-400">Your Output:</div>
+                                                                            <div className={`pl-3 border-l-2 border-blue-500 ${isDark ? 'text-gray-200' : 'text-gray-800'}`}>
                                                                                 {result.stdout || "(No output)"}
                                                                             </div>
                                                                         </div>
 
                                                                         {result.stderr && (
                                                                             <div>
-                                                                                <div className="font-semibold text-xs text-red-400 mb-1">Error:</div>
-                                                                                <div className="pl-2 border-l-2 border-red-500 text-red-400">
+                                                                                <div className="font-semibold text-xs mb-2 text-red-400">Error:</div>
+                                                                                <div className="pl-3 border-l-2 border-red-500 text-red-400 text-xs">
                                                                                     {result.stderr}
                                                                                 </div>
                                                                             </div>
@@ -1466,23 +1200,31 @@ export default function SingleProblemPage() {
 
                                                                         {testCase?.expected && (
                                                                             <div>
-                                                                                <div className="font-semibold text-xs text-gray-400 mb-1">Expected Output:</div>
-                                                                                <div className="pl-2 border-l-2 border-blue-400">
+                                                                                <div className="font-semibold text-xs mb-2 text-green-400">Expected Output:</div>
+                                                                                <div className={`pl-3 border-l-2 border-green-500 ${isDark ? 'text-gray-200' : 'text-gray-800'}`}>
                                                                                     {testCase.expected}
                                                                                 </div>
                                                                             </div>
                                                                         )}
 
-                                                                        <div className="text-xs text-gray-400 mt-2">
-                                                                            Status: <span className={statusColor}>{statusText}</span> |
-                                                                            Time: {result.executionTimeMs}ms
+                                                                        <div className={`flex items-center justify-between text-xs pt-3 border-t ${isDark ? 'border-gray-700 text-gray-400' : 'border-gray-200 text-gray-600'
+                                                                            }`}>
+                                                                            <span className={`font-semibold ${statusColor}`}>
+                                                                                {statusText}
+                                                                            </span>
+                                                                            <span>
+                                                                                {result.executionTimeMs}ms
+                                                                            </span>
                                                                         </div>
                                                                     </div>
                                                                 );
                                                             })()
                                                         ) : (
-                                                            <div className="text-gray-400">
-                                                                Click "Run" to execute your code against the test case(s).
+                                                            <div className={`text-center py-8 ${isDark ? 'text-gray-500' : 'text-gray-400'}`}>
+                                                                <Play className="w-8 h-8 mx-auto mb-2 opacity-50" />
+                                                                <p className="text-sm">
+                                                                    Click "Run" to execute your code
+                                                                </p>
                                                             </div>
                                                         )}
                                                     </div>
@@ -1500,7 +1242,7 @@ export default function SingleProblemPage() {
     );
 }
 
-// Add a helper function to parse examples from the formatted statement
+// Keep existing parseExamples function
 const parseExamples = (statement: string): Array<{ input: string; output: string; explanation?: string }> => {
     const examples: Array<{ input: string; output: string; explanation?: string }> = [];
 
@@ -1516,12 +1258,11 @@ const parseExamples = (statement: string): Array<{ input: string; output: string
         if (inputMatch && outputMatch) {
             let explanation = explanationMatch ? explanationMatch[1].trim() : undefined;
 
-            // Clean up explanation by removing unwanted formatting characters if it exists
             if (explanation) {
                 explanation = explanation
-                    .replace(/```\s*\*\*/g, '') // Remove ``` **
-                    .replace(/`/g, '')        // Remove `
-                    .replace(/\*\*/g, '')       // Remove **
+                    .replace(/```\s*\*\*/g, '')
+                    .replace(/`/g, '')
+                    .replace(/\*\*/g, '')
                     .trim();
             }
 
