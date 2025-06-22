@@ -4,6 +4,7 @@ import (
 	"backend/internal/types"
 	"encoding/json"
 	"fmt"
+	"log"
 
 	"github.com/aws/aws-sdk-go/aws"
 	"github.com/aws/aws-sdk-go/aws/session"
@@ -12,11 +13,9 @@ import (
 
 // LambdaExecutionRequest is the structure sent to the Lambda function
 type LambdaExecutionRequest struct {
-	Language     string `json:"language"`
-	Code         string `json:"code"`
-	Input        string `json:"input"`
-	TimeLimitMs  int    `json:"time_limit_ms"`
-	FunctionName string `json:"function_name,omitempty"`
+	Code        string `json:"code"`
+	Input       string `json:"input"`
+	TimeLimitMs int    `json:"time_limit_ms"`
 }
 
 // LambdaExecutionResponse is the structure received from the Lambda function
@@ -42,11 +41,9 @@ func ExecuteCodeWithLambda(execReq types.ExecutionRequest) (*types.ExecutionResu
 
 	// Prepare the request payload for Lambda
 	lambdaReq := LambdaExecutionRequest{
-		Language:     execReq.Language,
-		Code:         execReq.Code,
-		Input:        execReq.Input,
-		TimeLimitMs:  execReq.TimeLimitMs,
-		FunctionName: execReq.FunctionName,
+		Code:        execReq.Code,
+		Input:       execReq.Input,
+		TimeLimitMs: execReq.TimeLimitMs,
 	}
 
 	// Convert the request to JSON
@@ -55,10 +52,13 @@ func ExecuteCodeWithLambda(execReq types.ExecutionRequest) (*types.ExecutionResu
 		return nil, fmt.Errorf("failed to marshal Lambda request: %w", err)
 	}
 
+	log.Printf("Invoking Lambda with payload: %s", string(payload))
+
 	// Set up the Lambda invocation input
 	req := &lambda.InvokeInput{
-		FunctionName: aws.String("python-code-executor"), // Name of your Lambda function
-		Payload:      payload,
+		FunctionName:   aws.String("python-code-executor-zip"), // Use the new ZIP-based Lambda function
+		Payload:        payload,
+		InvocationType: aws.String("RequestResponse"), // Synchronous invocation
 	}
 
 	// Invoke the Lambda function
@@ -67,10 +67,30 @@ func ExecuteCodeWithLambda(execReq types.ExecutionRequest) (*types.ExecutionResu
 		return nil, fmt.Errorf("failed to invoke Lambda function: %w", err)
 	}
 
+	log.Printf("Lambda response status code: %d", resp.StatusCode)
+
 	// Check if Lambda execution had an error
 	if resp.FunctionError != nil {
+		log.Printf("Lambda function error: %s", *resp.FunctionError)
+
+		// Try to parse the error payload for more details
+		var errorResp struct {
+			ErrorMessage string   `json:"errorMessage"`
+			ErrorType    string   `json:"errorType"`
+			StackTrace   []string `json:"stackTrace,omitempty"`
+		}
+
+		if err := json.Unmarshal(resp.Payload, &errorResp); err == nil && errorResp.ErrorMessage != "" {
+			log.Printf("Lambda error details: %s (%s)", errorResp.ErrorMessage, errorResp.ErrorType)
+			return nil, fmt.Errorf("Lambda function error (%s): %s", *resp.FunctionError, errorResp.ErrorMessage)
+		}
+
+		// Fallback to generic error
 		return nil, fmt.Errorf("Lambda function error: %s", *resp.FunctionError)
 	}
+
+	// Log the raw response payload for debugging
+	log.Printf("Lambda raw response: %s", string(resp.Payload))
 
 	// Parse the Lambda response
 	var lambdaResp LambdaExecutionResponse
@@ -78,12 +98,18 @@ func ExecuteCodeWithLambda(execReq types.ExecutionRequest) (*types.ExecutionResu
 		return nil, fmt.Errorf("failed to unmarshal Lambda response: %w", err)
 	}
 
+	// Map Lambda status to our status
+	status := lambdaResp.Status
+	if status == "" {
+		status = "error"
+	}
+
 	// Convert to ExecutionResult
 	result := &types.ExecutionResult{
 		Output:          lambdaResp.Output,
 		ExecutionTimeMs: lambdaResp.ExecutionTimeMs,
 		MemoryUsedKB:    lambdaResp.MemoryUsedKB,
-		Status:          lambdaResp.Status,
+		Status:          status,
 	}
 
 	return result, nil

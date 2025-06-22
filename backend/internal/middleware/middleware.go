@@ -37,6 +37,7 @@ var allowedOrigins = map[string]bool{
 	"http://localhost:3000":  true,
 	"http://localhost:33921": true,
 	"http://127.0.0.1:33921": true,
+	"https://codesorted.com": true,
 }
 
 // This is the middleware for the CORS

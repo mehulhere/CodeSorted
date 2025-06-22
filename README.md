@@ -497,3 +497,81 @@ graph LR
 - **Contest System**: Timed coding competitions
 - **Advanced Analytics**: ML-based performance insights
 - **Mobile Application**: Native mobile experience
+
+## Deployment
+
+### Server Architecture
+
+The Online Judge platform is deployed with the following architecture:
+
+```mermaid
+graph TD
+    User[User Browser] -->|HTTPS| Nginx[Nginx Reverse Proxy]
+    Nginx -->|Port 3000| NextJS[Next.js Frontend]
+    Nginx -->|Port 8080| Backend[Go Backend]
+    Backend -->|MongoDB| Database[(MongoDB Database)]
+    Backend -->|AWS Lambda| Executors[Code Executors]
+```
+
+- **Nginx**: Acts as a reverse proxy, handling SSL termination and routing requests
+- **Next.js Frontend**: Runs as a standalone server on port 3000
+- **Go Backend**: Runs on port 8080 with HTTPS support
+- **MongoDB**: Database for storing problems, submissions, users, etc.
+- **AWS Lambda**: Serverless functions for executing code in different languages
+
+### HTTPS Configuration
+
+The platform is configured to use HTTPS for secure communication:
+
+1. SSL certificates are obtained through Let's Encrypt/Certbot
+2. Nginx handles SSL termination for the frontend
+3. The Go backend also supports HTTPS with proper certificate configuration
+4. All cookies are set with Secure and HttpOnly flags
+
+### Deployment Process
+
+A CI/CD pipeline is implemented using the `deploy.sh` script, which:
+
+1. Builds the Go backend and Next.js frontend locally
+2. Transfers compiled binaries and assets to the EC2 instance
+3. Restarts the necessary services (backend.service and PM2-managed Next.js)
+4. Verifies the deployment status
+
+To deploy updates to the platform:
+
+```bash
+./deploy.sh
+```
+
+This script requires SSH access to the EC2 instance and appropriate permissions.
+
+### Server Setup
+
+The backend is managed as a systemd service with the following configuration:
+
+```ini
+[Unit]
+Description=Go Backend Service
+After=network.target
+
+[Service]
+User=ec2-user
+WorkingDirectory=/home/ec2-user/backend
+Environment="PORT=8080"
+Environment="AWS_REGION=ap-south-1"
+Environment="SSL_CERT_FILE=/home/ec2-user/backend/certs/codesorted.com.crt"
+Environment="SSL_KEY_FILE=/home/ec2-user/backend/certs/codesorted.com.key"
+Environment="USE_HTTPS=true"
+ExecStart=/home/ec2-user/backend/server
+Restart=always
+RestartSec=5
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target
+```
+
+The frontend is managed using PM2 to ensure it stays running and restarts on system boot.
+
+For detailed deployment instructions and troubleshooting, refer to the `commands.md` file.

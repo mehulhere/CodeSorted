@@ -10,3 +10,8 @@ node_modules
 backend/node_modules
 codebase.md
 run.txt
+backend/certs/
+backend/server
+backend.service
+commands.md
+deploy.sh

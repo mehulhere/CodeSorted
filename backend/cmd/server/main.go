@@ -67,6 +67,7 @@ func main() {
 		"http://localhost:3000":  true,
 		"http://localhost:33921": true,
 		"http://127.0.0.1:33921": true,
+		"https://codesorted.com": true, // Add production domain with HTTPS
 	}
 
 	http.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
@@ -242,8 +243,24 @@ func main() {
 	if port == "" {
 		port = "8080"
 	}
+
+	// Get SSL certificate paths from environment variables or use default paths
+	certFile := os.Getenv("SSL_CERT_FILE")
+	keyFile := os.Getenv("SSL_KEY_FILE")
+
+	// Check if we should use HTTPS
+	useHTTPS := os.Getenv("USE_HTTPS")
+
 	log.Printf("Server starting on port %s...", port)
-	err = http.ListenAndServe(":"+port, nil)
+
+	if useHTTPS == "true" && certFile != "" && keyFile != "" {
+		log.Printf("Using HTTPS with certificates: %s, %s", certFile, keyFile)
+		err = http.ListenAndServeTLS(":"+port, certFile, keyFile, nil)
+	} else {
+		log.Printf("Using HTTP (no SSL/TLS)")
+		err = http.ListenAndServe(":"+port, nil)
+	}
+
 	if err != nil {
 		log.Fatal(err)
 	}
