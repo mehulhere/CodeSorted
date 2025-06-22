@@ -49,48 +49,48 @@ const AnimatedButton: React.FC<AnimatedButtonProps> = ({
 
         if (gradient) {
             return `${baseClasses} bg-gradient-to-r text-white shadow-lg hover:scale-105 ${variant === 'primary' ? 'from-blue-600 to-purple-600 hover:from-blue-500 hover:to-purple-500' :
-                    variant === 'success' ? 'from-green-500 to-emerald-500 hover:from-green-400 hover:to-emerald-400' :
-                        variant === 'warning' ? 'from-yellow-500 to-orange-500 hover:from-yellow-400 hover:to-orange-400' :
-                            variant === 'danger' ? 'from-red-500 to-pink-500 hover:from-red-400 hover:to-pink-400' :
-                                'from-gray-600 to-gray-700 hover:from-gray-500 hover:to-gray-600'
+                variant === 'success' ? 'from-green-500 to-emerald-500 hover:from-green-400 hover:to-emerald-400' :
+                    variant === 'warning' ? 'from-yellow-500 to-orange-500 hover:from-yellow-400 hover:to-orange-400' :
+                        variant === 'danger' ? 'from-red-500 to-pink-500 hover:from-red-400 hover:to-pink-400' :
+                            'from-gray-600 to-gray-700 hover:from-gray-500 hover:to-gray-600'
                 }`;
         }
 
         switch (variant) {
             case 'primary':
                 return `${baseClasses} ${isDark
-                        ? 'bg-blue-600 hover:bg-blue-500 text-white border border-blue-500'
-                        : 'bg-blue-600 hover:bg-blue-700 text-white border border-blue-600'
-                    } hover:scale-105`;
+                    ? 'bg-blue-600 hover:bg-blue-500 text-white border border-blue-500'
+                    : 'bg-blue-600 hover:bg-blue-700 text-white border border-blue-600'
+                    }`;
 
             case 'secondary':
                 return `${baseClasses} ${isDark
-                        ? 'bg-gray-700 hover:bg-gray-600 text-gray-200 border border-gray-600'
-                        : 'bg-gray-200 hover:bg-gray-300 text-gray-800 border border-gray-300'
-                    } hover:scale-105`;
+                    ? 'bg-gray-700 hover:bg-gray-600 text-gray-200 border border-gray-600'
+                    : 'bg-gray-200 hover:bg-gray-300 text-gray-800 border border-gray-300'
+                    }`;
 
             case 'success':
                 return `${baseClasses} ${isDark
-                        ? 'bg-green-600 hover:bg-green-500 text-white border border-green-500'
-                        : 'bg-green-600 hover:bg-green-700 text-white border border-green-600'
-                    } hover:scale-105`;
+                    ? 'bg-green-600 hover:bg-green-500 text-white border border-green-500'
+                    : 'bg-green-600 hover:bg-green-700 text-white border border-green-600'
+                    }`;
 
             case 'warning':
                 return `${baseClasses} ${isDark
-                        ? 'bg-yellow-600 hover:bg-yellow-500 text-white border border-yellow-500'
-                        : 'bg-yellow-500 hover:bg-yellow-600 text-white border border-yellow-500'
-                    } hover:scale-105`;
+                    ? 'bg-yellow-600 hover:bg-yellow-500 text-white border border-yellow-500'
+                    : 'bg-yellow-500 hover:bg-yellow-600 text-white border border-yellow-500'
+                    }`;
 
             case 'danger':
                 return `${baseClasses} ${isDark
-                        ? 'bg-red-600 hover:bg-red-500 text-white border border-red-500'
-                        : 'bg-red-600 hover:bg-red-700 text-white border border-red-600'
-                    } hover:scale-105`;
+                    ? 'bg-red-600 hover:bg-red-500 text-white border border-red-500'
+                    : 'bg-red-600 hover:bg-red-700 text-white border border-red-600'
+                    }`;
 
             case 'ghost':
                 return `${baseClasses} ${isDark
-                        ? 'text-gray-300 hover:bg-gray-800 border border-transparent hover:border-gray-600'
-                        : 'text-gray-700 hover:bg-gray-100 border border-transparent hover:border-gray-300'
+                    ? 'text-gray-300 hover:bg-gray-800 border border-transparent hover:border-gray-600'
+                    : 'text-gray-700 hover:bg-gray-100 border border-transparent hover:border-gray-300'
                     }`;
 
             default:

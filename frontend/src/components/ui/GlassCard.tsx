@@ -35,18 +35,18 @@ const GlassCard: React.FC<GlassCardProps> = ({
             className={`
         relative rounded-xl backdrop-blur-lg border transition-all duration-300
         ${isDark
-                    ? 'bg-gray-900/30 border-gray-700/50'
+                    ? 'bg-black/60 border-gray-800/70'
                     : 'bg-white/30 border-white/20'
                 }
         ${hover
                     ? isDark
-                        ? 'hover:bg-gray-900/50 hover:border-gray-600/50 hover:scale-[1.02]'
-                        : 'hover:bg-white/50 hover:border-white/30 hover:scale-[1.02]'
+                        ? 'hover:bg-black/80 hover:border-gray-700/70'
+                        : 'hover:bg-white/50 hover:border-white/30'
                     : ''
                 }
         ${glow
                     ? isDark
-                        ? 'shadow-2xl shadow-blue-500/20'
+                        ? 'shadow-2xl shadow-blue-500/10'
                         : 'shadow-2xl shadow-blue-500/10'
                     : 'shadow-lg'
                 }
@@ -57,7 +57,7 @@ const GlassCard: React.FC<GlassCardProps> = ({
             {gradient && (
                 <div
                     className={`
-            absolute inset-0 rounded-xl opacity-10
+            absolute inset-0 rounded-xl opacity-5
             bg-gradient-to-br from-blue-500 via-purple-500 to-pink-500
           `}
                 />

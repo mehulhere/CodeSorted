@@ -538,7 +538,7 @@ export default function SingleProblemPage() {
 
     if (isLoading) {
         return (
-            <div className={`min-h-screen flex justify-center items-center transition-colors duration-300 ${isDark ? 'bg-gray-900' : 'bg-gray-50'}`}>
+            <div className="page-background flex justify-center items-center">
                 <div className="text-center">
                     <div className={`inline-block h-8 w-8 animate-spin rounded-full border-4 border-solid border-blue-600 border-r-transparent`}></div>
                     <p className={`mt-4 text-xl ${isDark ? 'text-gray-300' : 'text-gray-700'}`}>Loading problem details...</p>
@@ -549,7 +549,7 @@ export default function SingleProblemPage() {
 
     if (error) {
         return (
-            <div className={`min-h-screen flex flex-col justify-center items-center p-4 transition-colors duration-300 ${isDark ? 'bg-gray-900' : 'bg-gray-50'}`}>
+            <div className="page-background flex flex-col justify-center items-center p-4">
                 <GlassCard className="text-center max-w-md" padding="lg">
                     <AlertCircle className={`w-16 h-16 mx-auto mb-4 ${isDark ? 'text-red-400' : 'text-red-500'}`} />
                     <h2 className={`text-xl font-bold mb-2 ${isDark ? 'text-white' : 'text-gray-900'}`}>Error</h2>
@@ -568,7 +568,7 @@ export default function SingleProblemPage() {
 
     if (!problem) {
         return (
-            <div className={`min-h-screen flex flex-col justify-center items-center p-4 transition-colors duration-300 ${isDark ? 'bg-gray-900' : 'bg-gray-50'}`}>
+            <div className="page-background flex flex-col justify-center items-center p-4">
                 <GlassCard className="text-center max-w-md" padding="lg">
                     <Code2 className={`w-16 h-16 mx-auto mb-4 ${isDark ? 'text-gray-400' : 'text-gray-500'}`} />
                     <h2 className={`text-xl font-bold mb-2 ${isDark ? 'text-white' : 'text-gray-900'}`}>Problem Not Found</h2>
@@ -594,14 +594,14 @@ export default function SingleProblemPage() {
                 <meta name="description" content={`Solve ${problem.title} - ${problem.difficulty} difficulty coding challenge`} />
             </Head>
 
-            <div className={`min-h-screen transition-colors duration-300 ${isDark ? 'bg-gray-900' : 'bg-gray-50'}`}>
+            <div className="page-background">
                 <ResizablePanelGroup direction="horizontal" className="min-h-screen">
                     {/* Left Panel: Problem Description */}
                     <ResizablePanel defaultSize={40} minSize={30}>
-                        <div className={`h-screen flex flex-col transition-colors duration-300 ${isDark ? 'bg-gray-800 border-gray-700' : 'bg-white border-gray-200'
+                        <div className={`h-screen flex flex-col transition-colors duration-300 ${isDark ? 'bg-black border-gray-800' : 'bg-white border-gray-200'
                             } border-r`}>
                             {/* Enhanced Header */}
-                            <div className={`p-6 border-b transition-colors duration-300 ${isDark ? 'border-gray-700 bg-gray-800/50' : 'border-gray-200 bg-gray-50/50'
+                            <div className={`p-6 border-b transition-colors duration-300 ${isDark ? 'border-gray-800 bg-black/50' : 'border-gray-200 bg-gray-50/50'
                                 } backdrop-blur-sm`}>
                                 <div className="flex items-start justify-between mb-4">
                                     <div className="flex-1">
@@ -901,10 +901,10 @@ export default function SingleProblemPage() {
 
                     {/* Right Panel: Enhanced Code Editor */}
                     <ResizablePanel defaultSize={60} minSize={40}>
-                        <div className={`h-screen flex flex-col transition-colors duration-300 ${isDark ? 'bg-gray-800' : 'bg-white'
+                        <div className={`h-screen flex flex-col transition-colors duration-300 ${isDark ? 'bg-black' : 'bg-white'
                             }`}>
                             {/* Enhanced Language Selector */}
-                            <div className={`p-4 border-b transition-colors duration-300 ${isDark ? 'border-gray-700 bg-gray-800/50' : 'border-gray-200 bg-gray-50/50'
+                            <div className={`p-4 border-b transition-colors duration-300 ${isDark ? 'border-gray-800 bg-black/50' : 'border-gray-200 bg-gray-50/50'
                                 } backdrop-blur-sm`}>
                                 <div className="flex items-center justify-between">
                                     <div className="flex items-center gap-4">
@@ -960,7 +960,7 @@ export default function SingleProblemPage() {
                                 <ResizablePanelGroup direction="vertical">
                                     <ResizablePanel defaultSize={60} minSize={30}>
                                         <div className="h-full flex flex-col">
-                                            <div className={`flex items-center px-4 py-2 border-b transition-colors duration-300 ${isDark ? 'bg-gray-800 border-gray-700' : 'bg-gray-50 border-gray-200'
+                                            <div className={`flex items-center px-4 py-2 border-b transition-colors duration-300 ${isDark ? 'bg-black border-gray-800' : 'bg-gray-50 border-gray-200'
                                                 }`}>
                                                 <div className="flex">
                                                     <button
@@ -1052,10 +1052,10 @@ export default function SingleProblemPage() {
 
                                     {/* Enhanced Test Cases Panel */}
                                     <ResizablePanel defaultSize={35} minSize={20}>
-                                        <div className={`h-full flex flex-col transition-colors duration-300 ${isDark ? 'bg-gray-900 text-gray-200' : 'bg-gray-50 text-gray-800'
+                                        <div className={`h-full flex flex-col transition-colors duration-300 ${isDark ? 'bg-black text-gray-200' : 'bg-gray-50 text-gray-800'
                                             }`}>
                                             {/* Enhanced Test Case Tabs */}
-                                            <div className={`h-12 border-b flex items-center px-4 transition-colors duration-300 ${isDark ? 'bg-gray-900 border-gray-700' : 'bg-gray-100 border-gray-200'
+                                            <div className={`h-12 border-b flex items-center px-4 transition-colors duration-300 ${isDark ? 'bg-black border-gray-800' : 'bg-gray-100 border-gray-200'
                                                 }`}>
                                                 <div className="flex items-center gap-2 overflow-x-auto">
                                                     {customTestCases.map((_, index) => (
@@ -1207,7 +1207,7 @@ export default function SingleProblemPage() {
                                                                             </div>
                                                                         )}
 
-                                                                        <div className={`flex items-center justify-between text-xs pt-3 border-t ${isDark ? 'border-gray-700 text-gray-400' : 'border-gray-200 text-gray-600'
+                                                                        <div className={`flex items-center justify-between text-xs pt-3 border-t ${isDark ? 'border-gray-800 text-gray-400' : 'border-gray-200 text-gray-600'
                                                                             }`}>
                                                                             <span className={`font-semibold ${statusColor}`}>
                                                                                 {statusText}

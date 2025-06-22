@@ -176,11 +176,11 @@ const darkTheme: Theme = {
             950: '#f9fafb',
         },
         background: {
-            primary: '#0a0e1a',
-            secondary: '#111827',
-            tertiary: '#1f2937',
-            accent: '#374151',
-            glass: 'rgba(17, 24, 39, 0.7)',
+            primary: '#000000',
+            secondary: '#0a0a0a',
+            tertiary: '#121212',
+            accent: '#1a1a1a',
+            glass: 'rgba(10, 10, 10, 0.8)',
         },
         text: {
             primary: '#f9fafb',
@@ -190,10 +190,10 @@ const darkTheme: Theme = {
             inverse: '#0f172a',
         },
         border: {
-            primary: '#374151',
-            secondary: '#4b5563',
+            primary: '#262626',
+            secondary: '#404040',
             accent: '#60a5fa',
-            hover: '#6b7280',
+            hover: '#525252',
         },
         status: {
             success: '#34d399',
@@ -203,7 +203,7 @@ const darkTheme: Theme = {
             pending: '#fb923c',
         },
         code: {
-            background: '#0d1117',
+            background: '#000000',
             foreground: '#f0f6fc',
             comment: '#7d8590',
             keyword: '#ff7b72',
@@ -214,12 +214,12 @@ const darkTheme: Theme = {
         },
     },
     shadows: {
-        sm: '0 1px 2px 0 rgb(0 0 0 / 0.3)',
-        md: '0 4px 6px -1px rgb(0 0 0 / 0.3), 0 2px 4px -2px rgb(0 0 0 / 0.3)',
-        lg: '0 10px 15px -3px rgb(0 0 0 / 0.3), 0 4px 6px -4px rgb(0 0 0 / 0.3)',
-        xl: '0 20px 25px -5px rgb(0 0 0 / 0.3), 0 8px 10px -6px rgb(0 0 0 / 0.3)',
+        sm: '0 1px 2px 0 rgb(0 0 0 / 0.5)',
+        md: '0 4px 6px -1px rgb(0 0 0 / 0.5), 0 2px 4px -2px rgb(0 0 0 / 0.5)',
+        lg: '0 10px 15px -3px rgb(0 0 0 / 0.5), 0 4px 6px -4px rgb(0 0 0 / 0.5)',
+        xl: '0 20px 25px -5px rgb(0 0 0 / 0.5), 0 8px 10px -6px rgb(0 0 0 / 0.5)',
         glow: '0 0 20px rgb(96 165 250 / 0.4)',
-        inner: 'inset 0 2px 4px 0 rgb(0 0 0 / 0.2)',
+        inner: 'inset 0 2px 4px 0 rgb(0 0 0 / 0.3)',
     },
     gradients: {
         primary: 'linear-gradient(135deg, #1e40af 0%, #3730a3 100%)',
@@ -250,7 +250,7 @@ interface ThemeProviderProps {
 
 export const ThemeProvider: React.FC<ThemeProviderProps> = ({
     children,
-    defaultTheme = 'system',
+    defaultTheme = 'dark',
     defaultCodeTheme = 'github',
 }) => {
     const [themeMode, setThemeModeState] = useState<ThemeMode>(defaultTheme);

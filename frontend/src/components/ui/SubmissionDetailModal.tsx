@@ -23,10 +23,10 @@ interface SubmissionDetailModalProps {
     } | null;
 }
 
-const SubmissionDetailModal: React.FC<SubmissionDetailModalProps> = ({ 
-    isOpen, 
-    onClose, 
-    submission 
+const SubmissionDetailModal: React.FC<SubmissionDetailModalProps> = ({
+    isOpen,
+    onClose,
+    submission
 }) => {
     const { isDark } = useTheme();
     const [copied, setCopied] = useState(false);
@@ -112,11 +112,11 @@ const SubmissionDetailModal: React.FC<SubmissionDetailModalProps> = ({
         <div className="fixed inset-0 z-50 overflow-y-auto">
             <div className="flex items-center justify-center min-h-screen px-4 pt-4 pb-20 text-center sm:p-0">
                 {/* Backdrop */}
-                <div 
+                <div
                     className="fixed inset-0 transition-opacity bg-black/50 backdrop-blur-sm"
                     onClick={onClose}
                 />
-                
+
                 {/* Modal */}
                 <div className={`relative z-50 w-full max-w-4xl mx-auto transform transition-all ${isDark ? 'bg-gray-900' : 'bg-white'} rounded-2xl shadow-2xl`}>
                     {/* Header */}

@@ -3,13 +3,49 @@ import { useEffect, useState, FormEvent } from 'react';
 import axios from 'axios';
 import Head from 'next/head';
 import Link from 'next/link';
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
-import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
-import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
-import { Button } from '@/components/ui/button';
-import { Badge } from '@/components/ui/badge';
-import { CalendarDays, MapPin, Globe, Edit, Trophy, Target, Code, TrendingUp, Clock, Star, ArrowUp, MessageSquare, Users, Calendar } from 'lucide-react';
+import {
+  Trophy,
+  Star,
+  Target,
+  Code,
+  TrendingUp,
+  Clock,
+  Calendar,
+  MapPin,
+  Globe,
+  Edit,
+  Users,
+  Award,
+  Zap,
+  Flame,
+  Shield,
+  Crown,
+  Share2,
+  Download,
+  ExternalLink,
+  GitBranch,
+  BookOpen,
+  Activity,
+  MessageSquare,
+  Heart,
+  Eye,
+  BarChart3,
+  PieChart,
+  Settings,
+  Mail,
+  Github,
+  Twitter,
+  Linkedin
+} from 'lucide-react';
 import '@/app/globals.css';
+import { useTheme } from '@/providers/ThemeProvider';
+import { useAuthContext } from '@/lib/AuthContext';
+import GlassCard from '@/components/ui/GlassCard';
+import AnimatedButton from '@/components/ui/AnimatedButton';
+import SkillRadarChart from '@/components/ui/SkillRadarChart';
+import { AchievementGrid, Achievement } from '@/components/ui/AchievementBadge';
+import { ProgressRing, StatCard, DifficultyProgress } from '@/components/ui/ProgressComponents';
+import Skeleton from '@/components/ui/Skeleton';
 
 interface Profile {
   bio: string;
@@ -106,6 +142,8 @@ const ensureHttps = (url: string): string => {
 const UserProfilePage = () => {
   const router = useRouter();
   const { username } = router.query;
+  const { isDark } = useTheme();
+  const { user: loggedInUser } = useAuthContext();
   const [profile, setProfile] = useState<Profile | null>(null);
   const [user, setUser] = useState<User | null>(null);
   const [userStats, setUserStats] = useState<UserStats | null>(null);
@@ -114,7 +152,6 @@ const UserProfilePage = () => {
   const [languageStats, setLanguageStats] = useState<LanguageStats[]>([]);
   const [skills, setSkills] = useState<Skill[]>([]);
   const [isEditing, setIsEditing] = useState(false);
-  const [loggedInUser, setLoggedInUser] = useState<User | null>(null);
   const [loading, setLoading] = useState(true);
   const [discussionsCount, setDiscussionsCount] = useState(0);
   const [updateLoading, setUpdateLoading] = useState(false);
@@ -123,6 +160,10 @@ const UserProfilePage = () => {
   const [formErrors, setFormErrors] = useState<{
     website?: string;
   }>({});
+  const [activeTab, setActiveTab] = useState<'overview' | 'achievements' | 'activity' | 'social'>('overview');
+  const [isFollowing, setIsFollowing] = useState(false);
+  const [followerCount, setFollowerCount] = useState(0);
+  const [followingCount, setFollowingCount] = useState(0);
 
   // Generate random heatmap data for fallback
   const generateHeatmapData = (): SubmissionHeatmap[] => {
@@ -309,9 +350,8 @@ const UserProfilePage = () => {
       // Check if current user can edit
       try {
         const authResponse = await axios.get(`${process.env.NEXT_PUBLIC_BACKEND_URL}/api/auth-status`, { withCredentials: true });
-        if (authResponse.data.user) {
-          setLoggedInUser(authResponse.data.user);
-        }
+        // Remove the setLoggedInUser call since we're using useAuthContext
+        // The loggedInUser is already available from the context
       } catch (error) {
         console.error('Error fetching auth status:', error);
       }
@@ -436,16 +476,81 @@ const UserProfilePage = () => {
     }
   };
 
+  // Mock data for demonstration
+  const achievements: Achievement[] = [
+    {
+      id: '1',
+      title: 'First Steps',
+      description: 'Solve your first problem',
+      icon: 'trophy',
+      color: '#10B981',
+      rarity: 'common',
+      unlocked: true,
+      unlockedAt: '2025-06-01'
+    },
+    {
+      id: '2',
+      title: 'Speed Demon',
+      description: 'Solve 10 problems in one day',
+      icon: 'zap',
+      color: '#F59E0B',
+      rarity: 'rare',
+      unlocked: true,
+      unlockedAt: '2025-06-05'
+    },
+    {
+      id: '3',
+      title: 'Master Coder',
+      description: 'Solve 100 hard problems',
+      icon: 'crown',
+      color: '#8B5CF6',
+      rarity: 'epic',
+      unlocked: false,
+      progress: 45,
+      maxProgress: 100
+    },
+    {
+      id: '4',
+      title: 'Algorithm Legend',
+      description: 'Achieve top 1% ranking',
+      icon: 'star',
+      color: '#F59E0B',
+      rarity: 'legendary',
+      unlocked: false,
+      progress: 2,
+      maxProgress: 1
+    }
+  ];
+
+  const skillsData = [
+    { skill: 'Arrays', level: 4.2 },
+    { skill: 'Dynamic Programming', level: 3.8 },
+    { skill: 'Graphs', level: 3.5 },
+    { skill: 'Trees', level: 4.0 },
+    { skill: 'Strings', level: 4.5 },
+    { skill: 'Math', level: 3.2 }
+  ];
+
+  const canEdit = loggedInUser && loggedInUser.username === username;
+
   if (loading) {
     return (
       <>
         <Head>
           <title>Loading Profile...</title>
         </Head>
-        <div className="min-h-screen bg-gray-50 flex items-center justify-center">
-          <div className="text-center">
-            <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-indigo-600 mx-auto"></div>
-            <p className="mt-4 text-gray-600">Loading profile...</p>
+        <div className={`min-h-screen transition-colors duration-300 ${isDark ? 'bg-gray-900' : 'bg-gray-50'}`}>
+          <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+            <div className="space-y-6">
+              <Skeleton className="h-64 w-full" />
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+                <Skeleton className="h-96 w-full" />
+                <div className="md:col-span-2 space-y-6">
+                  <Skeleton className="h-64 w-full" />
+                  <Skeleton className="h-48 w-full" />
+                </div>
+              </div>
+            </div>
           </div>
         </div>
       </>
@@ -458,430 +563,578 @@ const UserProfilePage = () => {
         <Head>
           <title>Profile Not Found</title>
         </Head>
-        <div className="min-h-screen bg-gray-50 flex items-center justify-center">
-          <div className="text-center">
-            <h1 className="text-2xl font-bold text-gray-900">Profile not found</h1>
-            <p className="mt-2 text-gray-600">The user you're looking for doesn't exist.</p>
-          </div>
+        <div className={`min-h-screen flex items-center justify-center ${isDark ? 'bg-gray-900' : 'bg-gray-50'}`}>
+          <GlassCard className="text-center py-12 px-8">
+            <Users className={`w-16 h-16 mx-auto mb-4 ${isDark ? 'text-gray-600' : 'text-gray-400'}`} />
+            <h1 className={`text-2xl font-bold mb-2 ${isDark ? 'text-white' : 'text-gray-900'}`}>
+              Profile not found
+            </h1>
+            <p className={`${isDark ? 'text-gray-400' : 'text-gray-600'} mb-4`}>
+              The user you're looking for doesn't exist.
+            </p>
+            <AnimatedButton href="/" variant="primary">
+              Go Home
+            </AnimatedButton>
+          </GlassCard>
         </div>
       </>
     );
   }
 
-  const canEdit = loggedInUser && loggedInUser.username === username;
-
   return (
     <>
       <Head>
-        <title>{username}'s Profile - Online Judge</title>
+        <title>{username}'s Profile | CodeSorted</title>
+        <meta name="description" content={`${username}'s coding profile - ${userStats?.totalSolved || 0} problems solved`} />
       </Head>
-      <div className="min-h-screen bg-gray-50 py-8">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-          {/* Profile Header */}
-          <div className="bg-white rounded-lg shadow-sm p-6 mb-6">
-            <div className="flex flex-col md:flex-row items-start md:items-center gap-6">
-              <Avatar className="h-24 w-24">
-                <AvatarImage src="" alt={username as string} />
-                <AvatarFallback className="text-2xl bg-indigo-600 text-white">
-                  {username?.toString().charAt(0).toUpperCase()}
-                </AvatarFallback>
-              </Avatar>
 
-              <div className="flex-1">
-                <div className="flex flex-col md:flex-row md:items-center md:justify-between">
-                  <div>
-                    <h1 className="text-3xl font-bold text-gray-900">{username}</h1>
-                    <p className="text-lg text-gray-600">
-                      Rank {userStats?.ranking?.toLocaleString()}
-                    </p>
+      <div className={`min-h-screen transition-colors duration-300 ${isDark ? 'bg-gray-900' : 'bg-gray-50'}`}>
+        {/* Animated Background */}
+        <div className="fixed inset-0 overflow-hidden pointer-events-none">
+          <div className={`absolute -top-40 -right-40 w-80 h-80 rounded-full blur-3xl opacity-10 ${isDark ? 'bg-purple-500' : 'bg-purple-300'}`} />
+          <div className={`absolute top-40 -left-40 w-80 h-80 rounded-full blur-3xl opacity-10 ${isDark ? 'bg-blue-500' : 'bg-blue-300'}`} />
+        </div>
+
+        <div className="relative z-10 max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+          {/* Enhanced Profile Header */}
+          <GlassCard className="mb-8" padding="lg">
+            <div className="flex flex-col lg:flex-row items-start lg:items-center gap-8">
+              {/* Avatar and Basic Info */}
+              <div className="flex flex-col sm:flex-row items-start sm:items-center gap-6">
+                <div className="relative group">
+                  <div className="w-32 h-32 rounded-full bg-gradient-to-r from-blue-500 via-purple-500 to-pink-500 p-1">
+                    <div className="w-full h-full rounded-full bg-gray-100 dark:bg-gray-800 flex items-center justify-center">
+                      <span className="text-4xl font-bold text-gray-600 dark:text-gray-300">
+                        {username?.toString().charAt(0).toUpperCase()}
+                      </span>
+                    </div>
                   </div>
-                  {canEdit && (
-                    <Button
-                      onClick={() => setIsEditing(!isEditing)}
-                      variant="outline"
-                      className="mt-4 md:mt-0"
-                    >
-                      <Edit className="h-4 w-4 mr-2" />
-                      Edit Profile
-                    </Button>
-                  )}
+                  {/* Online status indicator */}
+                  <div className="absolute bottom-2 right-2 w-6 h-6 bg-green-500 rounded-full border-4 border-white dark:border-gray-800" />
                 </div>
 
-                <div className="mt-4 flex flex-wrap gap-4 text-sm text-gray-600">
-                  {profile.location && (
-                    <div className="flex items-center gap-1">
-                      <MapPin className="h-4 w-4" />
-                      {profile.location}
+                <div className="space-y-3">
+                  <div>
+                    <h1 className={`text-4xl font-bold mb-2 ${isDark ? 'text-white' : 'text-gray-900'}`}>
+                      {username}
+                    </h1>
+                    <div className="flex items-center gap-3 text-sm">
+                      <div className={`flex items-center gap-1 ${isDark ? 'text-gray-400' : 'text-gray-600'}`}>
+                        <Trophy className="w-4 h-4" />
+                        <span>Rank #{userStats?.ranking?.toLocaleString()}</span>
+                      </div>
+                      <div className={`flex items-center gap-1 ${isDark ? 'text-gray-400' : 'text-gray-600'}`}>
+                        <Target className="w-4 h-4" />
+                        <span>{userStats?.totalSolved} problems solved</span>
+                      </div>
                     </div>
-                  )}
-                  {profile.website && (
-                    <div className="flex items-center gap-1">
-                      <Globe className="h-4 w-4" />
+                  </div>
+
+                  {/* Social Info */}
+                  <div className="flex items-center gap-4 text-sm">
+                    {profile.location && (
+                      <div className={`flex items-center gap-1 ${isDark ? 'text-gray-400' : 'text-gray-600'}`}>
+                        <MapPin className="w-4 h-4" />
+                        {profile.location}
+                      </div>
+                    )}
+                    {profile.website && (
                       <a
                         href={ensureHttps(profile.website)}
                         target="_blank"
                         rel="noopener noreferrer"
-                        className="text-indigo-600 hover:underline overflow-hidden text-ellipsis max-w-[250px]"
+                        className={`flex items-center gap-1 hover:underline ${isDark ? 'text-blue-400' : 'text-blue-600'}`}
                       >
+                        <Globe className="w-4 h-4" />
                         {profile.website.replace(/^https?:\/\//i, '')}
+                        <ExternalLink className="w-3 h-3" />
                       </a>
+                    )}
+                    <div className={`flex items-center gap-1 ${isDark ? 'text-gray-400' : 'text-gray-600'}`}>
+                      <Calendar className="w-4 h-4" />
+                      Joined Jun 2025
                     </div>
+                  </div>
+
+                  {profile.bio && (
+                    <p className={`max-w-2xl ${isDark ? 'text-gray-300' : 'text-gray-700'}`}>
+                      {profile.bio}
+                    </p>
                   )}
-                  <div className="flex items-center gap-1">
-                    <CalendarDays className="h-4 w-4" />
-                    Joined Jun 2025
+                </div>
+              </div>
+
+              {/* Stats and Actions */}
+              <div className="flex-1 flex flex-col lg:items-end gap-6">
+                {/* Quick Stats */}
+                <div className="grid grid-cols-3 gap-4 text-center">
+                  <div>
+                    <div className={`text-2xl font-bold ${isDark ? 'text-white' : 'text-gray-900'}`}>
+                      {followerCount}
+                    </div>
+                    <div className={`text-sm ${isDark ? 'text-gray-400' : 'text-gray-600'}`}>
+                      Followers
+                    </div>
+                  </div>
+                  <div>
+                    <div className={`text-2xl font-bold ${isDark ? 'text-white' : 'text-gray-900'}`}>
+                      {followingCount}
+                    </div>
+                    <div className={`text-sm ${isDark ? 'text-gray-400' : 'text-gray-600'}`}>
+                      Following
+                    </div>
+                  </div>
+                  <div>
+                    <div className={`text-2xl font-bold ${isDark ? 'text-white' : 'text-gray-900'}`}>
+                      {userStats?.currentStreak || 0}
+                    </div>
+                    <div className={`text-sm ${isDark ? 'text-gray-400' : 'text-gray-600'}`}>
+                      Day Streak
+                    </div>
                   </div>
                 </div>
 
-                {profile.bio && (
-                  <p className="mt-4 text-gray-700">{profile.bio}</p>
-                )}
+                {/* Action Buttons */}
+                <div className="flex flex-wrap gap-3">
+                  {canEdit ? (
+                    <>
+                      <AnimatedButton
+                        onClick={() => setIsEditing(!isEditing)}
+                        variant="primary"
+                        icon={Edit}
+                      >
+                        Edit Profile
+                      </AnimatedButton>
+                      <AnimatedButton
+                        variant="secondary"
+                        icon={Settings}
+                      >
+                        Settings
+                      </AnimatedButton>
+                    </>
+                  ) : (
+                    <>
+                      <AnimatedButton
+                        onClick={() => setIsFollowing(!isFollowing)}
+                        variant={isFollowing ? "secondary" : "primary"}
+                        icon={isFollowing ? Users : Heart}
+                        gradient={!isFollowing}
+                        glow={!isFollowing}
+                      >
+                        {isFollowing ? 'Following' : 'Follow'}
+                      </AnimatedButton>
+                      <AnimatedButton
+                        variant="secondary"
+                        icon={MessageSquare}
+                      >
+                        Message
+                      </AnimatedButton>
+                    </>
+                  )}
+                  <AnimatedButton
+                    variant="ghost"
+                    icon={Share2}
+                    size="sm"
+                  >
+                    Share
+                  </AnimatedButton>
+                </div>
+              </div>
+            </div>
 
-                {isEditing && (
-                  <div className="mt-6">
-                    <form onSubmit={handleUpdate} className="space-y-4">
+            {/* Edit Profile Form */}
+            {isEditing && (
+              <div className="mt-8 pt-8 border-t border-gray-200 dark:border-gray-700">
+                <form onSubmit={handleUpdate} className="space-y-6">
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                    <div>
+                      <label className={`block text-sm font-medium mb-2 ${isDark ? 'text-gray-300' : 'text-gray-700'}`}>
+                        Bio
+                      </label>
+                      <textarea
+                        name="bio"
+                        defaultValue={profile.bio}
+                        rows={4}
+                        className={`w-full px-4 py-3 rounded-lg border transition-all duration-300 ${isDark
+                          ? 'bg-gray-800 border-gray-600 text-white focus:border-blue-500'
+                          : 'bg-white border-gray-300 text-gray-900 focus:border-blue-500'
+                          } focus:ring-2 focus:ring-blue-500/20`}
+                        placeholder="Tell us about yourself..."
+                      />
+                    </div>
+                    <div className="space-y-4">
                       <div>
-                        <label className="block text-sm font-medium text-gray-700">Bio</label>
-                        <textarea
-                          name="bio"
-                          defaultValue={profile.bio}
-                          className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500"
-                          rows={3}
-                        />
-                      </div>
-                      <div>
-                        <label className="block text-sm font-medium text-gray-700">Location</label>
+                        <label className={`block text-sm font-medium mb-2 ${isDark ? 'text-gray-300' : 'text-gray-700'}`}>
+                          Location
+                        </label>
                         <input
                           type="text"
                           name="location"
                           defaultValue={profile.location}
-                          className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500"
+                          className={`w-full px-4 py-3 rounded-lg border transition-all duration-300 ${isDark
+                            ? 'bg-gray-800 border-gray-600 text-white focus:border-blue-500'
+                            : 'bg-white border-gray-300 text-gray-900 focus:border-blue-500'
+                            } focus:ring-2 focus:ring-blue-500/20`}
+                          placeholder="Your location"
                         />
                       </div>
                       <div>
-                        <label className="block text-sm font-medium text-gray-700">Website</label>
+                        <label className={`block text-sm font-medium mb-2 ${isDark ? 'text-gray-300' : 'text-gray-700'}`}>
+                          Website
+                        </label>
                         <input
-                          type="text"
+                          type="url"
                           name="website"
                           defaultValue={profile.website}
-                          placeholder="https://example.com"
-                          onChange={(e) => {
-                            const value = e.target.value.trim();
-                            if (value && !value.startsWith('http')) {
-                              setFormErrors({
-                                website: 'URL should start with http:// or https://'
-                              });
-                            } else {
-                              setFormErrors({});
-                            }
-                          }}
-                          className={`mt-1 block w-full rounded-md shadow-sm focus:border-indigo-500 focus:ring-indigo-500 ${formErrors.website ? 'border-red-300' : 'border-gray-300'
-                            }`}
+                          className={`w-full px-4 py-3 rounded-lg border transition-all duration-300 ${isDark
+                            ? 'bg-gray-800 border-gray-600 text-white focus:border-blue-500'
+                            : 'bg-white border-gray-300 text-gray-900 focus:border-blue-500'
+                            } focus:ring-2 focus:ring-blue-500/20`}
+                          placeholder="https://yourwebsite.com"
                         />
-                        {formErrors.website ? (
-                          <p className="mt-1 text-sm text-red-600">{formErrors.website}</p>
-                        ) : (
-                          <p className="mt-1 text-sm text-gray-500">
-                            Include https:// for valid URLs (e.g., https://example.com)
-                          </p>
-                        )}
                       </div>
-
-                      {updateError && (
-                        <div className="bg-red-50 border-l-4 border-red-400 p-4">
-                          <p className="text-red-700 text-sm">{updateError}</p>
-                        </div>
-                      )}
-
-                      {updateSuccess && (
-                        <div className="bg-green-50 border-l-4 border-green-400 p-4">
-                          <p className="text-green-700 text-sm">Profile updated successfully!</p>
-                        </div>
-                      )}
-
-                      <div className="flex gap-2">
-                        <Button type="submit" disabled={updateLoading}>
-                          {updateLoading ? (
-                            <>
-                              <span className="inline-block h-4 w-4 animate-spin rounded-full border-2 border-solid border-current border-r-transparent mr-2"></span>
-                              Saving...
-                            </>
-                          ) : 'Save'}
-                        </Button>
-                        <Button
-                          type="button"
-                          variant="outline"
-                          onClick={() => setIsEditing(false)}
-                          disabled={updateLoading}
-                        >
-                          Cancel
-                        </Button>
-                      </div>
-                    </form>
+                    </div>
                   </div>
-                )}
+
+                  {updateError && (
+                    <div className="p-4 rounded-lg bg-red-50 border border-red-200 text-red-700">
+                      {updateError}
+                    </div>
+                  )}
+
+                  {updateSuccess && (
+                    <div className="p-4 rounded-lg bg-green-50 border border-green-200 text-green-700">
+                      Profile updated successfully!
+                    </div>
+                  )}
+
+                  <div className="flex gap-3">
+                    <AnimatedButton
+                      type="submit"
+                      variant="primary"
+                      disabled={updateLoading}
+                      loading={updateLoading}
+                    >
+                      Save Changes
+                    </AnimatedButton>
+                    <AnimatedButton
+                      type="button"
+                      variant="secondary"
+                      onClick={() => setIsEditing(false)}
+                      disabled={updateLoading}
+                    >
+                      Cancel
+                    </AnimatedButton>
+                  </div>
+                </form>
               </div>
+            )}
+          </GlassCard>
+
+          {/* Navigation Tabs */}
+          <div className="mb-8">
+            <div className="flex space-x-1 rounded-xl bg-gray-200/50 dark:bg-gray-800/50 p-1">
+              {[
+                { id: 'overview', label: 'Overview', icon: BarChart3 },
+                { id: 'achievements', label: 'Achievements', icon: Trophy },
+                { id: 'activity', label: 'Activity', icon: Activity },
+                { id: 'social', label: 'Social', icon: Users }
+              ].map((tab) => {
+                const Icon = tab.icon;
+                return (
+                  <button
+                    key={tab.id}
+                    onClick={() => setActiveTab(tab.id as any)}
+                    className={`flex items-center gap-2 px-6 py-3 rounded-lg font-medium transition-all duration-300 ${activeTab === tab.id
+                      ? isDark
+                        ? 'bg-gray-700 text-white shadow-lg'
+                        : 'bg-white text-gray-900 shadow-lg'
+                      : isDark
+                        ? 'text-gray-400 hover:text-white'
+                        : 'text-gray-600 hover:text-gray-900'
+                      }`}
+                  >
+                    <Icon className="w-4 h-4" />
+                    {tab.label}
+                  </button>
+                );
+              })}
             </div>
           </div>
 
-          {/* Main Content */}
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-            {/* Left Column: Stats */}
-            <div className="md:col-span-1 space-y-6">
-              {/* Problem Solving Stats */}
-              <Card>
-                <CardHeader>
-                  <CardTitle className="text-xl flex items-center gap-2">
-                    <Trophy className="h-5 w-5 text-indigo-600" />
-                    Problem Solving
-                  </CardTitle>
-                </CardHeader>
-                <CardContent className="space-y-4">
-                  <div className="flex items-center justify-between">
-                    <span className="text-gray-600">Problems Solved</span>
-                    <span className="font-semibold">{userStats?.totalSolved}</span>
+          {/* Tab Content */}
+          {activeTab === 'overview' && (
+            <div className="grid grid-cols-1 xl:grid-cols-4 gap-8">
+              {/* Left Column: Problem Solving Overview */}
+              <div className="xl:col-span-1">
+                <GlassCard padding="lg">
+                  <div className="flex items-center gap-3 mb-6">
+                    <div className="p-2 rounded-lg bg-blue-100 dark:bg-blue-900/30">
+                      <Target className="w-5 h-5 text-blue-600" />
+                    </div>
+                    <h3 className={`text-lg font-semibold ${isDark ? 'text-white' : 'text-gray-900'}`}>
+                      Progress
+                    </h3>
                   </div>
-                  <div className="flex items-center justify-between">
-                    <span className="text-gray-600">Easy</span>
-                    <span className="font-semibold text-green-600">{userStats?.easySolved}</span>
-                  </div>
-                  <div className="flex items-center justify-between">
-                    <span className="text-gray-600">Medium</span>
-                    <span className="font-semibold text-yellow-600">{userStats?.mediumSolved}</span>
-                  </div>
-                  <div className="flex items-center justify-between">
-                    <span className="text-gray-600">Hard</span>
-                    <span className="font-semibold text-red-600">{userStats?.hardSolved}</span>
-                  </div>
-                  <div className="flex items-center justify-between">
-                    <span className="text-gray-600">Submissions</span>
-                    <span className="font-semibold">{userStats?.totalSubmissions}</span>
-                  </div>
-                  <div className="flex items-center justify-between">
-                    <span className="text-gray-600">Acceptance Rate</span>
-                    <span className="font-semibold">{userStats?.acceptanceRate?.toFixed(1) ?? '0.0'}%</span>
-                  </div>
-                </CardContent>
-              </Card>
 
-              {/* Streaks */}
-              <Card>
-                <CardHeader>
-                  <CardTitle className="text-xl flex items-center gap-2">
-                    <Calendar className="h-5 w-5 text-indigo-600" />
-                    Streaks
-                  </CardTitle>
-                </CardHeader>
-                <CardContent className="space-y-4">
-                  <div className="flex items-center justify-between">
-                    <span className="text-gray-600">Current Streak</span>
-                    <span className="font-semibold">{userStats?.currentStreak} days</span>
+                  <div className="text-center mb-6">
+                    <ProgressRing
+                      progress={userStats?.totalSolved || 0}
+                      total={500}
+                      size={140}
+                      color="#3B82F6"
+                    />
                   </div>
-                  <div className="flex items-center justify-between">
-                    <span className="text-gray-600">Max Streak</span>
-                    <span className="font-semibold">{userStats?.maxStreak} days</span>
-                  </div>
-                </CardContent>
-              </Card>
 
-              {/* Programming Languages */}
-              <Card>
-                <CardHeader>
-                  <CardTitle className="text-xl flex items-center gap-2">
-                    <Code className="h-5 w-5 text-indigo-600" />
-                    Languages
-                  </CardTitle>
-                </CardHeader>
-                <CardContent>
-                  <div className="space-y-3">
-                    {languageStats.map((lang, idx) => (
-                      <div key={idx}>
-                        <div className="flex items-center justify-between mb-1">
-                          <span className="text-sm font-medium text-gray-700">{lang.language.charAt(0).toUpperCase() + lang.language.slice(1)}</span>
-                          <span className="text-sm text-gray-600">{lang.count} ({lang.percentage.toFixed(1)}%)</span>
-                        </div>
-                        <div className="w-full bg-gray-200 rounded-full h-2">
-                          <div
-                            className="bg-indigo-600 h-2 rounded-full"
-                            style={{ width: `${lang.percentage}%` }}
-                          ></div>
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                </CardContent>
-              </Card>
+                  <DifficultyProgress
+                    easy={{ solved: userStats?.easySolved || 0, total: 200 }}
+                    medium={{ solved: userStats?.mediumSolved || 0, total: 200 }}
+                    hard={{ solved: userStats?.hardSolved || 0, total: 100 }}
+                  />
+                </GlassCard>
+              </div>
 
-              {/* Skills */}
-              <Card>
-                <CardHeader>
-                  <CardTitle className="text-xl flex items-center gap-2">
-                    <Target className="h-5 w-5 text-indigo-600" />
-                    Skills
-                  </CardTitle>
-                </CardHeader>
-                <CardContent>
-                  <div className="space-y-2">
-                    {skills.map((skill, idx) => (
-                      <div key={idx} className="flex items-center justify-between">
-                        <div>
-                          <p className="font-medium text-gray-900">{skill.name}</p>
-                          <p className="text-sm text-gray-500">{skill.problemsSolved} problems</p>
-                        </div>
-                        <Badge
-                          className={
-                            skill.level === 'Beginner' ? 'bg-blue-100 text-blue-800' :
-                              skill.level === 'Intermediate' ? 'bg-indigo-100 text-indigo-800' :
-                                skill.level === 'Advanced' ? 'bg-violet-100 text-violet-800' :
-                                  'bg-purple-100 text-purple-800'
-                          }
-                        >
-                          {skill.level}
-                        </Badge>
-                      </div>
-                    ))}
-                  </div>
-                </CardContent>
-              </Card>
-            </div>
+              {/* Center Column: Stats Grid */}
+              <div className="xl:col-span-2 space-y-6">
+                {/* Performance Stats - Simplified Grid */}
+                <div className="grid grid-cols-2 gap-4">
+                  <StatCard
+                    title="Acceptance Rate"
+                    value={`${userStats?.acceptanceRate?.toFixed(1) || '0.0'}%`}
+                    icon={<TrendingUp className="w-5 h-5" />}
+                    color="#10B981"
+                    trend={{ value: 5.2, isPositive: true }}
+                  />
+                  <StatCard
+                    title="Total Submissions"
+                    value={userStats?.totalSubmissions || 0}
+                    icon={<Code className="w-5 h-5" />}
+                    color="#8B5CF6"
+                  />
+                </div>
 
-            {/* Right Column: Activity */}
-            <div className="md:col-span-2 space-y-6">
-              {/* Activity Heatmap */}
-              <Card>
-                <CardHeader>
-                  <CardTitle className="text-xl flex items-center gap-2">
-                    <TrendingUp className="h-5 w-5 text-indigo-600" />
-                    Activity
-                  </CardTitle>
-                </CardHeader>
-                <CardContent>
-                  <div className="flex flex-wrap">
-                    {heatmapData.map((data, idx) => (
+                <div className="grid grid-cols-2 gap-4">
+                  <StatCard
+                    title="Current Streak"
+                    value={`${userStats?.currentStreak || 0} days`}
+                    icon={<Flame className="w-5 h-5" />}
+                    color="#F59E0B"
+                    progress={{ current: userStats?.currentStreak || 0, total: userStats?.maxStreak || 1 }}
+                  />
+                  <StatCard
+                    title="Global Rank"
+                    value={`#${userStats?.ranking?.toLocaleString() || '0'}`}
+                    icon={<Crown className="w-5 h-5" />}
+                    color="#EF4444"
+                    subtitle={`Top ${userStats && userStats.totalUsers > 0 ? ((userStats.ranking / userStats.totalUsers) * 100).toFixed(1) : '0.0'}%`}
+                  />
+                </div>
+
+                {/* Skills Radar - More Compact */}
+                <GlassCard padding="lg">
+                  <div className="flex items-center gap-3 mb-4">
+                    <div className="p-2 rounded-lg bg-purple-100 dark:bg-purple-900/30">
+                      <Star className="w-5 h-5 text-purple-600" />
+                    </div>
+                    <h3 className={`text-lg font-semibold ${isDark ? 'text-white' : 'text-gray-900'}`}>
+                      Skills Overview
+                    </h3>
+                  </div>
+
+                  <div className="flex justify-center">
+                    <SkillRadarChart data={skillsData} size={200} />
+                  </div>
+                </GlassCard>
+              </div>
+
+              {/* Right Column: Activity and Languages */}
+              <div className="xl:col-span-1 space-y-6">
+                {/* Activity Heatmap - Simplified */}
+                <GlassCard padding="lg">
+                  <div className="flex items-center gap-3 mb-4">
+                    <div className="p-2 rounded-lg bg-orange-100 dark:bg-orange-900/30">
+                      <Activity className="w-5 h-5 text-orange-600" />
+                    </div>
+                    <h3 className={`text-lg font-semibold ${isDark ? 'text-white' : 'text-gray-900'}`}>
+                      Activity
+                    </h3>
+                  </div>
+
+                  <div className="grid grid-cols-7 gap-1 mb-3">
+                    {heatmapData.slice(-49).map((data, idx) => (
                       <div
                         key={idx}
-                        className={`h-3 w-3 m-0.5 rounded-sm ${getHeatmapColor(data.count)}`}
+                        className={`h-2.5 w-2.5 rounded-sm transition-colors duration-300 ${getHeatmapColor(data.count)}`}
                         title={`${data.date}: ${data.count} activities`}
-                      ></div>
+                      />
                     ))}
                   </div>
-                  <div className="mt-3 flex items-center justify-end gap-2 text-xs text-gray-500">
-                    <div className="flex items-center">
-                      <div className="h-3 w-3 bg-gray-100 rounded-sm mr-1"></div>
-                      <span>0</span>
-                    </div>
-                    <div className="flex items-center">
-                      <div className="h-3 w-3 bg-green-200 rounded-sm mr-1"></div>
-                      <span>1-2</span>
-                    </div>
-                    <div className="flex items-center">
-                      <div className="h-3 w-3 bg-green-300 rounded-sm mr-1"></div>
-                      <span>3-4</span>
-                    </div>
-                    <div className="flex items-center">
-                      <div className="h-3 w-3 bg-green-400 rounded-sm mr-1"></div>
-                      <span>5-6</span>
-                    </div>
-                    <div className="flex items-center">
-                      <div className="h-3 w-3 bg-green-500 rounded-sm mr-1"></div>
-                      <span>7+</span>
-                    </div>
-                  </div>
-                </CardContent>
-              </Card>
 
-              {/* Recent Submissions */}
-              <Card>
-                <CardHeader>
-                  <CardTitle className="text-xl flex items-center gap-2">
-                    <Clock className="h-5 w-5 text-indigo-600" />
-                    Recent Submissions
-                  </CardTitle>
-                </CardHeader>
-                <CardContent>
-                  <div className="overflow-x-auto">
-                    <table className="w-full text-sm">
-                      <thead>
-                        <tr className="border-b">
-                          <th className="text-left py-2 font-medium text-gray-500">Problem</th>
-                          <th className="text-left py-2 font-medium text-gray-500">Status</th>
-                          <th className="text-left py-2 font-medium text-gray-500">Language</th>
-                          <th className="text-left py-2 font-medium text-gray-500">Time</th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {recentSubmissions.length === 0 ? (
-                          <tr>
-                            <td colSpan={4} className="py-4 text-center text-gray-500">
-                              No submissions found
-                            </td>
-                          </tr>
-                        ) : (
-                          recentSubmissions.map((submission, idx) => (
-                            <tr key={idx} className="border-b last:border-0">
-                              <td className="py-2">
-                                <Link href={`/problems/${submission.problem_id || submission.id}`} className="flex items-center gap-2">
-                                  <span className="font-medium text-indigo-600 hover:underline">{submission.problem_title || submission.problemTitle}</span>
-                                  <Badge
-                                    className={
-                                      (submission.difficulty === 'Easy' || submission.difficulty === 'EASY') ? 'bg-green-100 text-green-800' :
-                                        (submission.difficulty === 'Medium' || submission.difficulty === 'MEDIUM') ? 'bg-yellow-100 text-yellow-800' :
-                                          'bg-red-100 text-red-800'
-                                    }
-                                  >
-                                    {submission.difficulty}
-                                  </Badge>
-                                </Link>
-                              </td>
-                              <td className="py-2">
-                                <span className={
-                                  (submission.status === 'Accepted' || submission.status === 'ACCEPTED') ? 'text-green-600' :
-                                    (submission.status === 'Wrong Answer' || submission.status === 'WRONG_ANSWER') ? 'text-red-600' :
-                                      'text-yellow-600'
-                                }>
-                                  {submission.status}
-                                </span>
-                              </td>
-                              <td className="py-2 text-gray-600">{submission.language}</td>
-                              <td className="py-2 text-gray-500">{submission.timestamp_text || submission.timestamp}</td>
-                            </tr>
-                          ))
-                        )}
-                      </tbody>
-                    </table>
+                  <div className="flex items-center justify-between text-xs text-gray-500 dark:text-gray-400">
+                    <span>Less</span>
+                    <div className="flex items-center gap-1">
+                      {[0, 1, 2, 3, 4].map((level) => (
+                        <div
+                          key={level}
+                          className={`h-2.5 w-2.5 rounded-sm ${getHeatmapColor(level)}`}
+                        />
+                      ))}
+                    </div>
+                    <span>More</span>
                   </div>
-                </CardContent>
-              </Card>
+                </GlassCard>
 
-              {/* Community */}
-              <Card>
-                <CardHeader>
-                  <CardTitle className="text-xl flex items-center gap-2">
-                    <Users className="h-5 w-5 text-indigo-600" />
-                    Community
-                  </CardTitle>
-                </CardHeader>
-                <CardContent>
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                    <div className="rounded-lg bg-indigo-50 p-4 flex items-center justify-between">
-                      <div>
-                        <h3 className="text-lg font-medium text-indigo-900">Ranking</h3>
-                        <p className="text-indigo-700">Top {userStats && userStats.totalUsers > 0 ? ((userStats.ranking / userStats.totalUsers) * 100).toFixed(2) : '0.0'}%</p>
-                      </div>
-                      <div className="text-2xl font-bold text-indigo-900">{userStats?.ranking?.toLocaleString()}</div>
+                {/* Languages - Compact */}
+                <GlassCard padding="lg">
+                  <div className="flex items-center gap-3 mb-4">
+                    <div className="p-2 rounded-lg bg-green-100 dark:bg-green-900/30">
+                      <Code className="w-5 h-5 text-green-600" />
                     </div>
-                    <div className="rounded-lg bg-green-50 p-4 flex items-center justify-between">
-                      <div>
-                        <h3 className="text-lg font-medium text-green-900">Discussions</h3>
-                        <p className="text-green-700">Comments and threads</p>
-                      </div>
-                      <div className="text-2xl font-bold text-green-900">{discussionsCount}</div>
-                    </div>
+                    <h3 className={`text-lg font-semibold ${isDark ? 'text-white' : 'text-gray-900'}`}>
+                      Languages
+                    </h3>
                   </div>
-                </CardContent>
-              </Card>
+
+                  <div className="space-y-3">
+                    {languageStats.slice(0, 4).map((lang, idx) => (
+                      <div key={idx} className="space-y-1">
+                        <div className="flex items-center justify-between">
+                          <span className={`text-sm font-medium ${isDark ? 'text-gray-300' : 'text-gray-700'}`}>
+                            {lang.language}
+                          </span>
+                          <span className={`text-xs ${isDark ? 'text-gray-400' : 'text-gray-600'}`}>
+                            {lang.percentage.toFixed(0)}%
+                          </span>
+                        </div>
+                        <div className={`h-1.5 rounded-full overflow-hidden ${isDark ? 'bg-gray-700' : 'bg-gray-200'}`}>
+                          <div
+                            className="h-full rounded-full bg-gradient-to-r from-blue-500 to-purple-500 transition-all duration-1000 ease-out"
+                            style={{ width: `${lang.percentage}%` }}
+                          />
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </GlassCard>
+              </div>
             </div>
-          </div>
+          )}
+
+          {/* Recent Activity Section - Separate from main grid */}
+          {activeTab === 'overview' && (
+            <div className="mt-8">
+              <GlassCard padding="lg">
+                <div className="flex items-center justify-between mb-6">
+                  <div className="flex items-center gap-3">
+                    <div className="p-2 rounded-lg bg-pink-100 dark:bg-pink-900/30">
+                      <Clock className="w-5 h-5 text-pink-600" />
+                    </div>
+                    <h3 className={`text-lg font-semibold ${isDark ? 'text-white' : 'text-gray-900'}`}>
+                      Recent Activity
+                    </h3>
+                  </div>
+                  <AnimatedButton
+                    href="/submissions"
+                    variant="ghost"
+                    size="sm"
+                  >
+                    View All
+                  </AnimatedButton>
+                </div>
+
+                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                  {recentSubmissions.slice(0, 6).map((submission, idx) => (
+                    <div key={idx} className={`p-4 rounded-lg border transition-all duration-300 hover:scale-[1.02] ${isDark ? 'bg-gray-800/30 border-gray-700 hover:bg-gray-800/50' : 'bg-gray-50/50 border-gray-200 hover:bg-white'}`}>
+                      <div className="flex items-start justify-between mb-2">
+                        <Link
+                          href={`/problems/${submission.problem_id || submission.id}`}
+                          className={`font-medium hover:underline text-sm line-clamp-2 ${isDark ? 'text-blue-400' : 'text-blue-600'}`}
+                        >
+                          {submission.problem_title || submission.problemTitle}
+                        </Link>
+                        <span className={`text-xs px-2 py-1 rounded-full flex-shrink-0 ml-2 ${submission.status === 'Accepted' || submission.status === 'ACCEPTED'
+                          ? 'bg-green-100 text-green-800'
+                          : 'bg-red-100 text-red-800'
+                          }`}>
+                          {submission.status === 'Accepted' || submission.status === 'ACCEPTED' ? '✓' : '✗'}
+                        </span>
+                      </div>
+                      <div className="flex items-center justify-between text-xs text-gray-500 dark:text-gray-400">
+                        <span>{submission.language}</span>
+                        <span>{submission.timestamp_text || submission.timestamp}</span>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </GlassCard>
+            </div>
+          )}
+
+          {activeTab === 'achievements' && (
+            <div className="space-y-8">
+              <GlassCard padding="lg">
+                <div className="flex items-center gap-3 mb-8">
+                  <div className="p-3 rounded-lg bg-yellow-100 dark:bg-yellow-900/30">
+                    <Trophy className="w-6 h-6 text-yellow-600" />
+                  </div>
+                  <div>
+                    <h2 className={`text-2xl font-bold ${isDark ? 'text-white' : 'text-gray-900'}`}>
+                      Achievements
+                    </h2>
+                    <p className={`${isDark ? 'text-gray-400' : 'text-gray-600'}`}>
+                      Your coding milestones and accomplishments
+                    </p>
+                  </div>
+                </div>
+
+                <AchievementGrid achievements={achievements} />
+              </GlassCard>
+            </div>
+          )}
+
+          {activeTab === 'activity' && (
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
+              <GlassCard padding="lg">
+                <h3 className={`text-xl font-semibold mb-6 ${isDark ? 'text-white' : 'text-gray-900'}`}>
+                  Activity Timeline
+                </h3>
+                <p className={`${isDark ? 'text-gray-400' : 'text-gray-600'}`}>
+                  Detailed activity timeline coming soon...
+                </p>
+              </GlassCard>
+
+              <GlassCard padding="lg">
+                <h3 className={`text-xl font-semibold mb-6 ${isDark ? 'text-white' : 'text-gray-900'}`}>
+                  Contest History
+                </h3>
+                <p className={`${isDark ? 'text-gray-400' : 'text-gray-600'}`}>
+                  Contest participation history coming soon...
+                </p>
+              </GlassCard>
+            </div>
+          )}
+
+          {activeTab === 'social' && (
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
+              <GlassCard padding="lg">
+                <h3 className={`text-xl font-semibold mb-6 ${isDark ? 'text-white' : 'text-gray-900'}`}>
+                  Following
+                </h3>
+                <p className={`${isDark ? 'text-gray-400' : 'text-gray-600'}`}>
+                  Social features coming soon...
+                </p>
+              </GlassCard>
+
+              <GlassCard padding="lg">
+                <h3 className={`text-xl font-semibold mb-6 ${isDark ? 'text-white' : 'text-gray-900'}`}>
+                  Discussions
+                </h3>
+                <p className={`${isDark ? 'text-gray-400' : 'text-gray-600'}`}>
+                  Discussion threads and comments coming soon...
+                </p>
+              </GlassCard>
+            </div>
+          )}
         </div>
       </div>
     </>

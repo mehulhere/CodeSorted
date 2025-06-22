@@ -16,11 +16,11 @@ interface SubmissionAnalyticsProps {
     className?: string;
 }
 
-const SubmissionAnalytics: React.FC<SubmissionAnalyticsProps> = ({ 
-    data, 
-    title, 
-    totalSubmissions, 
-    className = '' 
+const SubmissionAnalytics: React.FC<SubmissionAnalyticsProps> = ({
+    data,
+    title,
+    totalSubmissions,
+    className = ''
 }) => {
     const { isDark } = useTheme();
 
@@ -49,7 +49,7 @@ const SubmissionAnalytics: React.FC<SubmissionAnalyticsProps> = ({
                     <div key={item.label} className="group">
                         <div className="flex items-center justify-between mb-2">
                             <div className="flex items-center gap-2">
-                                <div 
+                                <div
                                     className="w-3 h-3 rounded-full"
                                     style={{ backgroundColor: item.color }}
                                 />
@@ -75,26 +75,26 @@ const SubmissionAnalytics: React.FC<SubmissionAnalyticsProps> = ({
                                 )}
                             </div>
                         </div>
-                        
+
                         <div className={`relative h-3 rounded-full overflow-hidden ${isDark ? 'bg-gray-700' : 'bg-gray-200'}`}>
                             <div
                                 className="absolute top-0 left-0 h-full rounded-full transition-all duration-1000 ease-out group-hover:scale-105"
-                                style={{ 
+                                style={{
                                     backgroundColor: item.color,
                                     width: `${(item.value / maxValue) * 100}%`,
                                     transformOrigin: 'left center'
                                 }}
                             />
                             {/* Shimmer effect */}
-                            <div 
+                            <div
                                 className="absolute top-0 left-0 h-full w-full bg-gradient-to-r from-transparent via-white/20 to-transparent animate-shimmer"
-                                style={{ 
+                                style={{
                                     width: `${(item.value / maxValue) * 100}%`,
                                     animationDelay: `${index * 0.2}s`
                                 }}
                             />
                         </div>
-                        
+
                         <div className="mt-1 text-right">
                             <span className={`text-xs ${isDark ? 'text-gray-500' : 'text-gray-400'}`}>
                                 {totalSubmissions > 0 ? ((item.value / totalSubmissions) * 100).toFixed(1) : '0.0'}%

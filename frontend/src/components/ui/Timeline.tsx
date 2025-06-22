@@ -67,11 +67,11 @@ const Timeline: React.FC<TimelineProps> = ({ items, className = '' }) => {
         const date = new Date(timestamp);
         const now = new Date();
         const diff = now.getTime() - date.getTime();
-        
+
         const minutes = Math.floor(diff / (1000 * 60));
         const hours = Math.floor(minutes / 60);
         const days = Math.floor(hours / 24);
-        
+
         if (days > 0) return `${days}d ago`;
         if (hours > 0) return `${hours}h ago`;
         if (minutes > 0) return `${minutes}m ago`;
@@ -82,12 +82,12 @@ const Timeline: React.FC<TimelineProps> = ({ items, className = '' }) => {
         <div className={`relative ${className}`}>
             {/* Timeline line */}
             <div className={`absolute left-4 top-0 bottom-0 w-0.5 ${isDark ? 'bg-gray-700' : 'bg-gray-200'}`} />
-            
+
             <div className="space-y-6">
                 {items.map((item, index) => {
                     const config = getStatusConfig(item.status);
                     const Icon = config.icon;
-                    
+
                     return (
                         <div
                             key={item.id}
@@ -95,12 +95,12 @@ const Timeline: React.FC<TimelineProps> = ({ items, className = '' }) => {
                             onClick={item.onClick}
                         >
                             {/* Status dot */}
-                            <div className={`relative z-10 flex items-center justify-center w-8 h-8 rounded-full border-2 ${config.borderColor} ${config.bgColor} transition-all duration-300 group-hover:scale-110`}>
+                            <div className={`relative z-10 flex items-center justify-center w-8 h-8 rounded-full border-2 ${config.borderColor} ${config.bgColor} transition-all duration-300`}>
                                 <Icon className={`w-4 h-4 ${config.color}`} />
                             </div>
-                            
+
                             {/* Content */}
-                            <div className={`ml-4 flex-1 min-w-0 pb-6 ${item.onClick ? 'group-hover:translate-x-1' : ''} transition-transform duration-300`}>
+                            <div className={`ml-4 flex-1 min-w-0 pb-6 ${item.onClick ? 'group-hover:translate-x-0.5' : ''} transition-transform duration-300`}>
                                 <div className={`rounded-lg border p-4 ${config.bgColor} ${config.borderColor} hover:shadow-lg transition-all duration-300`}>
                                     <div className="flex items-center justify-between mb-2">
                                         <h3 className={`text-sm font-semibold ${isDark ? 'text-white' : 'text-gray-900'}`}>
@@ -110,13 +110,13 @@ const Timeline: React.FC<TimelineProps> = ({ items, className = '' }) => {
                                             {formatTime(item.timestamp)}
                                         </span>
                                     </div>
-                                    
+
                                     {item.subtitle && (
                                         <p className={`text-sm ${isDark ? 'text-gray-300' : 'text-gray-600'} mb-2`}>
                                             {item.subtitle}
                                         </p>
                                     )}
-                                    
+
                                     <div className="flex items-center gap-4 text-xs">
                                         {item.language && (
                                             <div className="flex items-center gap-1">
@@ -126,7 +126,7 @@ const Timeline: React.FC<TimelineProps> = ({ items, className = '' }) => {
                                                 </span>
                                             </div>
                                         )}
-                                        
+
                                         {item.executionTime && (
                                             <div className="flex items-center gap-1">
                                                 <Clock className="w-3 h-3" />
@@ -136,7 +136,7 @@ const Timeline: React.FC<TimelineProps> = ({ items, className = '' }) => {
                                             </div>
                                         )}
                                     </div>
-                                    
+
                                     {item.details && (
                                         <p className={`text-xs mt-2 ${isDark ? 'text-gray-400' : 'text-gray-500'}`}>
                                             {item.details}

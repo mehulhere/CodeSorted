@@ -1,3 +1,5 @@
+'use client';
+
 import { useState, useEffect } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/router';
@@ -8,7 +10,11 @@ import { useAuth } from '@/lib/useAuth';
 import { useTheme } from '@/providers/ThemeProvider';
 import ThemeToggle from '@/components/ui/ThemeToggle';
 
-const Navbar = () => {
+interface NavbarProps {
+    fullWidth?: boolean;
+}
+
+const Navbar = ({ fullWidth = false }: NavbarProps) => {
     const router = useRouter();
     const { isLoggedIn, user, logout, loading } = useAuth();
     const { theme, isDark } = useTheme();
@@ -31,11 +37,13 @@ const Navbar = () => {
         <header className={`
             sticky top-0 z-50 backdrop-blur-lg border-b transition-all duration-300
             ${isDark
-                ? 'bg-gray-900/80 border-gray-800 shadow-lg shadow-gray-900/20'
+                ? 'bg-black/80 border-gray-800 shadow-lg shadow-black/20'
                 : 'bg-white/80 border-gray-200 shadow-lg shadow-gray-900/5'
             }
         `}>
-            <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+            <div className={`
+                ${fullWidth ? 'w-full px-4 sm:px-6 lg:px-8' : 'max-w-7xl mx-auto px-4 sm:px-6 lg:px-8'}
+            `}>
                 <div className="flex justify-between items-center h-16">
                     {/* Logo Section */}
                     <div className="flex items-center">
@@ -50,7 +58,7 @@ const Navbar = () => {
                         >
                             <div className={`
                                 p-2 rounded-lg transition-all duration-300
-                                ${isDark ? 'bg-gray-800' : 'bg-blue-50'}
+                                ${isDark ? 'bg-black' : 'bg-blue-50'}
                                 group-hover:scale-110
                             `}>
                                 <Code2 className={`
@@ -79,7 +87,7 @@ const Navbar = () => {
                                                     ? 'bg-blue-900/50 text-blue-400 shadow-lg shadow-blue-900/30'
                                                     : 'bg-blue-100 text-blue-700 shadow-lg shadow-blue-500/20'
                                                 : isDark
-                                                    ? 'text-gray-300 hover:text-white hover:bg-gray-800'
+                                                    ? 'text-gray-300 hover:text-white hover:bg-gray-900'
                                                     : 'text-gray-600 hover:text-gray-900 hover:bg-gray-100'
                                             }
                                         `}
@@ -115,7 +123,7 @@ const Navbar = () => {
                                     flex items-center space-x-3 focus:outline-none p-2 rounded-lg
                                     transition-all duration-300 group
                                     ${isDark
-                                        ? 'hover:bg-gray-800'
+                                        ? 'hover:bg-gray-900'
                                         : 'hover:bg-gray-100'
                                     }
                                 `}>
@@ -162,7 +170,7 @@ const Navbar = () => {
                                         absolute right-0 mt-2 w-56 origin-top-right rounded-lg shadow-xl
                                         ring-1 ring-black ring-opacity-5 focus:outline-none z-50
                                         ${isDark
-                                            ? 'bg-gray-800 border border-gray-700'
+                                            ? 'bg-black border border-gray-800'
                                             : 'bg-white border border-gray-200'
                                         }
                                         backdrop-blur-lg
@@ -192,7 +200,7 @@ const Navbar = () => {
                                             </Menu.Item>
                                             <div className={`
                                                 my-2 h-px
-                                                ${isDark ? 'bg-gray-700' : 'bg-gray-200'}
+                                                ${isDark ? 'bg-gray-800' : 'bg-gray-200'}
                                             `} />
                                             <Menu.Item>
                                                 {({ active }) => (

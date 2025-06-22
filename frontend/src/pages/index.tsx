@@ -181,7 +181,7 @@ export default function HomePage() {
         },
         {
             label: 'Solutions',
-            value: '500+',
+            value: '200+',
             icon: Trophy,
             color: 'from-green-500 to-emerald-500',
             bgColor: isDark ? 'bg-green-900/20' : 'bg-green-50'
@@ -203,12 +203,12 @@ export default function HomePage() {
                 <meta name="keywords" content="coding, programming, algorithms, competitive programming, online judge" />
             </Head>
 
-            <div className={`min-h-screen transition-colors duration-300 ${isDark ? 'bg-gray-900' : 'bg-gray-50'}`}>
+            <div className="page-background">
                 {/* Animated Background */}
                 <div className="fixed inset-0 overflow-hidden pointer-events-none">
-                    <div className={`absolute -top-40 -right-40 w-80 h-80 rounded-full blur-3xl opacity-20 ${isDark ? 'bg-blue-500' : 'bg-blue-300'}`} />
-                    <div className={`absolute top-40 -left-40 w-80 h-80 rounded-full blur-3xl opacity-20 ${isDark ? 'bg-purple-500' : 'bg-purple-300'}`} />
-                    <div className={`absolute bottom-40 right-20 w-80 h-80 rounded-full blur-3xl opacity-20 ${isDark ? 'bg-pink-500' : 'bg-pink-300'}`} />
+                    <div className={`absolute -top-40 -right-40 w-80 h-80 rounded-full blur-3xl opacity-10 ${isDark ? 'bg-blue-500' : 'bg-blue-300'}`} />
+                    <div className={`absolute top-40 -left-40 w-80 h-80 rounded-full blur-3xl opacity-10 ${isDark ? 'bg-purple-500' : 'bg-purple-300'}`} />
+                    <div className={`absolute bottom-40 right-20 w-80 h-80 rounded-full blur-3xl opacity-10 ${isDark ? 'bg-pink-500' : 'bg-pink-300'}`} />
                 </div>
 
                 <main className="relative z-10 max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
@@ -224,11 +224,11 @@ export default function HomePage() {
                             </div>
 
                             <h1 className={`text-6xl md:text-7xl font-bold mb-6 ${isDark ? 'text-white' : 'text-gray-900'}`}>
-                                <span className="bg-gradient-to-r from-blue-600 via-purple-600 to-pink-600 bg-clip-text text-transparent">
+                                <span className="">
                                     Master Your
                                 </span>
                                 <br />
-                                <span className="bg-gradient-to-r from-pink-600 via-red-600 to-orange-600 bg-clip-text text-transparent">
+                                <span className="">
                                     Coding Journey
                                 </span>
                             </h1>
@@ -364,7 +364,7 @@ export default function HomePage() {
                                         id: 'search',
                                         label: 'Search Problems',
                                         type: 'input',
-                                        placeholder: 'Problem name or ID',
+                                        placeholder: 'Problem name or Tags',
                                         value: searchQuery,
                                         onChange: setSearchQuery
                                     },
@@ -588,7 +588,7 @@ export default function HomePage() {
                 </main>
 
                 {/* Enhanced Footer */}
-                <footer className={`relative ${isDark ? 'bg-gray-900/80' : 'bg-gray-900'} backdrop-blur-lg`}>
+                <footer className={`relative ${isDark ? 'bg-black/90' : 'bg-gray-900'} backdrop-blur-lg`}>
                     <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-12">
                         <div className="grid grid-cols-1 md:grid-cols-4 gap-8">
                             <div className="col-span-1 md:col-span-2">

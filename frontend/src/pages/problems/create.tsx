@@ -658,9 +658,9 @@ export default function CreateProblemPage() {
                             )}
 
                             {/* Problem Input or Preview */}
-                            <div className="overflow-y-auto flex-grow p-4">
+                            <div className="overflow-y-auto flex-grow py-4">
                                 {problemView === 'input' ? (
-                                    <div className="space-y-4">
+                                    <div className="space-y-4 px-4">
                                         <div>
                                             <label htmlFor="rawProblemStatement" className="block text-lg font-semibold text-gray-800 mb-2">
                                                 Enter Problem Statement
