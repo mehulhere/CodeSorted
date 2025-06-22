@@ -2,8 +2,8 @@
 import '@/app/globals.css';
 import Editor, { Monaco } from '@monaco-editor/react';
 import { ResizableHandle, ResizablePanel, ResizablePanelGroup } from '@/components/ui/resizable';
-import { executeCode, submitSolution, getCodeCompletion, getAIHint } from '@/lib/api';
-import { AlertCircle, ChevronLeft, Loader, MessageSquare, ArrowUp, ArrowDown, Trash2, Lightbulb, Play, Send, Plus, X, Timer, MemoryStick, Target, BookOpen, Users, Award, Code2, Eye, Sparkles, CheckCircle } from 'lucide-react';
+import { executeCode, submitSolution, getCodeCompletion, getAIHint, getLastCode, getSubmissionDetails } from '@/lib/api';
+import { AlertCircle, ChevronLeft, Loader, MessageSquare, ArrowUp, ArrowDown, Trash2, Lightbulb, Play, Send, Plus, X, Timer, MemoryStick, Target, BookOpen, Users, Award, Code2, Eye, Sparkles, CheckCircle, FileText } from 'lucide-react';
 import type { editor } from 'monaco-editor';
 import { useRouter } from 'next/router';
 import { useCallback, useEffect, useRef, useState } from 'react';
@@ -14,6 +14,67 @@ import { ApiErrorResponse } from '@/lib/api';
 import { useTheme } from '@/providers/ThemeProvider';
 import GlassCard from '@/components/ui/GlassCard';
 import AnimatedButton from '@/components/ui/AnimatedButton';
+import {
+    Bar,
+    BarChart,
+    CartesianGrid,
+    ResponsiveContainer,
+    Tooltip,
+    XAxis,
+    YAxis,
+    Cell,
+} from "recharts"
+
+interface SubmissionDetails {
+    id: string;
+    status: string;
+    execution_time_ms?: number;
+    memory_used_kb?: number;
+    test_case_results?: any[];
+}
+
+const formatInputForDisplay = (input: string): string => {
+    if (!input) return '';
+    try {
+        const parsed = JSON.parse(input);
+        if (typeof parsed !== 'object' || parsed === null || Array.isArray(parsed)) {
+            return String(input);
+        }
+        return Object.entries(parsed)
+            .map(([key, value]) => `${key} = ${JSON.stringify(value)}`)
+            .join('\n');
+    } catch (error) {
+        return input;
+    }
+};
+
+const parseInputFromString = (formattedString: string): string => {
+    const trimmed = formattedString.trim();
+    if (!trimmed.includes('=')) {
+        try {
+            JSON.parse(trimmed);
+            return trimmed;
+        } catch (e) {
+            return JSON.stringify(trimmed);
+        }
+    }
+
+    const lines = trimmed.split('\n');
+    const obj: Record<string, any> = {};
+    for (const line of lines) {
+        const firstEqualIndex = line.indexOf('=');
+        if (firstEqualIndex > -1) {
+            const key = line.substring(0, firstEqualIndex).trim();
+            const value = line.substring(firstEqualIndex + 1).trim();
+            try {
+                obj[key] = JSON.parse(value);
+            } catch (e) {
+                obj[key] = value;
+            }
+        }
+    }
+    return JSON.stringify(obj);
+};
 
 // Type definitions for API responses
 interface CodeCompletionResponse {
@@ -41,6 +102,101 @@ interface AIHintResponse {
     hints: string[];
 }
 
+// Copied from submissions/[id].tsx
+interface SubmissionDetail {
+    id: string;
+    problem_id: string;
+    problem_title: string;
+    user_id: string;
+    username: string;
+    language: string;
+    code: string;
+    status: string;
+    execution_time_ms: number;
+    memory_used_kb: number;
+    test_cases_passed: number;
+    test_cases_total: number;
+    submitted_at: string;
+    time_complexity?: string;
+    memory_complexity?: string;
+    failed_test_case_details?: {
+        input: string;
+        expected_output: string;
+        actual_output: string;
+        error?: string;
+    };
+    test_case_status?: string;
+}
+
+interface ProblemStats {
+    total_accepted_submissions: number;
+    time_complexity_distribution: { [key: string]: number };
+    memory_complexity_distribution: { [key: string]: number };
+}
+
+const complexityOrder = [
+    "O(1)", "O(log n)", "O(n)", "O(n log n)", "O(n^2)", "O(2^n)", "O(n!)"
+];
+
+const getRank = (complexity: string) => {
+    const rank = complexityOrder.indexOf(complexity);
+    return rank === -1 ? Infinity : rank;
+};
+
+const calculatePercentile = (userComplexity: string, distribution: { [key: string]: number }): number => {
+    if (!userComplexity || !distribution) return 0;
+
+    const userRank = getRank(userComplexity);
+    let submissionsWithBetterOrEqualComplexity = 0;
+    let totalSubmissions = 0;
+
+    for (const complexity in distribution) {
+        const count = distribution[complexity];
+        totalSubmissions += count;
+        if (getRank(complexity) <= userRank) {
+            submissionsWithBetterOrEqualComplexity += count;
+        }
+    }
+
+    if (totalSubmissions === 0) return 100;
+
+    const submissionsWithWorseComplexity = totalSubmissions - submissionsWithBetterOrEqualComplexity;
+    const percentile = (submissionsWithWorseComplexity / totalSubmissions) * 100;
+
+    return percentile;
+};
+
+const getStatusClass = (status: string, isDark: boolean) => {
+    const baseClasses = 'px-2 py-1 text-xs font-medium rounded-full';
+    switch (status) {
+        case 'ACCEPTED': return `${baseClasses} ${isDark ? 'bg-green-900/50 text-green-400' : 'bg-green-100 text-green-700'}`;
+        case 'WRONG_ANSWER': return `${baseClasses} ${isDark ? 'bg-red-900/50 text-red-400' : 'bg-red-100 text-red-700'}`;
+        case 'TIME_LIMIT_EXCEEDED': return `${baseClasses} ${isDark ? 'bg-yellow-900/50 text-yellow-400' : 'bg-yellow-100 text-yellow-700'}`;
+        case 'MEMORY_LIMIT_EXCEEDED': return `${baseClasses} ${isDark ? 'bg-yellow-900/50 text-yellow-400' : 'bg-yellow-100 text-yellow-700'}`;
+        case 'RUNTIME_ERROR': return `${baseClasses} ${isDark ? 'bg-orange-900/50 text-orange-400' : 'bg-orange-100 text-orange-700'}`;
+        case 'COMPILATION_ERROR': return `${baseClasses} ${isDark ? 'bg-purple-900/50 text-purple-400' : 'bg-purple-100 text-purple-700'}`;
+        case 'PENDING':
+        case 'PROCESSING':
+        case 'IN_PROGRESS':
+            return `${baseClasses} ${isDark ? 'bg-blue-900/50 text-blue-400' : 'bg-blue-100 text-blue-700'}`;
+        default: return `${baseClasses} ${isDark ? 'bg-gray-700 text-gray-300' : 'bg-gray-200 text-gray-800'}`;
+    }
+};
+
+const renderMarkdown = (text: string) => {
+    const parts = text.split(/(\*\*.*?\*\*|`.*?`)/g);
+
+    return parts.map((part, index) => {
+        if (part.startsWith('**') && part.endsWith('**')) {
+            return <strong key={index}>{part.slice(2, -2)}</strong>;
+        }
+        if (part.startsWith('`') && part.endsWith('`')) {
+            return <code key={index}>{part.slice(1, -1)}</code>;
+        }
+        return part;
+    });
+};
+
 export default function SingleProblemPage() {
     const router = useRouter();
     const { problemId } = router.query;
@@ -62,6 +218,8 @@ export default function SingleProblemPage() {
     const [isSubmitting, setIsSubmitting] = useState<boolean>(false);
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const [submissionResult, setSubmissionResult] = useState<any>(null);
+    const [codeLoaded, setCodeLoaded] = useState<boolean>(false);
+    const [outputView, setOutputView] = useState<'run-results'>('run-results');
 
     // Track test case results
     const [testCaseResults, setTestCaseResults] = useState<{
@@ -72,7 +230,6 @@ export default function SingleProblemPage() {
         error?: string;
         testCase?: { input: string, expected?: string };
     }[]>([]);
-    const [activeResultTab, setActiveResultTab] = useState<number>(0);
 
     // Test cases
     const [customTestCases, setCustomTestCases] = useState<{ input: string, expected?: string }[]>([{ input: '', expected: '' }]);
@@ -93,7 +250,66 @@ export default function SingleProblemPage() {
     const [isCreatingComment, setIsCreatingComment] = useState<boolean>(false);
     const [discussionView, setDiscussionView] = useState<'list' | 'thread'>('list');
 
+    // Submissions State
+    const [submissions, setSubmissions] = useState<SubmissionDetail[]>([]);
+    const [isLoadingSubmissions, setIsLoadingSubmissions] = useState<boolean>(false);
+    const [selectedSubmission, setSelectedSubmission] = useState<SubmissionDetail | null>(null);
+    const [problemStats, setProblemStats] = useState<ProblemStats | null>(null);
+
     const [hasMounted, setHasMounted] = useState(false);
+
+    // Fetch submissions for the problem
+    const fetchSubmissions = useCallback(async () => {
+        if (!problemId) return;
+        setIsLoadingSubmissions(true);
+        try {
+            const response = await fetch(`${process.env.NEXT_PUBLIC_BACKEND_URL}/submissions?problem_id=${problemId}`, {
+                credentials: 'include',
+            });
+            if (!response.ok) {
+                setError('Failed to fetch submissions');
+                return;
+            }
+            const data = await response.json();
+            setSubmissions(data.submissions || []);
+        } catch (err) {
+            console.error('Error fetching submissions:', err);
+        } finally {
+            setIsLoadingSubmissions(false);
+        }
+    }, [problemId]);
+
+    useEffect(() => {
+        if (!selectedSubmission?.id) return;
+
+        const isFinalStatus = ["ACCEPTED", "WRONG_ANSWER", "RUNTIME_ERROR", "COMPILATION_ERROR", "TIME_LIMIT_EXCEEDED", "MEMORY_LIMIT_EXCEEDED"].includes(selectedSubmission.status);
+
+        if (isFinalStatus) {
+            fetchSubmissions();
+            return;
+        }
+
+        const poll = async () => {
+            try {
+                const details = await getSubmissionDetails(selectedSubmission.id) as SubmissionDetail;
+                setSelectedSubmission(details);
+
+                if (details.status === "ACCEPTED" && details.problem_id) {
+                    const statsResponse = await fetch(`${process.env.NEXT_PUBLIC_BACKEND_URL}/problems/${details.problem_id}/stats`);
+                    if (statsResponse.ok) {
+                        const statsData = await statsResponse.json();
+                        setProblemStats(statsData);
+                    }
+                }
+            } catch (error) {
+                console.error("Failed to poll submission details:", error);
+            }
+        };
+
+        const intervalId = setInterval(poll, 2000);
+
+        return () => clearInterval(intervalId);
+    }, [selectedSubmission, fetchSubmissions]);
 
     useEffect(() => {
         setHasMounted(true);
@@ -320,6 +536,7 @@ export default function SingleProblemPage() {
         setSelectedLanguage(value);
         setCode('// Start coding here...');
         setConvertedCode('');
+        setCodeLoaded(false);
     };
 
     // Check login status
@@ -339,6 +556,61 @@ export default function SingleProblemPage() {
         };
         checkLoginStatus();
     }, []);
+
+    // Load code from localStorage or API
+    useEffect(() => {
+        if (!problemId || !isLoggedIn || codeLoaded) return;
+
+        const loadCode = async () => {
+            let loadedCode: string | null = null;
+            const localStorageKey = `code-draft-${problemId}-${selectedLanguage}`;
+
+            // 1. Try localStorage first
+            try {
+                loadedCode = localStorage.getItem(localStorageKey);
+            } catch (e) {
+                console.warn("Could not access localStorage", e);
+            }
+
+            // 2. If not in localStorage, try API
+            if (!loadedCode) {
+                try {
+                    // Assuming getLastCode returns { code: string }
+                    const response = await getLastCode(String(problemId), selectedLanguage) as { code: string };
+                    if (response && response.code) {
+                        loadedCode = response.code;
+                    }
+                } catch (error) {
+                    // It's okay if this fails, we'll just use the default code.
+                    console.info("Failed to fetch last code from API:", error);
+                }
+            }
+
+            if (loadedCode && loadedCode.trim() !== '') {
+                setCode(loadedCode);
+            }
+            setCodeLoaded(true);
+        };
+
+        loadCode();
+    }, [problemId, selectedLanguage, isLoggedIn, codeLoaded]);
+
+    // Save code to localStorage
+    useEffect(() => {
+        // Don't save until code is loaded and it's not the default placeholder
+        if (!codeLoaded || code === '// Start coding here...') return;
+
+        const handler = setTimeout(() => {
+            const localStorageKey = `code-draft-${problemId}-${selectedLanguage}`;
+            try {
+                localStorage.setItem(localStorageKey, code);
+            } catch (e) {
+                console.warn("Could not access localStorage for saving:", e);
+            }
+        }, 1000); // Debounce saving by 1 second
+
+        return () => clearTimeout(handler);
+    }, [code, problemId, selectedLanguage, codeLoaded]);
 
     // Fetch problem data
     useEffect(() => {
@@ -371,7 +643,7 @@ export default function SingleProblemPage() {
                         expected: tc.expected_output
                     }));
                     setCustomTestCases(initialTestCases);
-                    setTestCaseInput(initialTestCases[0].input);
+                    setTestCaseInput(formatInputForDisplay(initialTestCases[0].input));
                 }
             } catch (err) {
                 setError(err instanceof Error ? err.message : 'An unknown error occurred.');
@@ -387,7 +659,7 @@ export default function SingleProblemPage() {
     // Update test case input when active test case changes
     useEffect(() => {
         if (customTestCases[activeTestCase]) {
-            setTestCaseInput(customTestCases[activeTestCase].input);
+            setTestCaseInput(formatInputForDisplay(customTestCases[activeTestCase].input));
         }
     }, [activeTestCase, customTestCases]);
 
@@ -427,7 +699,6 @@ export default function SingleProblemPage() {
             }));
 
             setTestCaseResults(results);
-            setActiveResultTab(0);
         } catch (error) {
             console.error("Error executing code:", error);
             const errorMessage = error instanceof Error
@@ -452,9 +723,9 @@ export default function SingleProblemPage() {
         setSubmissionResult(null);
         setExecutionError(null);
         setIsSubmitting(true);
+        setOutputView('run-results'); // Switch to submission view
 
         try {
-            // @ts-ignore - API accepts additional parameters
             const response = await submitSolution(
                 problem?.problem_id || String(problemId),
                 selectedLanguage,
@@ -464,7 +735,10 @@ export default function SingleProblemPage() {
             const submissionId = response.submission_id;
 
             if (submissionId) {
-                router.push(`/submissions/${submissionId}`);
+                // New logic: switch to submissions tab, fetch all submissions, and select the new one.
+                setCurrentTab('submissions');
+                await fetchSubmissions(); // This will re-fetch the list, including the new one.
+                handleSelectSubmission(submissionId); // This will select it and trigger polling.
             } else {
                 setExecutionError("Submission ID was not returned. Please try again.");
             }
@@ -474,6 +748,7 @@ export default function SingleProblemPage() {
                 ? error.message
                 : (error as ApiErrorResponse)?.message || "Failed to submit solution. Please try again.";
             setExecutionError(errorMessage);
+        } finally {
             setIsSubmitting(false);
         }
     };
@@ -534,6 +809,18 @@ export default function SingleProblemPage() {
             }
         };
         return configs[difficulty as keyof typeof configs] || configs.Easy;
+    };
+
+    const handleSelectSubmission = async (submissionId: string) => {
+        try {
+            const details = await getSubmissionDetails(submissionId) as SubmissionDetail;
+            setSelectedSubmission(details);
+
+            // The stats will now be fetched inside the polling useEffect when the submission is accepted.
+        } catch (error) {
+            console.error("Failed to fetch submission details:", error);
+            setError("Could not load submission details.");
+        }
     };
 
     if (isLoading) {
@@ -603,7 +890,7 @@ export default function SingleProblemPage() {
                             {/* Enhanced Header */}
                             <div className={`p-6 border-b transition-colors duration-300 ${isDark ? 'border-gray-800 bg-black/50' : 'border-gray-200 bg-gray-50/50'
                                 } backdrop-blur-sm`}>
-                                <div className="flex items-start justify-between mb-4">
+                                <div className="flex items-start justify-between">
                                     <div className="flex-1">
                                         <h1 className={`text-2xl font-bold mb-2 ${isDark ? 'text-white' : 'text-gray-900'}`}>
                                             {problem.title}
@@ -630,25 +917,7 @@ export default function SingleProblemPage() {
                                     </div>
                                 </div>
 
-                                {/* Problem Stats */}
-                                <div className="grid grid-cols-3 gap-4">
-                                    {[
-                                        { icon: Timer, label: 'Time Limit', value: `${problem.time_limit_ms / 1000}s` },
-                                        { icon: MemoryStick, label: 'Memory Limit', value: `${problem.memory_limit_mb}MB` },
-                                        { icon: Eye, label: 'Difficulty', value: problem.difficulty }
-                                    ].map((stat, index) => (
-                                        <div key={index} className={`text-center p-3 rounded-lg ${isDark ? 'bg-gray-700/50' : 'bg-white/50'
-                                            } backdrop-blur-sm border ${isDark ? 'border-gray-600' : 'border-gray-200'}`}>
-                                            <stat.icon className={`w-4 h-4 mx-auto mb-1 ${isDark ? 'text-gray-400' : 'text-gray-600'}`} />
-                                            <div className={`text-xs font-medium ${isDark ? 'text-gray-300' : 'text-gray-700'}`}>
-                                                {stat.label}
-                                            </div>
-                                            <div className={`text-sm font-bold ${isDark ? 'text-white' : 'text-gray-900'}`}>
-                                                {stat.value}
-                                            </div>
-                                        </div>
-                                    ))}
-                                </div>
+
                             </div>
 
                             {/* Enhanced Tab Navigation */}
@@ -675,6 +944,9 @@ export default function SingleProblemPage() {
                                                 if (tab.id === 'discussion' && threads.length === 0) {
                                                     fetchThreads();
                                                 }
+                                                if (tab.id === 'submissions' && submissions.length === 0) {
+                                                    fetchSubmissions();
+                                                }
                                             }}
                                         >
                                             <tab.icon className="w-4 h-4" />
@@ -694,7 +966,7 @@ export default function SingleProblemPage() {
                                             </h2>
                                             <div className={`prose max-w-none ${isDark ? 'prose-invert' : ''}`}>
                                                 <p className={isDark ? 'text-gray-300' : 'text-gray-700'}>
-                                                    {problem.statement.split('Example 1:')[0]}
+                                                    {renderMarkdown(problem.statement.split('Example 1:')[0])}
                                                 </p>
                                             </div>
                                         </div>
@@ -768,7 +1040,7 @@ export default function SingleProblemPage() {
                                                 <h2 className={`text-lg font-semibold flex items-center gap-2 ${isDark ? 'text-white' : 'text-gray-900'}`}>
                                                     <Lightbulb className="w-5 h-5 text-yellow-500" />
                                                     AI Hints
-                                                    <span className={`text-xs px-2 py-1 rounded-full ${isDark ? 'bg-yellow-900/30 text-yellow-400' : 'bg-yellow-100 text-yellow-700'
+                                                    <span className={`text-xs px-2 py-1 rounded-full ${isDark ? 'bg-blue-900/30 text-blue-400' : 'bg-blue-100 text-blue-700'
                                                         }`}>
                                                         {problem.difficulty === 'Easy' ? '1 hint' :
                                                             problem.difficulty === 'Medium' ? '2 hints' : '3 hints'} available
@@ -817,14 +1089,14 @@ export default function SingleProblemPage() {
                                                         {hints.slice(0, visibleHintIndex + 1).map((hint, idx) => (
                                                             <div key={idx} className={`p-4 rounded-lg border transition-all duration-300 ${idx === visibleHintIndex
                                                                 ? isDark
-                                                                    ? 'bg-yellow-900/20 border-yellow-500/30'
-                                                                    : 'bg-yellow-50 border-yellow-200'
+                                                                    ? 'bg-blue-900/20 border-blue-500/30'
+                                                                    : 'bg-blue-50 border-blue-200'
                                                                 : isDark
                                                                     ? 'bg-gray-700/30 border-gray-600/30'
                                                                     : 'bg-gray-50 border-gray-200'
                                                                 }`}>
                                                                 <div className="flex items-start gap-3">
-                                                                    <div className={`w-6 h-6 rounded-full flex items-center justify-center text-xs font-bold ${isDark ? 'bg-yellow-600 text-yellow-100' : 'bg-yellow-500 text-yellow-50'
+                                                                    <div className={`w-6 h-6 rounded-full flex items-center justify-center text-xs font-bold ${isDark ? 'bg-blue-600 text-blue-100' : 'bg-blue-500 text-blue-50'
                                                                         }`}>
                                                                         {idx + 1}
                                                                     </div>
@@ -838,7 +1110,7 @@ export default function SingleProblemPage() {
                                                         {visibleHintIndex < hints.length - 1 && (
                                                             <AnimatedButton
                                                                 onClick={() => setVisibleHintIndex(visibleHintIndex + 1)}
-                                                                variant="warning"
+                                                                variant="primary"
                                                                 className="w-full"
                                                                 icon={ArrowDown}
                                                             >
@@ -879,18 +1151,59 @@ export default function SingleProblemPage() {
 
                                 {currentTab === 'submissions' && (
                                     <div className="p-6">
-                                        <GlassCard className="text-center" padding="lg">
-                                            <Award className={`w-12 h-12 mx-auto mb-4 ${isDark ? 'text-gray-600' : 'text-gray-400'}`} />
-                                            <h3 className={`text-lg font-semibold mb-2 ${isDark ? 'text-white' : 'text-gray-900'}`}>
-                                                Your Submissions
-                                            </h3>
-                                            <p className={`${isDark ? 'text-gray-400' : 'text-gray-600'}`}>
-                                                {isLoggedIn ?
-                                                    'Submission history will be displayed here.' :
-                                                    <>Please <Link href="/login" className="underline font-medium">sign in</Link> to view your submissions.</>
-                                                }
-                                            </p>
-                                        </GlassCard>
+                                        {isLoadingSubmissions ? (
+                                            <div className="flex justify-center items-center p-8">
+                                                <Loader className="w-6 h-6 animate-spin text-blue-500" />
+                                            </div>
+                                        ) : selectedSubmission ? (
+                                            <SubmissionDetailView
+                                                submission={selectedSubmission}
+                                                stats={problemStats}
+                                                onBack={() => setSelectedSubmission(null)}
+                                                isDark={isDark}
+                                                customTestCases={customTestCases}
+                                                setCustomTestCases={setCustomTestCases}
+                                                setActiveTestCase={setActiveTestCase}
+                                            />
+                                        ) : submissions.length > 0 ? (
+                                            <div className="space-y-3">
+                                                {submissions.map((sub) => (
+                                                    <GlassCard
+                                                        key={sub.id}
+                                                        padding="md"
+                                                        className="cursor-pointer hover:bg-white/10 transition-colors duration-200"
+                                                        onClick={() => handleSelectSubmission(sub.id)}
+                                                    >
+                                                        <div className="flex justify-between items-center">
+                                                            <div className="flex items-center gap-3">
+                                                                <span className={getStatusClass(sub.status, isDark)}>
+                                                                    {sub.status.replace(/_/g, ' ')}
+                                                                </span>
+                                                                <span className={`text-sm ${isDark ? 'text-gray-400' : 'text-gray-600'}`}>
+                                                                    {sub.language}
+                                                                </span>
+                                                            </div>
+                                                            <div className={`text-xs ${isDark ? 'text-gray-500' : 'text-gray-400'}`}>
+                                                                {new Date(sub.submitted_at).toLocaleString()}
+                                                            </div>
+                                                        </div>
+                                                    </GlassCard>
+                                                ))}
+                                            </div>
+                                        ) : (
+                                            <GlassCard className="text-center" padding="lg">
+                                                <FileText className={`w-12 h-12 mx-auto mb-4 ${isDark ? 'text-gray-600' : 'text-gray-400'}`} />
+                                                <h3 className={`text-lg font-semibold mb-2 ${isDark ? 'text-white' : 'text-gray-900'}`}>
+                                                    No Submissions Yet
+                                                </h3>
+                                                <p className={`${isDark ? 'text-gray-400' : 'text-gray-600'}`}>
+                                                    {isLoggedIn ?
+                                                        'Submit your first solution to see it here.' :
+                                                        <>Please <Link href="/login" className="underline font-medium">sign in</Link> to track your submissions.</>
+                                                    }
+                                                </p>
+                                            </GlassCard>
+                                        )}
                                     </div>
                                 )}
                             </div>
@@ -1054,182 +1367,221 @@ export default function SingleProblemPage() {
                                     <ResizablePanel defaultSize={35} minSize={20}>
                                         <div className={`h-full flex flex-col transition-colors duration-300 ${isDark ? 'bg-black text-gray-200' : 'bg-gray-50 text-gray-800'
                                             }`}>
-                                            {/* Enhanced Test Case Tabs */}
-                                            <div className={`h-12 border-b flex items-center px-4 transition-colors duration-300 ${isDark ? 'bg-black border-gray-800' : 'bg-gray-100 border-gray-200'
+                                            <div className={`h-12 border-b flex items-center justify-between px-4 transition-colors duration-300 ${isDark ? 'bg-black border-gray-800' : 'bg-gray-100 border-gray-200'
                                                 }`}>
-                                                <div className="flex items-center gap-2 overflow-x-auto">
-                                                    {customTestCases.map((_, index) => (
-                                                        <button
-                                                            key={index}
-                                                            className={`px-3 py-1 text-xs rounded-full flex-shrink-0 transition-all duration-300 ${activeTestCase === index
-                                                                ? 'bg-blue-600 text-white shadow-lg'
-                                                                : isDark
-                                                                    ? 'bg-gray-700 text-gray-300 hover:bg-gray-600'
-                                                                    : 'bg-gray-200 text-gray-700 hover:bg-gray-300'
-                                                                }`}
-                                                            onClick={() => setActiveTestCase(index)}
-                                                        >
-                                                            Case {index + 1}
-                                                        </button>
-                                                    ))}
-                                                    <AnimatedButton
-                                                        onClick={() => setCustomTestCases([...customTestCases, { input: '', expected: '' }])}
-                                                        size="sm"
-                                                        variant="ghost"
-                                                        icon={Plus}
-                                                        className="px-2 py-1"
-                                                    >
-                                                        Add
-                                                    </AnimatedButton>
+                                                <div className="flex items-center gap-2 px-2 py-2 text-sm font-medium">
+                                                    Test Cases
                                                 </div>
                                             </div>
 
-                                            {/* Enhanced Input/Output Area */}
-                                            <div className="flex-grow grid grid-cols-2 gap-4 p-4 overflow-hidden min-h-[260px]">
-                                                <div className="space-y-4">
-                                                    {/* Input */}
-                                                    <div className="flex flex-col">
-                                                        <label className={`text-xs font-medium mb-2 ${isDark ? 'text-gray-400' : 'text-gray-600'}`}>
-                                                            Input:
-                                                        </label>
-                                                        <textarea
-                                                            className={`p-3 text-sm font-mono rounded-lg border transition-all duration-300 resize-y ${isDark
-                                                                ? 'bg-gray-800 border-gray-600 text-gray-200 placeholder-gray-500 focus:border-blue-500'
-                                                                : 'bg-white border-gray-300 text-gray-900 placeholder-gray-400 focus:border-blue-500'
-                                                                } focus:ring-2 focus:ring-blue-500/20`}
-                                                            value={testCaseInput}
-                                                            onChange={(e) => {
-                                                                setTestCaseInput(e.target.value);
-                                                                const updatedTestCases = [...customTestCases];
-                                                                updatedTestCases[activeTestCase] = {
-                                                                    ...updatedTestCases[activeTestCase],
-                                                                    input: e.target.value
-                                                                };
-                                                                setCustomTestCases(updatedTestCases);
-                                                            }}
-                                                            placeholder="Enter input for this test case..."
-                                                            rows={Math.max(3, (testCaseInput || '').split('\n').length)}
-                                                        />
-                                                    </div>
-
-                                                    {/* Expected Output */}
-                                                    <div className="flex flex-col">
-                                                        <label className={`text-xs font-medium mb-2 ${isDark ? 'text-gray-400' : 'text-gray-600'}`}>
-                                                            Expected Output:
-                                                        </label>
-                                                        <textarea
-                                                            className={`p-3 text-sm font-mono rounded-lg border transition-all duration-300 ${isDark
-                                                                ? 'bg-gray-800 border-gray-600 text-gray-200 placeholder-gray-500 focus:border-blue-500'
-                                                                : 'bg-white border-gray-300 text-gray-900 placeholder-gray-400 focus:border-blue-500'
-                                                                } focus:ring-2 focus:ring-blue-500/20`}
-                                                            value={customTestCases[activeTestCase]?.expected || ''}
-                                                            onChange={(e) => {
-                                                                const updatedTestCases = [...customTestCases];
-                                                                updatedTestCases[activeTestCase] = {
-                                                                    ...updatedTestCases[activeTestCase],
-                                                                    expected: e.target.value
-                                                                };
-                                                                setCustomTestCases(updatedTestCases);
-                                                            }}
-                                                            placeholder="Enter expected output..."
-                                                            rows={3}
-                                                        />
-                                                    </div>
-                                                </div>
-
-                                                {/* Enhanced Output Display */}
-                                                <div className="flex flex-col">
-                                                    <label className={`text-xs font-medium mb-2 ${isDark ? 'text-gray-400' : 'text-gray-600'}`}>
-                                                        Output:
-                                                    </label>
-                                                    <div className={`flex-grow p-4 text-sm font-mono rounded-lg border overflow-auto transition-all duration-300 ${isDark
-                                                        ? 'bg-gray-800 border-gray-600 text-gray-200'
-                                                        : 'bg-white border-gray-300 text-gray-900'
+                                            {/* Run Results View */}
+                                            {outputView === 'run-results' && (
+                                                <>
+                                                    <div className={`h-12 border-b flex items-center px-4 transition-colors duration-300 ${isDark ? 'bg-black border-gray-800' : 'bg-gray-100 border-gray-200'
                                                         }`}>
-                                                        {isExecuting ? (
-                                                            <div className="flex items-center justify-center h-full">
-                                                                <Loader className="w-6 h-6 animate-spin text-blue-500 mr-3" />
-                                                                <span className={isDark ? 'text-gray-400' : 'text-gray-600'}>
-                                                                    Executing code...
-                                                                </span>
-                                                            </div>
-                                                        ) : executionError ? (
-                                                            <div className="text-red-400 space-y-2">
-                                                                <div className="flex items-center gap-2">
-                                                                    <AlertCircle className="w-4 h-4" />
-                                                                    <span className="font-semibold">Execution Error</span>
-                                                                </div>
-                                                                <div className="pl-6 text-sm">{executionError}</div>
-                                                            </div>
-                                                        ) : testCaseResults.length > 0 && testCaseResults[activeResultTab] ? (
-                                                            (() => {
-                                                                const result = testCaseResults[activeResultTab];
-                                                                const testCase = result.testCase;
+                                                        <div className="flex items-center gap-2 overflow-x-auto">
+                                                            {customTestCases.map((_, index) => {
+                                                                // Determine test case status for styling
+                                                                const result = testCaseResults[index];
+                                                                let statusIndicator = null;
+                                                                let borderClass = '';
 
-                                                                let statusText = 'Failed';
-                                                                let statusColor = 'text-red-400';
+                                                                if (result) {
+                                                                    const isCorrect = result.status === 'success' &&
+                                                                        result.testCase &&
+                                                                        result.stdout.trim() === (result.testCase.expected || '').trim();
 
-                                                                if (result.status === 'success') {
-                                                                    const isCorrect = testCase && result.stdout.trim() === (testCase.expected || '').trim();
                                                                     if (isCorrect) {
-                                                                        statusText = 'Accepted';
-                                                                        statusColor = 'text-green-400';
+                                                                        statusIndicator = <div className="w-2 h-2 bg-green-500 rounded-full"></div>;
+                                                                        borderClass = 'border-green-500/50';
+                                                                    } else if (result.status === 'success') {
+                                                                        statusIndicator = <div className="w-2 h-2 bg-red-500 rounded-full"></div>;
+                                                                        borderClass = 'border-yellow-500/50';
                                                                     } else {
-                                                                        statusText = 'Wrong Answer';
-                                                                        statusColor = 'text-yellow-400';
+                                                                        statusIndicator = <div className="w-2 h-2 bg-yellow-500 rounded-full"></div>;
+                                                                        borderClass = 'border-red-500/50';
                                                                     }
+                                                                } else {
+                                                                    // Add grey dot for test cases that haven't been run yet
+                                                                    statusIndicator = <div className="w-2 h-2 bg-gray-400 rounded-full"></div>;
+                                                                    borderClass = 'border-gray-400/50';
                                                                 }
 
                                                                 return (
-                                                                    <div className="space-y-4">
-                                                                        <div>
-                                                                            <div className="font-semibold text-xs mb-2 text-blue-400">Your Output:</div>
-                                                                            <div className={`pl-3 border-l-2 border-blue-500 ${isDark ? 'text-gray-200' : 'text-gray-800'}`}>
-                                                                                {result.stdout || "(No output)"}
-                                                                            </div>
-                                                                        </div>
-
-                                                                        {result.stderr && (
-                                                                            <div>
-                                                                                <div className="font-semibold text-xs mb-2 text-red-400">Error:</div>
-                                                                                <div className="pl-3 border-l-2 border-red-500 text-red-400 text-xs">
-                                                                                    {result.stderr}
-                                                                                </div>
-                                                                            </div>
-                                                                        )}
-
-                                                                        {testCase?.expected && (
-                                                                            <div>
-                                                                                <div className="font-semibold text-xs mb-2 text-green-400">Expected Output:</div>
-                                                                                <div className={`pl-3 border-l-2 border-green-500 ${isDark ? 'text-gray-200' : 'text-gray-800'}`}>
-                                                                                    {testCase.expected}
-                                                                                </div>
-                                                                            </div>
-                                                                        )}
-
-                                                                        <div className={`flex items-center justify-between text-xs pt-3 border-t ${isDark ? 'border-gray-800 text-gray-400' : 'border-gray-200 text-gray-600'
-                                                                            }`}>
-                                                                            <span className={`font-semibold ${statusColor}`}>
-                                                                                {statusText}
-                                                                            </span>
-                                                                            <span>
-                                                                                {result.executionTimeMs}ms
-                                                                            </span>
-                                                                        </div>
-                                                                    </div>
+                                                                    <button
+                                                                        key={index}
+                                                                        className={`px-3 py-1 text-xs rounded-full flex-shrink-0 transition-all duration-300 flex items-center gap-2 border ${activeTestCase === index
+                                                                            ? `bg-blue-600 text-white shadow-lg ${borderClass}`
+                                                                            : isDark
+                                                                                ? `bg-gray-700 text-gray-300 hover:bg-gray-600 ${borderClass || 'border-transparent'}`
+                                                                                : `bg-gray-200 text-gray-700 hover:bg-gray-300 ${borderClass || 'border-transparent'}`
+                                                                            }`}
+                                                                        onClick={() => setActiveTestCase(index)}
+                                                                    >
+                                                                        {statusIndicator}
+                                                                        Case {index + 1}
+                                                                    </button>
                                                                 );
-                                                            })()
-                                                        ) : (
-                                                            <div className={`text-center py-8 ${isDark ? 'text-gray-500' : 'text-gray-400'}`}>
-                                                                <Play className="w-8 h-8 mx-auto mb-2 opacity-50" />
-                                                                <p className="text-sm">
-                                                                    Click "Run" to execute your code
-                                                                </p>
-                                                            </div>
-                                                        )}
+                                                            })}
+                                                            <AnimatedButton
+                                                                onClick={() => setCustomTestCases([...customTestCases, { input: '', expected: '' }])}
+                                                                size="sm"
+                                                                variant="ghost"
+                                                                icon={Plus}
+                                                                className="px-2 py-1"
+                                                            >
+                                                                Add
+                                                            </AnimatedButton>
+                                                        </div>
                                                     </div>
-                                                </div>
-                                            </div>
+                                                    {/* Enhanced Input/Output Area */}
+                                                    <div className="flex-grow grid grid-cols-2 gap-4 p-4 overflow-hidden min-h-[260px]">
+                                                        <div className="space-y-4">
+                                                            {/* Input */}
+                                                            <div className="flex flex-col">
+                                                                <label className={`text-xs font-medium mb-2 ${isDark ? 'text-gray-400' : 'text-gray-600'}`}>
+                                                                    Input:
+                                                                </label>
+                                                                <textarea
+                                                                    className={`p-3 text-sm font-mono rounded-lg border transition-all duration-300 resize-y ${isDark
+                                                                        ? 'bg-gray-800 border-gray-600 text-gray-200 placeholder-gray-500 focus:border-blue-500'
+                                                                        : 'bg-white border-gray-300 text-gray-900 placeholder-gray-400 focus:border-blue-500'
+                                                                        } focus:ring-2 focus:ring-blue-500/20`}
+                                                                    value={testCaseInput}
+                                                                    onChange={(e) => {
+                                                                        setTestCaseInput(e.target.value);
+                                                                        const updatedTestCases = [...customTestCases];
+                                                                        updatedTestCases[activeTestCase] = {
+                                                                            ...updatedTestCases[activeTestCase],
+                                                                            input: e.target.value
+                                                                        };
+                                                                        setCustomTestCases(updatedTestCases);
+                                                                    }}
+                                                                    placeholder="Enter input for this test case..."
+                                                                    rows={Math.max(3, (testCaseInput || '').split('\n').length)}
+                                                                />
+                                                            </div>
+
+                                                            {/* Expected Output */}
+                                                            <div className="flex flex-col">
+                                                                <label className={`text-xs font-medium mb-2 ${isDark ? 'text-gray-400' : 'text-gray-600'}`}>
+                                                                    Expected Output:
+                                                                </label>
+                                                                <textarea
+                                                                    className={`p-3 text-sm font-mono rounded-lg border transition-all duration-300 ${isDark
+                                                                        ? 'bg-gray-800 border-gray-600 text-gray-200 placeholder-gray-500 focus:border-blue-500'
+                                                                        : 'bg-white border-gray-300 text-gray-900 placeholder-gray-400 focus:border-blue-500'
+                                                                        } focus:ring-2 focus:ring-blue-500/20`}
+                                                                    value={customTestCases[activeTestCase]?.expected || ''}
+                                                                    onChange={(e) => {
+                                                                        const updatedTestCases = [...customTestCases];
+                                                                        updatedTestCases[activeTestCase] = {
+                                                                            ...updatedTestCases[activeTestCase],
+                                                                            expected: e.target.value
+                                                                        };
+                                                                        setCustomTestCases(updatedTestCases);
+                                                                    }}
+                                                                    placeholder="Enter expected output..."
+                                                                    rows={3}
+                                                                />
+                                                            </div>
+                                                        </div>
+
+                                                        {/* Enhanced Output Display */}
+                                                        <div className="flex flex-col">
+                                                            <label className={`text-xs font-medium mb-2 ${isDark ? 'text-gray-400' : 'text-gray-600'}`}>
+                                                                Output:
+                                                            </label>
+                                                            <div className={`flex-grow p-4 text-sm font-mono rounded-lg border overflow-auto transition-all duration-300 ${isDark
+                                                                ? 'bg-gray-800 border-gray-600 text-gray-200'
+                                                                : 'bg-white border-gray-300 text-gray-900'
+                                                                }`}>
+                                                                {isExecuting ? (
+                                                                    <div className="flex items-center justify-center h-full">
+                                                                        <Loader className="w-6 h-6 animate-spin text-blue-500 mr-3" />
+                                                                        <span className={isDark ? 'text-gray-400' : 'text-gray-600'}>
+                                                                            Executing code...
+                                                                        </span>
+                                                                    </div>
+                                                                ) : executionError ? (
+                                                                    <div className="text-red-400 space-y-2">
+                                                                        <div className="flex items-center gap-2">
+                                                                            <AlertCircle className="w-4 h-4" />
+                                                                            <span className="font-semibold">Execution Error</span>
+                                                                        </div>
+                                                                        <div className="pl-6 text-sm">{executionError}</div>
+                                                                    </div>
+                                                                ) : testCaseResults.length > 0 && testCaseResults[activeTestCase] ? (
+                                                                    (() => {
+                                                                        const result = testCaseResults[activeTestCase];
+                                                                        const testCase = result.testCase;
+
+                                                                        let statusText = 'Failed';
+                                                                        let statusColor = 'text-red-400';
+
+                                                                        if (result.status === 'success') {
+                                                                            const isCorrect = testCase && result.stdout.trim() === (testCase.expected || '').trim();
+                                                                            if (isCorrect) {
+                                                                                statusText = 'Accepted';
+                                                                                statusColor = 'text-green-500';
+                                                                            } else {
+                                                                                statusText = 'Wrong Answer';
+                                                                                statusColor = 'text-red-500';
+                                                                            }
+                                                                        }
+
+                                                                        return (
+                                                                            <div className="space-y-4">
+                                                                                <div>
+                                                                                    <div className="font-semibold text-xs mb-2 text-blue-400">Your Output:</div>
+                                                                                    <div className={`pl-3 border-l-2 border-blue-500 ${isDark ? 'text-gray-200' : 'text-gray-800'}`}>
+                                                                                        {result.stdout || "(No output)"}
+                                                                                    </div>
+                                                                                </div>
+
+                                                                                {result.stderr && (
+                                                                                    <div>
+                                                                                        <div className="font-semibold text-xs mb-2 text-red-400">Error:</div>
+                                                                                        <div className="pl-3 border-l-2 border-red-500 text-red-400 text-xs">
+                                                                                            {result.stderr}
+                                                                                        </div>
+                                                                                    </div>
+                                                                                )}
+
+                                                                                {testCase?.expected && (
+                                                                                    <div>
+                                                                                        <div className="font-semibold text-xs mb-2 text-green-400">Expected Output:</div>
+                                                                                        <div className={`pl-3 border-l-2 border-green-500 ${isDark ? 'text-gray-200' : 'text-gray-800'}`}>
+                                                                                            {testCase.expected}
+                                                                                        </div>
+                                                                                    </div>
+                                                                                )}
+
+                                                                                <div className={`flex items-center justify-between text-xs pt-3 border-t ${isDark ? 'border-gray-800 text-gray-400' : 'border-gray-200 text-gray-600'
+                                                                                    }`}>
+                                                                                    <span className={`font-semibold ${statusColor}`}>
+                                                                                        {statusText}
+                                                                                    </span>
+                                                                                    <span>
+                                                                                        {result.executionTimeMs}ms
+                                                                                    </span>
+                                                                                </div>
+                                                                            </div>
+                                                                        );
+                                                                    })()
+                                                                ) : (
+                                                                    <div className={`text-center py-8 ${isDark ? 'text-gray-500' : 'text-gray-400'}`}>
+                                                                        <Play className="w-8 h-8 mx-auto mb-2 opacity-50" />
+                                                                        <p className="text-sm">
+                                                                            Click "Run" to execute your code
+                                                                        </p>
+                                                                    </div>
+                                                                )}
+                                                            </div>
+                                                        </div>
+                                                    </div>
+                                                </>
+                                            )}
                                         </div>
                                     </ResizablePanel>
                                 </ResizablePanelGroup>
@@ -1275,4 +1627,149 @@ const parseExamples = (statement: string): Array<{ input: string; output: string
     });
 
     return examples;
+};
+
+// New component for the complexity chart
+const ComplexityAnalysis: React.FC<{
+    title: string;
+    userComplexity: string | undefined;
+    percentile: number;
+    distribution: { [key: string]: number } | undefined;
+    isDark: boolean;
+}> = ({ title, userComplexity, percentile, distribution, isDark }) => {
+    if (!userComplexity || !distribution) {
+        return null;
+    }
+
+    const chartData = complexityOrder
+        .filter(c => distribution[c] > 0)
+        .map(c => ({
+            name: c,
+            count: distribution[c],
+            isCurrentUser: c === userComplexity
+        }));
+
+    return (
+        <GlassCard padding="lg">
+            <div className="flex justify-between items-center mb-4">
+                <h3 className={`text-xl font-semibold ${isDark ? 'text-white' : 'text-gray-900'}`}>{title}</h3>
+                <span className={`text-sm font-medium px-2 py-1 rounded-full ${isDark ? 'bg-indigo-900/50 text-indigo-400' : 'bg-indigo-100 text-indigo-600'}`}>
+                    {userComplexity}
+                </span>
+            </div>
+            <div className="text-left mb-4">
+                <p className={`text-3xl font-bold ${isDark ? 'text-white' : 'text-gray-800'}`}>{percentile.toFixed(1)}%</p>
+                <p className={`text-sm ${isDark ? 'text-gray-400' : 'text-gray-600'}`}>Beats percentile of submissions</p>
+            </div>
+            <div style={{ width: '100%', height: 200 }}>
+                <ResponsiveContainer>
+                    <BarChart data={chartData} margin={{ top: 5, right: 10, bottom: 5, left: -20 }}>
+                        <CartesianGrid strokeDasharray="3 3" vertical={false} stroke={isDark ? "rgba(255, 255, 255, 0.1)" : "rgba(0, 0, 0, 0.1)"} />
+                        <XAxis dataKey="name" tick={{ fontSize: 12, fill: isDark ? '#a0aec0' : '#4a5568' }} />
+                        <YAxis tick={{ fontSize: 12, fill: isDark ? '#a0aec0' : '#4a5568' }} />
+                        <Tooltip
+                            contentStyle={{
+                                backgroundColor: isDark ? '#2D3748' : '#FFFFFF',
+                                border: `1px solid ${isDark ? '#4A5568' : '#E2E8F0'}`,
+                                color: isDark ? '#FFFFFF' : '#1A202C'
+                            }}
+                            labelStyle={{ color: isDark ? '#FFFFFF' : '#1A202C' }}
+                            cursor={{ fill: isDark ? 'rgba(255, 255, 255, 0.1)' : 'rgba(0, 0, 0, 0.1)' }}
+                        />
+                        <Bar dataKey="count" name="Submissions">
+                            {chartData.map((entry, index) => (
+                                <Cell key={`cell-${index}`} fill={entry.isCurrentUser ? '#6366f1' : (isDark ? '#4a5568' : '#a5b4fc')} />
+                            ))}
+                        </Bar>
+                    </BarChart>
+                </ResponsiveContainer>
+            </div>
+        </GlassCard>
+    );
+};
+
+const SubmissionDetailView: React.FC<{
+    submission: SubmissionDetail;
+    stats: ProblemStats | null;
+    onBack: () => void;
+    isDark: boolean;
+    customTestCases: { input: string; expected?: string | undefined; }[];
+    setCustomTestCases: React.Dispatch<React.SetStateAction<{ input: string; expected?: string | undefined; }[]>>;
+    setActiveTestCase: React.Dispatch<React.SetStateAction<number>>;
+}> = ({ submission, stats, onBack, isDark, customTestCases, setCustomTestCases, setActiveTestCase }) => {
+
+    const timePercentile = submission.time_complexity && stats ? calculatePercentile(submission.time_complexity, stats.time_complexity_distribution) : 0;
+    const memoryPercentile = submission.memory_complexity && stats ? calculatePercentile(submission.memory_complexity, stats.memory_complexity_distribution) : 0;
+
+    return (
+        <div className="space-y-6">
+            <AnimatedButton onClick={onBack} variant="ghost" size="sm" icon={ChevronLeft}>
+                Back to Submissions
+            </AnimatedButton>
+
+            <GlassCard padding="lg">
+                <div className="flex justify-between items-center">
+                    <h2 className="text-2xl font-bold">Submission Details</h2>
+                    <span className={getStatusClass(submission.status, isDark)}>
+                        {submission.status.replace(/_/g, ' ')}
+                    </span>
+                </div>
+            </GlassCard>
+
+            <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+                <GlassCard padding="md"><div className="text-sm">Runtime</div><div className="text-xl font-bold">{submission.execution_time_ms} ms</div></GlassCard>
+                <GlassCard padding="md"><div className="text-sm">Memory</div><div className="text-xl font-bold">{(submission.memory_used_kb / 1024).toFixed(2)} MB</div></GlassCard>
+                <GlassCard padding="md"><div className="text-sm">Testcases</div><div className="text-xl font-bold">{submission.test_cases_passed} / {submission.test_cases_total}</div></GlassCard>
+            </div>
+
+            {submission.status !== "ACCEPTED" && submission.failed_test_case_details && (
+                <GlassCard padding="lg">
+                    <h3 className="text-lg font-semibold mb-4 text-red-400">Test Case Failed</h3>
+                    <div className="grid grid-cols-1 md:grid-cols-3 gap-4 font-mono text-sm">
+                        <div className="p-3 bg-black/30 rounded-lg"><span className="font-semibold text-gray-400">Input:</span><pre className="whitespace-pre-wrap mt-1">{formatInputForDisplay(submission.failed_test_case_details.input)}</pre></div>
+                        <div className="p-3 bg-black/30 rounded-lg"><span className="font-semibold text-gray-400">Expected:</span><pre className="whitespace-pre-wrap mt-1">{submission.failed_test_case_details.expected_output}</pre></div>
+                        <div className="p-3 bg-black/30 rounded-lg"><span className="font-semibold text-red-400">Output:</span><pre className="whitespace-pre-wrap mt-1">{submission.failed_test_case_details.actual_output}</pre></div>
+                    </div>
+                    <div className="mt-4 flex justify-end">
+                        <AnimatedButton
+                            size="sm"
+                            variant="primary"
+                            icon={Plus}
+                            onClick={() => {
+                                if (!submission.failed_test_case_details) return;
+                                const newTestCase = {
+                                    input: submission.failed_test_case_details.input,
+                                    expected: submission.failed_test_case_details.expected_output
+                                };
+                                const newTestCases = [...customTestCases, newTestCase];
+                                setCustomTestCases(newTestCases);
+                                setActiveTestCase(newTestCases.length - 1);
+                            }}
+                        >
+                            Add as Test Case
+                        </AnimatedButton>
+                    </div>
+                </GlassCard>
+            )}
+
+            {submission.status === "ACCEPTED" && (
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                    <ComplexityAnalysis
+                        title="Time Complexity"
+                        userComplexity={submission.time_complexity}
+                        percentile={timePercentile}
+                        distribution={stats?.time_complexity_distribution}
+                        isDark={isDark}
+                    />
+                    <ComplexityAnalysis
+                        title="Memory Complexity"
+                        userComplexity={submission.memory_complexity}
+                        percentile={memoryPercentile}
+                        distribution={stats?.memory_complexity_distribution}
+                        isDark={isDark}
+                    />
+                </div>
+            )}
+        </div>
+    )
 };

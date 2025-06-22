@@ -9,7 +9,8 @@ interface GlassCardProps {
     hover?: boolean;
     glow?: boolean;
     gradient?: boolean;
-    padding?: 'none' | 'sm' | 'md' | 'lg' | 'xl';
+    padding?: 'sm' | 'md' | 'lg' | 'xl' | 'none';
+    onClick?: () => void;
 }
 
 const GlassCard: React.FC<GlassCardProps> = ({
@@ -19,16 +20,24 @@ const GlassCard: React.FC<GlassCardProps> = ({
     glow = false,
     gradient = false,
     padding = 'md',
+    onClick,
 }) => {
     const { isDark } = useTheme();
 
     const paddingClasses = {
-        none: '',
         sm: 'p-3',
-        md: 'p-6',
-        lg: 'p-8',
-        xl: 'p-10',
+        md: 'p-4',
+        lg: 'p-6',
+        xl: 'p-8',
+        none: 'p-0',
     };
+
+    const paddingClass = {
+        sm: 'p-3',
+        md: 'p-4',
+        lg: 'p-6',
+        none: 'p-0',
+    }[padding];
 
     return (
         <div
@@ -50,9 +59,10 @@ const GlassCard: React.FC<GlassCardProps> = ({
                         : 'shadow-2xl shadow-blue-500/10'
                     : 'shadow-lg'
                 }
-        ${paddingClasses[padding]}
+        ${paddingClass}
         ${className}
       `}
+            onClick={onClick}
         >
             {gradient && (
                 <div

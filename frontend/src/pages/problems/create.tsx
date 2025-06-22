@@ -6,7 +6,7 @@ import { ResizableHandle, ResizablePanel, ResizablePanelGroup } from '@/componen
 import { Button } from '@/components/ui/button';
 import { Textarea } from '@/components/ui/textarea';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
-import { AlertCircle, CheckCircle2, Loader, MessageSquare, Lightbulb, ArrowDown } from 'lucide-react';
+import { AlertCircle, CheckCircle2, Loader, MessageSquare, Lightbulb, ArrowDown, Plus, X, Timer, MemoryStick, Target, BookOpen, Users, Award, Code2, Eye, Sparkles, CheckCircle, Play, Send, ChevronLeft, ChevronDown, ChevronUp } from 'lucide-react';
 import {
     createProblem,
     generateTestCases,
@@ -22,6 +22,124 @@ import {
 } from '@/lib/api';
 import Editor, { Monaco } from '@monaco-editor/react';
 import type { editor } from 'monaco-editor';
+import { useTheme } from '@/providers/ThemeProvider';
+import GlassCard from '@/components/ui/GlassCard';
+import AnimatedButton from '@/components/ui/AnimatedButton';
+import Link from 'next/link';
+
+// Animated Sprinkler Component
+const AnimatedSprinkler = ({ trigger = false, duration = 3000 }: { trigger?: boolean; duration?: number }) => {
+    const [isActive, setIsActive] = useState(false);
+    const { isDark } = useTheme();
+
+    useEffect(() => {
+        if (trigger) {
+            setIsActive(true);
+            const timer = setTimeout(() => setIsActive(false), duration);
+            return () => clearTimeout(timer);
+        }
+    }, [trigger, duration]);
+
+    if (!isActive) return null;
+
+    return (
+        <div className="fixed inset-0 pointer-events-none z-50 overflow-hidden">
+            {/* Sparkle particles */}
+            {Array.from({ length: 50 }).map((_, i) => (
+                <div
+                    key={i}
+                    className={`absolute animate-bounce opacity-0 ${isDark ? 'text-blue-400' : 'text-blue-500'}`}
+                    style={{
+                        left: `${Math.random() * 100}%`,
+                        top: `${Math.random() * 100}%`,
+                        animationDelay: `${Math.random() * 2}s`,
+                        animationDuration: `${1 + Math.random() * 2}s`,
+                        animationFillMode: 'forwards',
+                    }}
+                >
+                    <Sparkles className="w-4 h-4 animate-pulse" />
+                </div>
+            ))}
+
+            {/* Confetti-like elements */}
+            {Array.from({ length: 30 }).map((_, i) => (
+                <div
+                    key={`confetti-${i}`}
+                    className="absolute w-2 h-2 rounded-full animate-ping opacity-0"
+                    style={{
+                        left: `${Math.random() * 100}%`,
+                        top: `${Math.random() * 100}%`,
+                        backgroundColor: `hsl(${Math.random() * 360}, 70%, ${isDark ? '60%' : '50%'})`,
+                        animationDelay: `${Math.random() * 1.5}s`,
+                        animationDuration: `${0.5 + Math.random() * 1}s`,
+                        animationFillMode: 'forwards',
+                    }}
+                />
+            ))}
+
+            {/* Gradient overlay for magical effect */}
+            <div
+                className={`absolute inset-0 opacity-30 animate-pulse bg-gradient-to-br ${isDark
+                    ? 'from-blue-900/20 via-purple-900/20 to-pink-900/20'
+                    : 'from-blue-300/20 via-purple-300/20 to-pink-300/20'
+                    }`}
+                style={{
+                    animationDuration: '2s',
+                    animationIterationCount: '2'
+                }}
+            />
+        </div>
+    );
+};
+
+// Static Sprinkler Component
+const StaticSprinkler = ({ className = '' }: { className?: string }) => {
+    const { isDark } = useTheme();
+
+    return (
+        <div className={`relative overflow-hidden ${className}`}>
+            {/* Background gradient */}
+            <div className={`absolute inset-0 opacity-20 bg-gradient-to-br ${isDark
+                ? 'from-blue-600 via-purple-600 to-pink-600'
+                : 'from-blue-400 via-purple-400 to-pink-400'
+                }`} />
+
+            {/* Static sparkles pattern */}
+            <div className="absolute inset-0">
+                {Array.from({ length: 20 }).map((_, i) => (
+                    <div
+                        key={i}
+                        className={`absolute ${isDark ? 'text-blue-400/30' : 'text-blue-500/40'}`}
+                        style={{
+                            left: `${10 + (i * 4.5)}%`,
+                            top: `${15 + ((i % 4) * 20)}%`,
+                            transform: `rotate(${i * 18}deg)`
+                        }}
+                    >
+                        <Sparkles className="w-3 h-3" />
+                    </div>
+                ))}
+            </div>
+
+            {/* Floating elements */}
+            <div className="absolute inset-0">
+                {Array.from({ length: 12 }).map((_, i) => (
+                    <div
+                        key={`float-${i}`}
+                        className="absolute w-1 h-1 rounded-full opacity-40 animate-pulse"
+                        style={{
+                            left: `${5 + (i * 8)}%`,
+                            top: `${20 + ((i % 3) * 25)}%`,
+                            backgroundColor: `hsl(${200 + (i * 30)}, 70%, ${isDark ? '60%' : '50%'})`,
+                            animationDelay: `${i * 0.3}s`,
+                            animationDuration: '3s'
+                        }}
+                    />
+                ))}
+            </div>
+        </div>
+    );
+}
 
 // Define types for API responses
 interface AuthStatusResponse {
@@ -86,6 +204,7 @@ type ExecutionResult = {
 
 export default function CreateProblemPage() {
     const router = useRouter();
+    const { isDark } = useTheme();
     const editorRef = useRef<editor.IStandaloneCodeEditor | null>(null);
 
     // Problem creation state
@@ -93,6 +212,12 @@ export default function CreateProblemPage() {
     const [problemDetails, setProblemDetails] = useState<ProblemDetails | null>(null);
     const [isGeneratingDetails, setIsGeneratingDetails] = useState(false);
     const [problemView, setProblemView] = useState<'input' | 'preview'>('input');
+
+    // Welcome card state
+    const [welcomeCardCollapsed, setWelcomeCardCollapsed] = useState(false);
+
+    // AI Modal state
+    const [isAIModalOpen, setIsAIModalOpen] = useState(true);
 
     // Test case generation state
     const [isGeneratingTestCases, setIsGeneratingTestCases] = useState(false);
@@ -192,15 +317,13 @@ export default function CreateProblemPage() {
     useEffect(() => {
         if (!monacoInstance || !editorInstance) return;
 
-        // --- Start of Autocomplete Logic ---
-
-        // 1. Add CSS for Ghost Text
+        // Add CSS for Ghost Text with dynamic theme
         const styleElement = document.createElement('style');
         styleElement.textContent = `
             .monaco-editor .suggest-preview-text,
             .monaco-editor .inline-completion-text {
                 opacity: 0.7 !important;
-                color: #7fb5ff !important;
+                color: ${isDark ? '#7fb5ff' : '#0066cc'} !important;
                 font-weight: bold !important;
             }
         `;
@@ -341,7 +464,14 @@ export default function CreateProblemPage() {
             keyDownListener.dispose();
             document.head.removeChild(styleElement);
         };
-    }, [monacoInstance, editorInstance, selectedLanguage, problemDetails, generatedTestCases]);
+    }, [monacoInstance, editorInstance, selectedLanguage, problemDetails, generatedTestCases, isDark]);
+
+    // Add mounted state
+    const [hasMounted, setHasMounted] = useState(false);
+
+    useEffect(() => {
+        setHasMounted(true);
+    }, []);
 
     function onEditorMount(editor: editor.IStandaloneCodeEditor, monaco: Monaco) {
         editorRef.current = editor;
@@ -577,379 +707,577 @@ export default function CreateProblemPage() {
         }
     };
 
-    // If not logged in, show access denied
+    // Enhanced difficulty configuration
+    const getDifficultyConfig = (difficulty: string) => {
+        const configs = {
+            Easy: {
+                color: isDark ? 'text-green-400 bg-green-900/30 border-green-500/30' : 'text-green-700 bg-green-100 border-green-200',
+                icon: CheckCircle,
+                gradient: 'from-green-500 to-emerald-500'
+            },
+            Medium: {
+                color: isDark ? 'text-yellow-400 bg-yellow-900/30 border-yellow-500/30' : 'text-yellow-700 bg-yellow-100 border-yellow-200',
+                icon: Timer,
+                gradient: 'from-yellow-500 to-orange-500'
+            },
+            Hard: {
+                color: isDark ? 'text-red-400 bg-red-900/30 border-red-500/30' : 'text-red-700 bg-red-100 border-red-200',
+                icon: Target,
+                gradient: 'from-red-500 to-pink-500'
+            }
+        };
+        return configs[difficulty as keyof typeof configs] || configs.Easy;
+    };
+
+    // If not logged in, show access denied with enhanced UI
     if (!isLoading && !isLoggedIn) {
         return (
-            <div className="min-h-screen bg-gray-100 flex flex-col justify-center items-center p-4">
-                <AlertCircle className="h-16 w-16 text-red-500 mb-4" />
-                <h1 className="text-2xl font-bold text-gray-900 mb-2">Access Denied</h1>
-                <p className="text-gray-600 mb-4">You must be logged in to create problems.</p>
-                <Button onClick={() => router.push('/login')} className="bg-indigo-600 hover:bg-indigo-700">
-                    Log In
-                </Button>
+            <div className="page-background flex flex-col justify-center items-center p-4">
+                <GlassCard className="text-center max-w-md" padding="lg">
+                    <AlertCircle className={`w-16 h-16 mx-auto mb-4 ${isDark ? 'text-red-400' : 'text-red-500'}`} />
+                    <h2 className={`text-xl font-bold mb-2 ${isDark ? 'text-white' : 'text-gray-900'}`}>Access Denied</h2>
+                    <p className={`mb-4 ${isDark ? 'text-gray-400' : 'text-gray-600'}`}>You must be logged in to create problems.</p>
+                    <AnimatedButton
+                        href="/login"
+                        variant="primary"
+                        gradient={true}
+                    >
+                        Log In
+                    </AnimatedButton>
+                </GlassCard>
             </div>
         );
     }
 
-    // If loading, show loading spinner
+    // If loading, show enhanced loading spinner
     if (isLoading) {
         return (
-            <div className="min-h-screen bg-gray-100 flex justify-center items-center">
-                <Loader className="h-8 w-8 animate-spin text-indigo-600" />
-                <span className="ml-2 text-gray-700">Loading...</span>
+            <div className="page-background flex justify-center items-center">
+                <div className="text-center">
+                    <div className={`inline-block h-8 w-8 animate-spin rounded-full border-4 border-solid border-blue-600 border-r-transparent`}></div>
+                    <p className={`mt-4 text-xl ${isDark ? 'text-gray-300' : 'text-gray-700'}`}>Loading...</p>
+                </div>
             </div>
         );
     }
+
+    if (!hasMounted) return null;
 
     return (
         <>
             <Head>
-                <title>Create Problem - Online Judge</title>
+                <title>Create Problem - CodeSorted</title>
+                <meta name="description" content="Create a new coding challenge problem" />
             </Head>
-            <div className="min-h-screen bg-gray-100">
+
+
+            <div className="page-background">
                 <ResizablePanelGroup direction="horizontal" className="min-h-screen">
                     {/* Left Panel: Problem Description */}
                     <ResizablePanel defaultSize={40} minSize={30}>
-                        <div className="h-screen flex flex-col bg-white border-r border-gray-200">
-                            {/* Header */}
-                            <div className="p-4 border-b border-gray-200">
-                                <div className="flex items-center justify-between">
-                                    <h1 className="text-xl font-bold text-gray-900">Create New Problem</h1>
-                                    {problemView === 'preview' && problemDetails && (
-                                        <div className="flex items-center space-x-2">
-                                            <span className={`px-2 py-1 text-xs font-medium rounded-full ${problemDetails.difficulty === 'Easy' ? 'bg-green-100 text-green-800' :
-                                                problemDetails.difficulty === 'Medium' ? 'bg-yellow-100 text-yellow-800' :
-                                                    'bg-red-100 text-red-800'
-                                                }`}>
-                                                {problemDetails.difficulty}
-                                            </span>
-                                            {problemDetails.tags.slice(0, 3).map((tag, index) => (
-                                                <span key={index} className="px-2 py-1 text-xs font-medium bg-indigo-100 text-indigo-800 rounded-full">
-                                                    {tag}
+                        <div className={`h-screen flex flex-col transition-colors duration-300 ${isDark ? 'bg-black border-gray-800' : 'bg-white border-gray-200'} border-r`}>
+
+                            {/* Enhanced Header */}
+                            <div className={`p-4 border-b transition-colors duration-300 ${isDark ? 'border-gray-800 bg-black/50' : 'border-gray-200 bg-gray-50/50'
+                                } backdrop-blur-sm`}>
+                                <div className="flex items-start justify-between mb-3">
+                                    <div className="flex-1">
+                                        <div className="flex items-center gap-3 mb-2">
+                                            <AnimatedButton
+                                                href="/problems"
+                                                variant="ghost"
+                                                size="sm"
+                                                icon={ChevronLeft}
+                                            >
+                                                Back
+                                            </AnimatedButton>
+                                        </div>
+                                        <h1 className={`text-2xl font-bold mb-2 ${isDark ? 'text-white' : 'text-gray-900'}`}>
+                                            Create New Problem
+                                        </h1>
+                                        {problemView === 'preview' && problemDetails && (
+                                            <div className="flex items-center gap-3 flex-wrap">
+                                                <span className={`px-3 py-1 text-sm font-medium rounded-full border ${getDifficultyConfig(problemDetails.difficulty).color}`}>
+                                                    {problemDetails.difficulty}
                                                 </span>
-                                            ))}
+                                                {problemDetails.tags && problemDetails.tags.map((tag, index) => (
+                                                    <span key={index} className={`px-2 py-1 text-xs font-medium rounded-md ${isDark
+                                                        ? 'bg-blue-900/30 text-blue-400 border border-blue-500/30'
+                                                        : 'bg-blue-100 text-blue-700 border border-blue-200'
+                                                        }`}>
+                                                        {tag}
+                                                    </span>
+                                                ))}
+                                            </div>
+                                        )}
+                                    </div>
+
+                                    {problemView === 'preview' && problemDetails && (
+                                        <div className="flex items-center gap-3">
+                                            {(() => {
+                                                const config = getDifficultyConfig(problemDetails.difficulty);
+                                                const Icon = config.icon;
+                                                return (
+                                                    <div className={`p-3 rounded-full bg-gradient-to-r ${config.gradient}`}>
+                                                        <Icon className="w-5 h-5 text-white" />
+                                                    </div>
+                                                );
+                                            })()}
                                         </div>
                                     )}
                                 </div>
+
+                                {/* Problem Stats */}
+                                {problemView === 'preview' && (
+                                    <div className="grid grid-cols-3 gap-4">
+                                        {[
+                                            { icon: Timer, label: 'Time Limit', value: '1s' },
+                                            { icon: MemoryStick, label: 'Memory Limit', value: '256MB' },
+                                            { icon: Eye, label: 'Difficulty', value: problemDetails?.difficulty || 'Easy' }
+                                        ].map((stat, index) => (
+                                            <div key={index} className={`text-center p-3 rounded-lg ${isDark ? 'bg-gray-700/50' : 'bg-white/50'
+                                                } backdrop-blur-sm border ${isDark ? 'border-gray-600' : 'border-gray-200'}`}>
+                                                <stat.icon className={`w-4 h-4 mx-auto mb-1 ${isDark ? 'text-gray-400' : 'text-gray-600'}`} />
+                                                <div className={`text-xs font-medium ${isDark ? 'text-gray-300' : 'text-gray-700'}`}>
+                                                    {stat.label}
+                                                </div>
+                                                <div className={`text-sm font-bold ${isDark ? 'text-white' : 'text-gray-900'}`}>
+                                                    {stat.value}
+                                                </div>
+                                            </div>
+                                        ))}
+                                    </div>
+                                )}
                             </div>
 
-                            {/* Tab Navigation - only shown in preview mode */}
+                            {/* Enhanced Tab Navigation */}
                             {problemView === 'preview' && (
-                                <div className="border-b border-gray-200">
+                                <div className={`border-b transition-colors duration-300 ${isDark ? 'border-gray-700 bg-gray-800/30' : 'border-gray-200 bg-gray-50/30'
+                                    } backdrop-blur-sm`}>
                                     <div className="flex">
-                                        <button
-                                            className="px-4 py-2 text-sm font-medium text-indigo-600 border-b-2 border-indigo-600"
-                                        >
-                                            Description
-                                        </button>
-                                        <button
-                                            className="px-4 py-2 text-sm font-medium text-gray-700 hover:text-gray-900"
-                                        >
-                                            <MessageSquare className="inline-block w-4 h-4 mr-1" />
-                                            Discussion
-                                        </button>
-                                        <button
-                                            className="px-4 py-2 text-sm font-medium text-gray-700 hover:text-gray-900"
-                                        >
-                                            Submissions
-                                        </button>
+                                        {[
+                                            { id: 'description', label: 'Description', icon: BookOpen },
+                                            { id: 'discussion', label: 'Discussion', icon: MessageSquare },
+                                            { id: 'submissions', label: 'Submissions', icon: Award }
+                                        ].map((tab) => (
+                                            <button
+                                                key={tab.id}
+                                                className={`px-6 py-3 text-sm font-medium flex items-center gap-2 transition-all duration-300 ${tab.id === 'description'
+                                                    ? isDark
+                                                        ? 'text-blue-400 border-b-2 border-blue-400 bg-blue-900/20'
+                                                        : 'text-blue-600 border-b-2 border-blue-600 bg-blue-50'
+                                                    : isDark
+                                                        ? 'text-gray-400 hover:text-gray-200 hover:bg-gray-700/50'
+                                                        : 'text-gray-600 hover:text-gray-900 hover:bg-gray-100'
+                                                    }`}
+                                            >
+                                                <tab.icon className="w-4 h-4" />
+                                                {tab.label}
+                                            </button>
+                                        ))}
                                     </div>
                                 </div>
                             )}
 
                             {/* Problem Input or Preview */}
-                            <div className="overflow-y-auto flex-grow py-4">
+                            <div className="overflow-y-auto flex-grow">
                                 {problemView === 'input' ? (
-                                    <div className="space-y-4 px-4">
-                                        <div>
-                                            <label htmlFor="rawProblemStatement" className="block text-lg font-semibold text-gray-800 mb-2">
-                                                Enter Problem Statement
-                                            </label>
-                                            <p className="text-sm text-gray-600 mb-3">
-                                                Describe your problem, including the task, examples, and constraints if possible.
-                                                The AI will help structure and format it properly.
-                                            </p>
-                                            <Textarea
-                                                id="rawProblemStatement"
-                                                value={rawProblemStatement}
-                                                onChange={(e) => setRawProblemStatement(e.target.value)}
-                                                placeholder="Add the problem statement here"
-                                                className="w-full min-h-[400px] font-mono text-sm text-gray-900 dark:text-gray-100"
-                                                style={{ color: '#000000' }}
-                                            />
-                                        </div>
-
-                                        <Button
-                                            onClick={handleGenerateProblemDetails}
-                                            disabled={isGeneratingDetails || !rawProblemStatement}
-                                            className="w-full bg-indigo-600 hover:bg-indigo-700"
-                                        >
-                                            {isGeneratingDetails ? (
-                                                <>
-                                                    <Loader className="mr-2 h-4 w-4 animate-spin" /> Generating Problem...
-                                                </>
-                                            ) : (
-                                                'Generate Problem'
-                                            )}
-                                        </Button>
-
-                                        {error && (
-                                            <div className="p-3 bg-red-50 border border-red-200 rounded-md text-red-800 flex items-start">
-                                                <AlertCircle className="h-5 w-5 mr-2 flex-shrink-0" />
-                                                <p>{error}</p>
-                                            </div>
-                                        )}
-                                    </div>
-                                ) : (
-                                    <div className="space-y-4">
-                                        {/* Problem Preview */}
-                                        <div className="flex justify-between items-center mb-2">
-                                            <h2 className="text-lg font-semibold text-gray-800">Problem Preview</h2>
-                                            <Button
-                                                onClick={() => setProblemView('input')}
-                                                variant="outline"
-                                                size="sm"
+                                    <div className="p-6 space-y-6">
+                                        {/* Welcome Card with collapsible functionality */}
+                                        <GlassCard className="relative overflow-hidden" padding={welcomeCardCollapsed ? "sm" : "lg"} glow={true}>
+                                            <StaticSprinkler className={`absolute inset-0 ${welcomeCardCollapsed ? "opacity-30" : ""}`} />
+                                            {/* Dismiss/Collapse toggle button */}
+                                            <button
+                                                onClick={() => setWelcomeCardCollapsed(!welcomeCardCollapsed)}
+                                                className={`absolute top-4 right-4 z-20 p-2 rounded-full transition-all duration-200 ${isDark
+                                                    ? 'bg-gray-800/80 hover:bg-gray-700/80 text-gray-400 hover:text-white'
+                                                    : 'bg-white/80 hover:bg-white text-gray-600 hover:text-gray-900'
+                                                    } backdrop-blur-sm`}
+                                                aria-label={welcomeCardCollapsed ? "Expand welcome card" : "Collapse welcome card"}
                                             >
-                                                Edit Original
-                                            </Button>
-                                        </div>
-
-                                        {problemDetails && (
-                                            <div>
-                                                <div className="flex items-center justify-between mb-4">
-                                                    <h1 className="text-2xl font-bold text-gray-900">{problemDetails.title}</h1>
-                                                    <div className="flex items-center space-x-2">
-                                                        <span className={`px-2 py-1 text-xs font-medium rounded-full ${problemDetails.difficulty === 'Easy' ? 'bg-green-100 text-green-800' :
-                                                            problemDetails.difficulty === 'Medium' ? 'bg-yellow-100 text-yellow-800' :
-                                                                'bg-red-100 text-red-800'
-                                                            }`}>
-                                                            {problemDetails.difficulty}
-                                                        </span>
-                                                        {problemDetails.tags.map((tag, index) => (
-                                                            <span key={index} className="px-2 py-1 text-xs font-medium bg-indigo-100 text-indigo-800 rounded-full">
-                                                                {tag}
-                                                            </span>
-                                                        ))}
-                                                    </div>
+                                                {welcomeCardCollapsed ? <ChevronDown className="w-4 h-4" /> : <ChevronUp className="w-4 h-4" />}
+                                            </button>
+                                            <div className="relative z-10">
+                                                <div className="flex items-center justify-center gap-3 mb-4">
+                                                    <Sparkles className={`w-8 h-8 ${isDark ? 'text-blue-400' : 'text-blue-600'}`} />
+                                                    <h2 className={`text-2xl font-bold bg-gradient-to-r ${isDark
+                                                        ? 'from-blue-400 via-purple-400 to-pink-400'
+                                                        : 'from-blue-600 via-purple-600 to-pink-600'
+                                                        } bg-clip-text text-transparent`}>
+                                                        AI-Powered Problem Creator
+                                                    </h2>
+                                                    <Sparkles className={`w-8 h-8 ${isDark ? 'text-purple-400' : 'text-purple-600'}`} />
                                                 </div>
 
-                                                <div className="mb-6">
-                                                    <div className="prose prose-indigo max-w-none text-gray-800">
-                                                        {/* Format the problem statement more cleanly */}
-                                                        <p>{problemDetails.formatted_statement.split('\n\n')[0]}</p>
-
-                                                        {/* Examples Section */}
-                                                        <h2 className="text-lg font-semibold mt-6 mb-3">Examples</h2>
-
-                                                        {/* Parse and format examples from the formatted statement */}
-                                                        <div className="space-y-4">
-                                                            {parseExamples(problemDetails.formatted_statement).map((example, idx) => (
-                                                                <div key={idx} className="border border-gray-200 rounded-md overflow-hidden">
-                                                                    <h3 className="text-sm font-medium text-gray-700 p-3 border-b border-gray-200 bg-gray-50">Example {idx + 1}:</h3>
-                                                                    <div className="p-3">
-                                                                        <div className="mb-2">
-                                                                            <div className="text-xs font-medium text-gray-600 mb-1">Input:</div>
-                                                                            <div className="bg-gray-800 text-white p-2 rounded text-sm font-mono">{example.input}</div>
-                                                                        </div>
-                                                                        <div className="mb-2">
-                                                                            <div className="text-xs font-medium text-gray-600 mb-1">Output:</div>
-                                                                            <div className="bg-gray-800 text-white p-2 rounded text-sm font-mono">{example.output}</div>
-                                                                        </div>
-                                                                        {example.explanation && (
-                                                                            <div>
-                                                                                <div className="text-xs font-medium text-gray-600 mb-1">Explanation:</div>
-                                                                                <div className="text-sm text-gray-700">{example.explanation}</div>
-                                                                            </div>
-                                                                        )}
+                                                {/* Card details that can be collapsed */}
+                                                {!welcomeCardCollapsed && (
+                                                    <>
+                                                        <p className={`text-lg mb-4 ${isDark ? 'text-gray-300' : 'text-gray-700'}`}>
+                                                            Transform your ideas into professional coding challenges
+                                                        </p>
+                                                        <div className="grid grid-cols-3 gap-4 text-center">
+                                                            {[
+                                                                { icon: Lightbulb, label: 'AI Analysis', desc: 'Smart formatting' },
+                                                                { icon: Target, label: 'Auto Test Cases', desc: 'Generated automatically' },
+                                                                { icon: Sparkles, label: 'Professional', desc: 'Ready to publish' }
+                                                            ].map((feature, index) => (
+                                                                <div key={index} className={`p-3 rounded-lg backdrop-blur-sm ${isDark ? 'bg-white/5' : 'bg-white/20'}`}>
+                                                                    <feature.icon className={`w-6 h-6 mx-auto mb-2 ${isDark ? 'text-yellow-400' : 'text-yellow-600'}`} />
+                                                                    <div className={`text-sm font-medium ${isDark ? 'text-white' : 'text-gray-900'}`}>
+                                                                        {feature.label}
+                                                                    </div>
+                                                                    <div className={`text-xs ${isDark ? 'text-gray-400' : 'text-gray-600'}`}>
+                                                                        {feature.desc}
                                                                     </div>
                                                                 </div>
                                                             ))}
                                                         </div>
+                                                    </>
+                                                )}
+                                            </div>
+                                        </GlassCard>
+
+                                        <div>
+                                            <label htmlFor="rawProblemStatement" className={`block text-lg font-semibold mb-2 ${isDark ? 'text-white' : 'text-gray-900'}`}>
+                                                Enter Problem Statement
+                                            </label>
+                                            <p className={`text-sm mb-3 ${isDark ? 'text-gray-400' : 'text-gray-600'}`}>
+                                                Describe your problem, including the task, examples, and constraints if possible.
+                                                The AI will help structure and format it properly.
+                                            </p>
+                                            <div className="relative">
+                                                <Textarea
+                                                    id="rawProblemStatement"
+                                                    value={rawProblemStatement}
+                                                    onChange={(e) => setRawProblemStatement(e.target.value)}
+                                                    placeholder="Add the problem statement here"
+                                                    className={`w-full min-h-[400px] font-mono text-sm transition-colors duration-300 ${isDark
+                                                        ? 'bg-gray-800 border-gray-700 text-gray-200 placeholder-gray-500 focus:border-blue-500'
+                                                        : 'bg-white border-gray-300 text-gray-900 placeholder-gray-400 focus:border-blue-500'
+                                                        } focus:ring-2 focus:ring-blue-500/20`}
+                                                />
+                                            </div>
+                                        </div>
+
+                                        <AnimatedButton
+                                            onClick={handleGenerateProblemDetails}
+                                            disabled={isGeneratingDetails || !rawProblemStatement}
+                                            variant="primary"
+                                            className="w-full"
+                                            loading={isGeneratingDetails}
+                                            gradient={true}
+                                            glow={true}
+                                        >
+                                            {isGeneratingDetails ? 'Generating Problem...' : 'Generate Problem'}
+                                        </AnimatedButton>
+
+                                        {error && (
+                                            <GlassCard className={`border ${isDark ? 'border-red-500/30 bg-red-900/20' : 'border-red-200 bg-red-50'}`}>
+                                                <div className={`flex items-start gap-3 ${isDark ? 'text-red-400' : 'text-red-800'}`}>
+                                                    <AlertCircle className="h-5 w-5 flex-shrink-0 mt-0.5" />
+                                                    <p>{error}</p>
+                                                </div>
+                                            </GlassCard>
+                                        )}
+                                    </div>
+                                ) : (
+                                    <div className="p-6 space-y-6">
+                                        {/* Problem Preview */}
+                                        <div className="flex justify-between items-center mb-4">
+                                            <h2 className={`text-lg font-semibold ${isDark ? 'text-white' : 'text-gray-900'}`}>
+                                                Problem Preview
+                                            </h2>
+                                            <AnimatedButton
+                                                onClick={() => setProblemView('input')}
+                                                variant="secondary"
+                                                size="sm"
+                                            >
+                                                Edit Original
+                                            </AnimatedButton>
+                                        </div>
+
+                                        {problemDetails && (
+                                            <div className="space-y-6">
+                                                {/* Problem Statement */}
+                                                <div>
+                                                    <h2 className={`text-lg font-semibold mb-4 ${isDark ? 'text-white' : 'text-gray-900'}`}>
+                                                        Problem Statement
+                                                    </h2>
+                                                    <GlassCard padding="lg">
+                                                        <div className={`prose max-w-none ${isDark ? 'prose-invert' : ''}`}>
+                                                            <p className={isDark ? 'text-gray-300' : 'text-gray-700'}>
+                                                                {problemDetails.formatted_statement.split('\n\n')[0]}
+                                                            </p>
+                                                        </div>
+                                                    </GlassCard>
+                                                </div>
+
+                                                {/* Examples Section */}
+                                                <div>
+                                                    <h2 className={`text-lg font-semibold mb-4 ${isDark ? 'text-white' : 'text-gray-900'}`}>
+                                                        Examples
+                                                    </h2>
+                                                    <div className="space-y-4">
+                                                        {parseExamples(problemDetails.formatted_statement).map((example, idx) => (
+                                                            <GlassCard key={idx} className="overflow-hidden" padding="none">
+                                                                <div className={`px-4 py-3 border-b ${isDark
+                                                                    ? 'bg-gray-700/50 border-gray-600 text-gray-300'
+                                                                    : 'bg-gray-50/50 border-gray-200 text-gray-700'
+                                                                    }`}>
+                                                                    <h3 className="text-sm font-medium">Example {idx + 1}</h3>
+                                                                </div>
+                                                                <div className="p-4 space-y-3">
+                                                                    <div>
+                                                                        <div className={`text-xs font-medium mb-2 ${isDark ? 'text-gray-400' : 'text-gray-600'}`}>
+                                                                            Input:
+                                                                        </div>
+                                                                        <div className={`p-3 rounded-lg font-mono text-sm ${isDark ? 'bg-gray-900 text-green-400' : 'bg-gray-900 text-white'}`}>
+                                                                            {example.input}
+                                                                        </div>
+                                                                    </div>
+                                                                    <div>
+                                                                        <div className={`text-xs font-medium mb-2 ${isDark ? 'text-gray-400' : 'text-gray-600'}`}>
+                                                                            Output:
+                                                                        </div>
+                                                                        <div className={`p-3 rounded-lg font-mono text-sm ${isDark ? 'bg-gray-900 text-blue-400' : 'bg-gray-900 text-white'}`}>
+                                                                            {example.output}
+                                                                        </div>
+                                                                    </div>
+                                                                    {example.explanation && (
+                                                                        <div>
+                                                                            <div className={`text-xs font-medium mb-2 ${isDark ? 'text-gray-400' : 'text-gray-600'}`}>
+                                                                                Explanation:
+                                                                            </div>
+                                                                            <div className={`text-sm ${isDark ? 'text-gray-300' : 'text-gray-700'}`}>
+                                                                                {example.explanation}
+                                                                            </div>
+                                                                        </div>
+                                                                    )}
+                                                                </div>
+                                                            </GlassCard>
+                                                        ))}
                                                     </div>
                                                 </div>
 
-                                                <div className="mb-6">
-                                                    <h2 className="text-lg font-semibold text-gray-800 mb-2">Constraints</h2>
-                                                    <div className="bg-gray-50 p-4 rounded-md border border-gray-200">
-                                                        <ul className="list-disc list-inside space-y-1 text-gray-700">
+                                                {/* Constraints */}
+                                                <div>
+                                                    <h2 className={`text-lg font-semibold mb-4 ${isDark ? 'text-white' : 'text-gray-900'}`}>
+                                                        Constraints
+                                                    </h2>
+                                                    <GlassCard padding="lg">
+                                                        <ul className={`list-disc list-inside space-y-2 ${isDark ? 'text-gray-300' : 'text-gray-700'}`}>
                                                             {problemDetails.constraints.split('\n').filter(c => c.trim()).map((constraint, idx) => (
                                                                 <li key={idx} className="text-sm font-mono">{constraint}</li>
                                                             ))}
                                                         </ul>
-                                                    </div>
-
-                                                    <div className="mt-4 grid grid-cols-2 gap-4">
-                                                        <div className="bg-gray-50 p-3 rounded-md border border-gray-200">
-                                                            <p className="text-sm font-medium text-gray-700">Time Limit</p>
-                                                            <p className="text-sm text-gray-900">1 second</p>
-                                                        </div>
-                                                        <div className="bg-gray-50 p-3 rounded-md border border-gray-200">
-                                                            <p className="text-sm font-medium text-gray-700">Memory Limit</p>
-                                                            <p className="text-sm text-gray-900">256 MB</p>
-                                                        </div>
-                                                    </div>
+                                                    </GlassCard>
                                                 </div>
 
-                                                {/* AI Hints Section */}
-                                                <div className="mt-6">
-                                                    <div className="flex items-center justify-between mb-3">
-                                                        <h2 className="text-lg font-semibold text-gray-800 flex items-center">
-                                                            <Lightbulb className="w-5 h-5 mr-2 text-yellow-500" />
-                                                            Hints
-                                                            {problemDetails && (
-                                                                <span className="ml-2 text-xs bg-gray-100 text-gray-600 px-2 py-1 rounded-full">
-                                                                    {problemDetails.difficulty === 'Easy' ? '1 hint' :
-                                                                        problemDetails.difficulty === 'Medium' ? '2 hints' :
-                                                                            '3 hints'} available
-                                                                </span>
-                                                            )}
+                                                {/* Enhanced AI Hints Section */}
+                                                <div>
+                                                    <div className="flex items-center justify-between mb-4">
+                                                        <h2 className={`text-lg font-semibold flex items-center gap-2 ${isDark ? 'text-white' : 'text-gray-900'}`}>
+                                                            <Lightbulb className="w-5 h-5 text-yellow-500" />
+                                                            AI Hints
+                                                            <span className={`text-xs px-2 py-1 rounded-full ${isDark ? 'bg-yellow-900/30 text-yellow-400' : 'bg-yellow-100 text-yellow-700'
+                                                                }`}>
+                                                                {problemDetails.difficulty === 'Easy' ? '1 hint' :
+                                                                    problemDetails.difficulty === 'Medium' ? '2 hints' : '3 hints'} available
+                                                            </span>
                                                         </h2>
                                                         {!isLoadingHint && !hints && (
-                                                            <Button
+                                                            <AnimatedButton
                                                                 onClick={handleGetHint}
-                                                                className="px-3 py-1 text-sm bg-yellow-500 hover:bg-yellow-600 text-white rounded-md"
+                                                                variant="warning"
+                                                                size="sm"
+                                                                icon={Sparkles}
+                                                                glow={true}
                                                             >
                                                                 Get Hint
-                                                            </Button>
+                                                            </AnimatedButton>
                                                         )}
                                                     </div>
 
-                                                    <div className="p-3 border border-gray-200 rounded-md bg-gray-50">
+                                                    <GlassCard padding="lg">
                                                         {isLoadingHint ? (
-                                                            <div className="flex justify-center items-center p-4">
-                                                                <Loader className="w-5 h-5 mr-2 animate-spin text-yellow-500" />
-                                                                <p className="text-sm text-gray-600">Generating hints...</p>
+                                                            <div className="flex justify-center items-center p-6">
+                                                                <Loader className="w-6 h-6 mr-3 animate-spin text-yellow-500" />
+                                                                <p className={`${isDark ? 'text-gray-300' : 'text-gray-600'}`}>
+                                                                    Generating personalized hints...
+                                                                </p>
                                                             </div>
                                                         ) : hintError ? (
-                                                            <div className="p-3 text-sm text-red-600 bg-red-50 rounded-md">
+                                                            <div className={`p-4 rounded-lg border ${isDark
+                                                                ? 'bg-red-900/20 border-red-500/30 text-red-400'
+                                                                : 'bg-red-50 border-red-200 text-red-700'
+                                                                }`}>
                                                                 <AlertCircle className="w-4 h-4 inline-block mr-2" />
                                                                 {hintError}
                                                             </div>
                                                         ) : hints && visibleHintIndex >= 0 ? (
                                                             <div className="space-y-4">
                                                                 {hints.slice(0, visibleHintIndex + 1).map((hint, idx) => (
-                                                                    <div key={idx} className={`p-3 rounded-md ${idx === visibleHintIndex ? 'bg-yellow-50 border border-yellow-200' : 'bg-white border border-gray-100'}`}>
-                                                                        <div className="flex items-start">
-                                                                            <div className="bg-yellow-100 text-yellow-800 rounded-full w-6 h-6 flex items-center justify-center mr-2 flex-shrink-0">
+                                                                    <div key={idx} className={`p-4 rounded-lg border transition-all duration-300 ${idx === visibleHintIndex
+                                                                        ? isDark
+                                                                            ? 'bg-yellow-900/20 border-yellow-500/30'
+                                                                            : 'bg-yellow-50 border-yellow-200'
+                                                                        : isDark
+                                                                            ? 'bg-gray-700/30 border-gray-600/30'
+                                                                            : 'bg-gray-50 border-gray-200'
+                                                                        }`}>
+                                                                        <div className="flex items-start gap-3">
+                                                                            <div className={`w-6 h-6 rounded-full flex items-center justify-center text-xs font-bold ${isDark ? 'bg-yellow-600 text-yellow-100' : 'bg-yellow-500 text-yellow-50'
+                                                                                }`}>
                                                                                 {idx + 1}
                                                                             </div>
-                                                                            <p className="text-sm text-gray-700">{hint}</p>
+                                                                            <p className={`text-sm leading-relaxed ${isDark ? 'text-gray-300' : 'text-gray-700'}`}>
+                                                                                {hint}
+                                                                            </p>
                                                                         </div>
                                                                     </div>
                                                                 ))}
 
                                                                 {visibleHintIndex < hints.length - 1 && (
-                                                                    <Button
+                                                                    <AnimatedButton
                                                                         onClick={handleShowNextHint}
-                                                                        className="w-full mt-2 px-3 py-1 text-sm bg-yellow-100 hover:bg-yellow-200 text-yellow-800 rounded-md flex items-center justify-center"
+                                                                        variant="warning"
+                                                                        className="w-full"
+                                                                        icon={ArrowDown}
                                                                     >
-                                                                        <ArrowDown className="w-4 h-4 mr-1" />
-                                                                        Show Next Hint
-                                                                    </Button>
+                                                                        Show Next Hint ({visibleHintIndex + 2}/{hints.length})
+                                                                    </AnimatedButton>
                                                                 )}
                                                             </div>
                                                         ) : (
-                                                            <p className="text-sm text-gray-500 p-2">
-                                                                Click "Get Hint" if you're stuck.
-                                                            </p>
-                                                        )}
-                                                    </div>
-                                                </div>
-
-                                                <div className="mb-6">
-                                                    <h2 className="text-lg font-semibold text-gray-800 mb-2">Test Cases</h2>
-                                                    {isGeneratingTestCases ? (
-                                                        <div className="flex items-center space-x-2 text-gray-600">
-                                                            <Loader className="h-4 w-4 animate-spin" />
-                                                            <span>Generating test cases...</span>
-                                                        </div>
-                                                    ) : testCaseError ? (
-                                                        <div className="p-3 bg-red-50 border border-red-200 rounded-md text-red-800 flex items-start">
-                                                            <AlertCircle className="h-5 w-5 mr-2 flex-shrink-0" />
-                                                            <p>{testCaseError}</p>
-                                                        </div>
-                                                    ) : generatedTestCases ? (
-                                                        <div>
-                                                            <div className="flex items-center mb-4">
-                                                                <label htmlFor="sampleCount" className="block text-sm font-medium text-gray-700 mr-2">
-                                                                    Number of Sample Test Cases:
-                                                                </label>
-                                                                <Select value={selectedSampleCount.toString()} onValueChange={(value) => setSelectedSampleCount(parseInt(value))}>
-                                                                    <SelectTrigger className="w-20">
-                                                                        <SelectValue placeholder="Samples" />
-                                                                    </SelectTrigger>
-                                                                    <SelectContent>
-                                                                        {[0, 1, 2, 3, 4, 5].map((count) => (
-                                                                            <SelectItem key={count} value={count.toString()}>
-                                                                                {count}
-                                                                            </SelectItem>
-                                                                        ))}
-                                                                    </SelectContent>
-                                                                </Select>
-                                                            </div>
-                                                            <div className="p-3 bg-gray-50 border border-gray-200 rounded-md">
-                                                                <p className="text-sm text-gray-700">
-                                                                    <span className="font-medium">{Object.keys(generatedTestCases).length}</span> test cases generated
-                                                                    (<span className="font-medium">{selectedSampleCount}</span> will be visible to users)
+                                                            <div className={`text-center py-6 ${isDark ? 'text-gray-400' : 'text-gray-600'}`}>
+                                                                <Lightbulb className="w-12 h-12 mx-auto mb-3 opacity-50" />
+                                                                <p className="text-sm mb-2">
+                                                                    Need help? Get AI-powered hints tailored to your progress!
+                                                                </p>
+                                                                <p className="text-xs opacity-75">
+                                                                    Hints are designed to guide your thinking without spoiling the solution.
                                                                 </p>
                                                             </div>
+                                                        )}
+                                                    </GlassCard>
+                                                </div>
 
-                                                            {/* Display Sample Test Cases */}
-                                                            <div className="mt-4 space-y-2">
-                                                                {testCases.map((tc, index) => (
-                                                                    <div key={index} className="border border-gray-200 rounded-md overflow-hidden">
-                                                                        <div className="p-3 bg-gray-50 border-b">
-                                                                            <h4 className="text-sm font-medium text-gray-800">Sample Case {index + 1}</h4>
-                                                                        </div>
-                                                                        <div className="p-3 space-y-2">
-                                                                            <div>
-                                                                                <div className="text-xs font-medium text-gray-600 mb-1">Input:</div>
-                                                                                <div className="bg-gray-800 text-white p-2 rounded text-sm font-mono whitespace-pre-wrap">{formatDisplayInput(tc.input)}</div>
-                                                                            </div>
-                                                                            <div>
-                                                                                <div className="text-xs font-medium text-gray-600 mb-1">Expected Output:</div>
-                                                                                <div className="bg-gray-800 text-white p-2 rounded text-sm font-mono whitespace-pre-wrap">{tc.expectedOutput}</div>
-                                                                            </div>
-                                                                        </div>
+                                                {/* Test Cases Section */}
+                                                <div>
+                                                    <h2 className={`text-lg font-semibold mb-4 ${isDark ? 'text-white' : 'text-gray-900'}`}>
+                                                        Test Cases
+                                                    </h2>
+                                                    {isGeneratingTestCases ? (
+                                                        <GlassCard padding="lg">
+                                                            <div className="flex items-center justify-center p-4">
+                                                                <Loader className="w-6 h-6 mr-3 animate-spin text-blue-500" />
+                                                                <span className={isDark ? 'text-gray-300' : 'text-gray-600'}>
+                                                                    Generating test cases...
+                                                                </span>
+                                                            </div>
+                                                        </GlassCard>
+                                                    ) : testCaseError ? (
+                                                        <GlassCard className={`border ${isDark ? 'border-red-500/30 bg-red-900/20' : 'border-red-200 bg-red-50'}`}>
+                                                            <div className={`flex items-start gap-3 ${isDark ? 'text-red-400' : 'text-red-800'}`}>
+                                                                <AlertCircle className="h-5 w-5 flex-shrink-0 mt-0.5" />
+                                                                <p>{testCaseError}</p>
+                                                            </div>
+                                                        </GlassCard>
+                                                    ) : generatedTestCases ? (
+                                                        <div>
+                                                            <GlassCard padding="lg" className="mb-4">
+                                                                <div className="flex items-center justify-between">
+                                                                    <div>
+                                                                        <p className={`text-sm ${isDark ? 'text-gray-300' : 'text-gray-700'}`}>
+                                                                            <span className="font-medium">{Object.keys(generatedTestCases).length}</span> test cases generated
+                                                                            (<span className="font-medium">{selectedSampleCount}</span> will be visible to users)
+                                                                        </p>
                                                                     </div>
+                                                                    <Select value={selectedSampleCount.toString()} onValueChange={(value) => setSelectedSampleCount(parseInt(value))}>
+                                                                        <SelectTrigger className={`w-20 ${isDark ? 'bg-gray-700 border-gray-600 text-gray-200' : 'bg-white border-gray-300 text-gray-900'}`}>
+                                                                            <SelectValue />
+                                                                        </SelectTrigger>
+                                                                        <SelectContent>
+                                                                            {[0, 1, 2, 3, 4, 5].map((count) => (
+                                                                                <SelectItem key={count} value={count.toString()}>
+                                                                                    {count}
+                                                                                </SelectItem>
+                                                                            ))}
+                                                                        </SelectContent>
+                                                                    </Select>
+                                                                </div>
+                                                            </GlassCard>
+
+                                                            <div className="space-y-4">
+                                                                {testCases.slice(0, selectedSampleCount).map((tc, index) => (
+                                                                    <GlassCard key={index} className="overflow-hidden" padding="none">
+                                                                        <div className={`p-3 border-b ${isDark ? 'bg-gray-700/50 border-gray-600' : 'bg-gray-50/50 border-gray-200'}`}>
+                                                                            <h4 className={`text-sm font-medium ${isDark ? 'text-gray-300' : 'text-gray-800'}`}>
+                                                                                Sample Case {index + 1}
+                                                                            </h4>
+                                                                        </div>
+                                                                        <div className="p-4 space-y-3">
+                                                                            <div>
+                                                                                <div className={`text-xs font-medium mb-2 ${isDark ? 'text-gray-400' : 'text-gray-600'}`}>Input:</div>
+                                                                                <div className={`p-3 rounded-lg font-mono text-sm ${isDark ? 'bg-gray-900 text-green-400' : 'bg-gray-900 text-white'}`}>
+                                                                                    {formatDisplayInput(tc.input)}
+                                                                                </div>
+                                                                            </div>
+                                                                            <div>
+                                                                                <div className={`text-xs font-medium mb-2 ${isDark ? 'text-gray-400' : 'text-gray-600'}`}>Expected Output:</div>
+                                                                                <div className={`p-3 rounded-lg font-mono text-sm ${isDark ? 'bg-gray-900 text-blue-400' : 'bg-gray-900 text-white'}`}>
+                                                                                    {tc.expectedOutput}
+                                                                                </div>
+                                                                            </div>
+                                                                        </div>
+                                                                    </GlassCard>
                                                                 ))}
                                                             </div>
                                                         </div>
                                                     ) : (
-                                                        <p className="text-sm text-gray-600">No test cases generated yet</p>
+                                                        <GlassCard padding="lg">
+                                                            <p className={`text-sm ${isDark ? 'text-gray-400' : 'text-gray-600'}`}>
+                                                                No test cases generated yet
+                                                            </p>
+                                                        </GlassCard>
                                                     )}
                                                 </div>
 
-                                                <Button
-                                                    onClick={handleCreateProblem}
-                                                    disabled={isCreatingProblem}
-                                                    className="w-full bg-green-600 hover:bg-green-700 text-white"
-                                                >
-                                                    {isCreatingProblem ? (
-                                                        <>
-                                                            <Loader className="mr-2 h-4 w-4 animate-spin" /> Creating Problem...
-                                                        </>
-                                                    ) : (
-                                                        'Create Problem'
+                                                {/* Create Problem Button */}
+                                                <div className="pt-4">
+                                                    <AnimatedButton
+                                                        onClick={handleCreateProblem}
+                                                        disabled={isCreatingProblem}
+                                                        variant="success"
+                                                        className="w-full"
+                                                        loading={isCreatingProblem}
+                                                        gradient={true}
+                                                        glow={true}
+                                                    >
+                                                        {isCreatingProblem ? 'Creating Problem...' : 'Create Problem'}
+                                                    </AnimatedButton>
+
+                                                    {createdProblemId && (
+                                                        <GlassCard className={`mt-4 border ${isDark ? 'border-green-500/30 bg-green-900/20' : 'border-green-200 bg-green-50'}`}>
+                                                            <div className={`flex items-start gap-3 ${isDark ? 'text-green-400' : 'text-green-800'}`}>
+                                                                <CheckCircle2 className="h-5 w-5 flex-shrink-0 mt-0.5" />
+                                                                <div>
+                                                                    <p className="font-medium">Problem created successfully!</p>
+                                                                    <p className="text-sm">Redirecting to the problem page...</p>
+                                                                </div>
+                                                            </div>
+                                                        </GlassCard>
                                                     )}
-                                                </Button>
 
-                                                {createdProblemId && (
-                                                    <div className="mt-4 p-3 bg-green-50 border border-green-200 rounded-md text-green-800 flex items-start">
-                                                        <CheckCircle2 className="h-5 w-5 mr-2 flex-shrink-0" />
-                                                        <div>
-                                                            <p className="font-medium">Problem created successfully!</p>
-                                                            <p className="text-sm">Redirecting to the problem page...</p>
-                                                        </div>
-                                                    </div>
-                                                )}
-
-                                                {error && (
-                                                    <div className="mt-4 p-3 bg-red-50 border border-red-200 rounded-md text-red-800 flex items-start">
-                                                        <AlertCircle className="h-5 w-5 mr-2 flex-shrink-0" />
-                                                        <p>{error}</p>
-                                                    </div>
-                                                )}
+                                                    {error && (
+                                                        <GlassCard className={`mt-4 border ${isDark ? 'border-red-500/30 bg-red-900/20' : 'border-red-200 bg-red-50'}`}>
+                                                            <div className={`flex items-start gap-3 ${isDark ? 'text-red-400' : 'text-red-800'}`}>
+                                                                <AlertCircle className="h-5 w-5 flex-shrink-0 mt-0.5" />
+                                                                <p>{error}</p>
+                                                            </div>
+                                                        </GlassCard>
+                                                    )}
+                                                </div>
                                             </div>
                                         )}
                                     </div>
@@ -960,78 +1288,111 @@ export default function CreateProblemPage() {
 
                     <ResizableHandle withHandle />
 
-                    {/* Right Panel: Code Editor */}
+                    {/* Right Panel: Enhanced Code Editor */}
                     <ResizablePanel defaultSize={60} minSize={40}>
-                        <div className="h-screen flex flex-col bg-white">
-                            {/* Language Selector */}
-                            <div className="p-4 border-b border-gray-200 bg-gray-50">
+                        <div className={`h-screen flex flex-col transition-colors duration-300 ${isDark ? 'bg-black' : 'bg-white'
+                            }`}>
+                            {/* Enhanced Language Selector */}
+                            <div className={`p-4 border-b transition-colors duration-300 ${isDark ? 'border-gray-800 bg-black/50' : 'border-gray-200 bg-gray-50/50'
+                                } backdrop-blur-sm`}>
                                 <div className="flex items-center justify-between">
-                                    <Select value={selectedLanguage} onValueChange={handleLanguageChange}>
-                                        <SelectTrigger className="w-48" style={{ color: '#000000' }}>
-                                            <SelectValue placeholder="Select Language" style={{ color: '#000000' }} />
-                                        </SelectTrigger>
-                                        <SelectContent>
-                                            <SelectItem value="python" style={{ color: '#000000' }}>Python</SelectItem>
-                                            <SelectItem value="javascript" style={{ color: '#000000' }}>JavaScript</SelectItem>
-                                            <SelectItem value="cpp" style={{ color: '#000000' }}>C++</SelectItem>
-                                            <SelectItem value="java" style={{ color: '#000000' }}>Java</SelectItem>
-                                            <SelectItem value="pseudocode" style={{ color: '#000000' }}>Pseudocode</SelectItem>
-                                        </SelectContent>
-                                    </Select>
-                                    <div className="flex space-x-2">
-                                        <Button
-                                            className="px-4 py-2 text-sm font-medium text-white bg-green-600 border border-transparent rounded-md shadow-sm hover:bg-green-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-green-500 disabled:opacity-50"
+                                    <div className="flex items-center gap-4">
+                                        <select
+                                            value={selectedLanguage}
+                                            onChange={(e) => handleLanguageChange(e.target.value)}
+                                            className={`px-4 py-2 rounded-lg border transition-all duration-300 ${isDark
+                                                ? 'bg-gray-700 border-gray-600 text-white focus:border-blue-500'
+                                                : 'bg-white border-gray-300 text-gray-900 focus:border-blue-500'
+                                                } focus:ring-2 focus:ring-blue-500/20`}
+                                        >
+                                            <option value="python">Python</option>
+                                            <option value="javascript">JavaScript</option>
+                                            <option value="cpp">C++</option>
+                                            <option value="java">Java</option>
+                                            <option value="pseudocode">Pseudocode</option>
+                                        </select>
+
+                                        <div className={`text-sm ${isDark ? 'text-gray-400' : 'text-gray-600'}`}>
+                                            Press <kbd className={`px-2 py-1 rounded text-xs ${isDark ? 'bg-gray-700 text-gray-300' : 'bg-gray-100 text-gray-700'
+                                                }`}>Tab</kbd> for AI suggestions
+                                        </div>
+                                    </div>
+
+                                    <div className="flex gap-3">
+                                        <AnimatedButton
                                             onClick={handleRunCode}
-                                            disabled={isExecuting}
+                                            variant="success"
+                                            icon={Play}
+                                            loading={isExecuting}
+                                            glow={true}
                                         >
                                             {isExecuting ? 'Running...' : 'Run'}
-                                        </Button>
-                                        <Button
-                                            className="px-4 py-2 text-sm font-medium text-white bg-indigo-600 border border-transparent rounded-md shadow-sm hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500"
+                                        </AnimatedButton>
+
+                                        <AnimatedButton
                                             onClick={handleSubmitCode}
-                                            disabled={isSubmitting || isExecuting}
+                                            variant="primary"
+                                            icon={Send}
+                                            loading={isSubmitting}
+                                            disabled={!problemDetails}
+                                            gradient={true}
+                                            glow={true}
                                         >
                                             {isSubmitting ? 'Submitting...' : 'Submit'}
-                                        </Button>
+                                        </AnimatedButton>
                                     </div>
                                 </div>
                             </div>
 
-                            {/* Editor Area */}
+                            {/* Editor Area with enhanced styling */}
                             <div className="flex-grow">
                                 <ResizablePanelGroup direction="vertical">
-                                    {/* Code Editor Panel */}
-                                    <ResizablePanel defaultSize={65} minSize={40}>
+                                    <ResizablePanel defaultSize={60} minSize={30}>
                                         <div className="h-full flex flex-col">
-                                            {/* Editor Tabs */}
-                                            <div className="flex items-center px-4 py-2 bg-[#1e1e1e] border-b border-gray-800">
+                                            <div className={`flex items-center px-4 py-2 border-b transition-colors duration-300 ${isDark ? 'bg-black border-gray-800' : 'bg-gray-50 border-gray-200'}`}>
                                                 <div className="flex">
                                                     <button
-                                                        className={`px-3 py-1 text-xs rounded-t border-t border-l border-r border-gray-700 ${activeEditorTab === 'editor' ? 'bg-[#2d2d2d] text-gray-300' : 'bg-[#1e1e1e] text-gray-400'}`}
+                                                        className={`px-4 py-2 text-sm rounded-tl rounded-bl transition-all duration-300 ${activeEditorTab === 'editor'
+                                                            ? isDark
+                                                                ? 'bg-gray-700 text-white border border-gray-600'
+                                                                : 'bg-white text-gray-900 border border-gray-300'
+                                                            : isDark
+                                                                ? 'bg-gray-800 text-gray-400 hover:text-gray-200'
+                                                                : 'bg-gray-200 text-gray-700 hover:text-gray-900'
+                                                            }`}
                                                         onClick={() => setActiveEditorTab('editor')}
                                                     >
+                                                        <Code2 className="w-4 h-4 inline-block mr-2" />
                                                         Editor
                                                     </button>
                                                     {selectedLanguage === 'pseudocode' && convertedCode && (
                                                         <button
-                                                            className={`px-3 py-1 text-xs rounded-t border-t border-l border-r border-gray-700 ${activeEditorTab === 'converted' ? 'bg-[#2d2d2d] text-gray-300' : 'bg-[#1e1e1e] text-gray-400'}`}
+                                                            className={`px-4 py-2 text-sm rounded-tr rounded-br transition-all duration-300 ${activeEditorTab === 'converted'
+                                                                ? isDark
+                                                                    ? 'bg-gray-700 text-white border border-gray-600'
+                                                                    : 'bg-white text-gray-900 border border-gray-300'
+                                                                : isDark
+                                                                    ? 'bg-gray-800 text-gray-400 hover:text-gray-200'
+                                                                    : 'bg-gray-200 text-gray-700 hover:text-gray-900'
+                                                                }`}
                                                             onClick={() => setActiveEditorTab('converted')}
                                                         >
-                                                            Converted
+                                                            <Sparkles className="w-4 h-4 inline-block mr-2" />
+                                                            AI Generated
                                                         </button>
                                                     )}
                                                 </div>
                                             </div>
 
-                                            <div className="flex-grow">
-                                                {activeEditorTab === 'editor' ? (
+                                            {activeEditorTab === 'editor' ? (
+                                                <div className="flex-grow">
                                                     <Editor
                                                         height="100%"
                                                         language={selectedLanguage === 'cpp' ? 'cpp' : selectedLanguage}
                                                         value={code}
                                                         onChange={handleEditorChange}
                                                         onMount={onEditorMount}
-                                                        theme="vs-dark"
+                                                        theme={isDark ? 'vs-dark' : 'light'}
                                                         options={{
                                                             minimap: { enabled: false },
                                                             scrollBeyondLastLine: false,
@@ -1043,171 +1404,310 @@ export default function CreateProblemPage() {
                                                                 horizontal: 'visible',
                                                             },
                                                             automaticLayout: true,
+                                                            padding: { top: 16, bottom: 16 },
+                                                            suggestOnTriggerCharacters: true,
+                                                            quickSuggestions: true,
+                                                            tabCompletion: 'on',
                                                         }}
                                                     />
-                                                ) : (
-                                                    <Editor
-                                                        height="100%"
-                                                        language="python"
-                                                        value={convertedCode}
-                                                        theme="vs-dark"
-                                                        options={{ readOnly: true }}
-                                                    />
-                                                )}
-                                            </div>
+                                                </div>
+                                            ) : (
+                                                <div className="flex-grow flex flex-col">
+                                                    <div className={`px-4 py-2 border-b text-xs transition-colors duration-300 ${isDark
+                                                        ? 'bg-gray-800 border-gray-700 text-gray-400'
+                                                        : 'bg-gray-100 border-gray-200 text-gray-600'
+                                                        }`}>
+                                                        AI-Generated Code (Read-only)
+                                                    </div>
+                                                    <div className="flex-grow">
+                                                        <Editor
+                                                            height="100%"
+                                                            language="python"
+                                                            value={convertedCode || "// Click 'Run' to see AI-generated code"}
+                                                            theme={isDark ? 'vs-dark' : 'light'}
+                                                            options={{
+                                                                readOnly: true,
+                                                                minimap: { enabled: false },
+                                                            }}
+                                                        />
+                                                    </div>
+                                                </div>
+                                            )}
                                         </div>
                                     </ResizablePanel>
 
                                     <ResizableHandle withHandle />
 
-                                    {/* Test Cases and Output Panel */}
+                                    {/* Enhanced Test Cases Panel */}
                                     <ResizablePanel defaultSize={35} minSize={20}>
-                                        <div className="h-full flex flex-col bg-[#1e1e1e] text-gray-200">
-                                            {/* Tabs */}
-                                            <div className="h-10 bg-[#1e1e1e] border-b border-gray-800 flex items-center px-4">
-                                                <div className="flex-grow overflow-x-auto whitespace-nowrap pr-4">
-                                                    <div className="flex items-center">
-                                                        {testCases.map((_, index) => (
-                                                            <button
-                                                                key={index}
-                                                                className={`px-3 py-1 text-xs mr-2 rounded-full flex-shrink-0 relative ${activeTestCaseIndex === index ? 'bg-indigo-600 text-white' : 'bg-gray-700 text-gray-300 hover:bg-gray-600'}`}
-                                                                onClick={() => {
-                                                                    setActiveTestCaseIndex(index);
-                                                                    // Update the main execution result view when changing tabs
-                                                                    if (allExecutionResults && allExecutionResults[index]) {
-                                                                        setExecutionResult(allExecutionResults[index]);
-                                                                    } else {
-                                                                        setExecutionResult(null);
-                                                                    }
-                                                                }}
+                                        <div className={`h-full flex flex-col transition-colors duration-300 ${isDark ? 'bg-black text-gray-200' : 'bg-gray-50 text-gray-800'}`}>
+                                            {/* Enhanced Test Case Tabs */}
+                                            <div className={`h-12 border-b flex items-center px-4 transition-colors duration-300 ${isDark ? 'bg-black border-gray-800' : 'bg-gray-100 border-gray-200'}`}>
+                                                <div className="flex items-center gap-2 overflow-x-auto">
+                                                    {/* Show loading state when generating test cases */}
+                                                    {isGeneratingTestCases ? (
+                                                        <div className="flex items-center gap-2">
+                                                            <Loader className="w-4 h-4 animate-spin text-blue-500" />
+                                                            <span className={`text-xs ${isDark ? 'text-gray-400' : 'text-gray-600'}`}>
+                                                                Generating test cases...
+                                                            </span>
+                                                        </div>
+                                                    ) : testCases.length === 0 || (testCases.length === 1 && !testCases[0].input && !testCases[0].expectedOutput) ? (
+                                                        <div className="flex items-center gap-2">
+                                                            <span className={`text-xs ${isDark ? 'text-gray-500' : 'text-gray-500'}`}>
+                                                                No Test Cases
+                                                            </span>
+                                                            <AnimatedButton
+                                                                onClick={() => setTestCases([...testCases, { input: '', expectedOutput: '' }])}
+                                                                size="sm"
+                                                                variant="ghost"
+                                                                icon={Plus}
+                                                                className="px-2 py-1"
                                                             >
-                                                                Case {index + 1}
-                                                                {allExecutionResults && allExecutionResults[index] && (
-                                                                    <span className={`absolute -top-1 -right-1 block h-2 w-2 rounded-full ${allExecutionResults[index].status === 'success' && testCases[index]?.expectedOutput.trim() === allExecutionResults[index].stdout.trim() ? 'bg-green-500' : 'bg-red-500'
-                                                                        }`}></span>
-                                                                )}
-                                                            </button>
-                                                        ))}
-                                                    </div>
-                                                </div>
-                                                <div className="flex-shrink-0">
-                                                    <button
-                                                        className="px-3 py-1 text-xs bg-gray-700 text-gray-300 hover:bg-gray-600 rounded-full"
-                                                        onClick={() => {
-                                                            const newTestCases = [...testCases, { input: '', expectedOutput: '' }];
-                                                            setTestCases(newTestCases);
-                                                            setActiveTestCaseIndex(testCases.length);
-                                                            // Also reset execution results for the new tab
-                                                            if (allExecutionResults) {
-                                                                setAllExecutionResults([...allExecutionResults, null]);
-                                                            }
-                                                        }}
-                                                    >
-                                                        +
-                                                    </button>
-                                                </div>
-                                            </div>
+                                                                Add
+                                                            </AnimatedButton>
+                                                        </div>
+                                                    ) : (
+                                                        <>
+                                                            {testCases.map((_, index) => {
+                                                                // Determine test case status for styling
+                                                                const result = allExecutionResults && allExecutionResults[index];
+                                                                let statusIndicator = null;
+                                                                let borderClass = '';
 
-                                            {/* Input/Output Area */}
-                                            <div className="flex-grow grid grid-cols-2 gap-4 p-4 overflow-hidden min-h-[200px] bg-[#1e1e1e]">
-                                                <div className="space-y-4">
-                                                    {/* Input */}
-                                                    <div className="flex flex-col">
-                                                        <p className="text-xs font-medium text-gray-400 mb-1">Input:</p>
-                                                        <textarea
-                                                            className="p-2 text-sm font-mono border border-gray-700 rounded-md focus:outline-none focus:ring-1 focus:ring-indigo-500 bg-[#2d2d2d] text-gray-200 h-auto min-h-[40px] resize-y"
-                                                            value={formattedInput}
-                                                            onChange={(e) => setFormattedInput(e.target.value)}
-                                                            onBlur={() => {
-                                                                const newTestCases = [...testCases];
-                                                                if (newTestCases[activeTestCaseIndex]) {
-                                                                    newTestCases[activeTestCaseIndex].input = parseFormattedInput(formattedInput);
-                                                                    setTestCases(newTestCases);
-                                                                }
-                                                            }}
-                                                            rows={Math.max(2, (formattedInput || '').split('\n').length)}
-                                                        />
-                                                    </div>
+                                                                if (result) {
+                                                                    const testCase = testCases[index];
+                                                                    const isCorrect = result.status === 'success' &&
+                                                                        testCase &&
+                                                                        result.stdout.trim() === (testCase.expectedOutput || '').trim();
 
-                                                    {/* Expected Output */}
-                                                    <div className="flex flex-col">
-                                                        <p className="text-xs font-medium text-gray-400 mb-1">Expected Output:</p>
-                                                        <textarea
-                                                            className="p-2 text-sm font-mono border border-gray-700 rounded-md focus:outline-none focus:ring-1 focus:ring-indigo-500 bg-[#2d2d2d] text-gray-200 h-[40px]"
-                                                            value={testCases[activeTestCaseIndex]?.expectedOutput || ''}
-                                                            onChange={(e) => {
-                                                                const newTestCases = [...testCases];
-                                                                if (newTestCases[activeTestCaseIndex]) {
-                                                                    newTestCases[activeTestCaseIndex].expectedOutput = e.target.value;
-                                                                    setTestCases(newTestCases);
-                                                                }
-                                                            }}
-                                                            rows={2}
-                                                        />
-                                                    </div>
-                                                </div>
-
-                                                {/* Output */}
-                                                <div className="flex flex-col min-h-[20px]">
-                                                    <p className="text-xs font-medium text-gray-400 mb-1">Output:</p>
-                                                    <div className="h-[200px] flex-grow p-2 text-sm font-mono border border-gray-700 rounded-md bg-[#2d2d2d] overflow-auto whitespace-pre-wrap text-gray-200">
-                                                        {isExecuting ? (
-                                                            <div className="text-gray-400">Running code...</div>
-                                                        ) : executionError ? (
-                                                            <div className="text-red-400">{executionError}</div>
-                                                        ) : executionResult ? (
-                                                            (() => {
-                                                                const activeTestCase = testCases[activeTestCaseIndex];
-                                                                let statusText: React.ReactNode = 'Failed';
-                                                                let statusColor = 'text-red-400';
-
-                                                                if (executionResult.status === 'success') {
-                                                                    const isCorrect = activeTestCase && executionResult.stdout.trim() === activeTestCase.expectedOutput.trim();
                                                                     if (isCorrect) {
-                                                                        statusText = 'Accepted';
-                                                                        statusColor = 'text-green-400';
+                                                                        statusIndicator = <div className="w-2 h-2 bg-green-500 rounded-full"></div>;
+                                                                        borderClass = 'border-green-500/50';
+                                                                    } else if (result.status === 'success') {
+                                                                        statusIndicator = <div className="w-2 h-2 bg-red-500 rounded-full"></div>;
+                                                                        borderClass = 'border-red-500/50';
                                                                     } else {
-                                                                        statusText = 'Wrong Answer';
+                                                                        statusIndicator = <div className="w-2 h-2 bg-yellow-500 rounded-full"></div>;
+                                                                        borderClass = 'border-yellow/50';
                                                                     }
-                                                                } else if (executionResult.status) {
-                                                                    statusText = executionResult.status.replace(/_/g, ' ').replace(/\b\w/g, (l: string) => l.toUpperCase());
                                                                 }
 
                                                                 return (
-                                                                    <div className="space-y-2">
-                                                                        {/* Output */}
-                                                                        <div>
-                                                                            <div className="font-semibold text-xs text-gray-400 mb-1">Your Output:</div>
-                                                                            <div className="pl-2 border-l-2 border-green-500">
-                                                                                {executionResult.stdout || "(No output)"}
-                                                                            </div>
-                                                                        </div>
+                                                                    <button
+                                                                        key={index}
+                                                                        className={`px-3 py-1 text-xs rounded-full flex-shrink-0 transition-all duration-300 flex items-center gap-2 border ${activeTestCaseIndex === index
+                                                                            ? `bg-blue-600 text-white shadow-lg ${borderClass}`
+                                                                            : isDark
+                                                                                ? `bg-gray-700 text-gray-300 hover:bg-gray-600 ${borderClass || 'border-transparent'}`
+                                                                                : `bg-gray-200 text-gray-700 hover:bg-gray-300 ${borderClass || 'border-transparent'}`
+                                                                            }`}
+                                                                        onClick={() => setActiveTestCaseIndex(index)}
+                                                                    >
+                                                                        {statusIndicator}
+                                                                        Case {index + 1}
+                                                                    </button>
+                                                                );
+                                                            })}
+                                                            <AnimatedButton
+                                                                onClick={() => setTestCases([...testCases, { input: '', expectedOutput: '' }])}
+                                                                size="sm"
+                                                                variant="ghost"
+                                                                icon={Plus}
+                                                                className="px-2 py-1"
+                                                            >
+                                                                Add
+                                                            </AnimatedButton>
+                                                        </>
+                                                    )}
+                                                </div>
+                                            </div>
 
-                                                                        {/* Error */}
-                                                                        {executionResult.stderr && (
-                                                                            <div>
-                                                                                <div className="font-semibold text-xs text-red-400 mb-1">Error:</div>
-                                                                                <div className="pl-2 border-l-2 border-red-500 text-red-400">
-                                                                                    {executionResult.stderr}
+                                            {/* Enhanced Input/Output Area */}
+                                            <div className="flex-grow overflow-hidden">
+                                                {/* Show loading state when generating test cases */}
+                                                {isGeneratingTestCases ? (
+                                                    <div className="h-full flex items-center justify-center">
+                                                        <div className="text-center">
+                                                            <Loader className="w-8 h-8 animate-spin text-blue-500 mx-auto mb-3" />
+                                                            <p className={`text-sm ${isDark ? 'text-gray-400' : 'text-gray-600'}`}>
+                                                                AI is generating test cases...
+                                                            </p>
+                                                            <p className={`text-xs mt-1 ${isDark ? 'text-gray-500' : 'text-gray-500'}`}>
+                                                                This may take a few moments
+                                                            </p>
+                                                        </div>
+                                                    </div>
+                                                ) : testCases.length === 0 || (testCases.length === 1 && !testCases[0].input && !testCases[0].expectedOutput) ? (
+                                                    <div className="h-full flex items-center justify-center">
+                                                        <div className="text-center">
+                                                            <div className={`w-16 h-16 mx-auto mb-4 rounded-full border-2 border-dashed flex items-center justify-center ${isDark ? 'border-gray-600 bg-gray-800/50' : 'border-gray-300 bg-gray-100/50'}`}>
+                                                                <Target className={`w-8 h-8 ${isDark ? 'text-gray-500' : 'text-gray-400'}`} />
+                                                            </div>
+                                                            <h3 className={`text-lg font-medium mb-2 ${isDark ? 'text-gray-300' : 'text-gray-700'}`}>
+                                                                No Test Cases
+                                                            </h3>
+                                                            <p className={`text-sm mb-4 ${isDark ? 'text-gray-500' : 'text-gray-500'}`}>
+                                                                Test cases will be generated automatically when you create a problem,<br />
+                                                                or you can add them manually.
+                                                            </p>
+                                                            <AnimatedButton
+                                                                onClick={() => setTestCases([{ input: '', expectedOutput: '' }])}
+                                                                variant="primary"
+                                                                size="sm"
+                                                                icon={Plus}
+                                                                glow={true}
+                                                            >
+                                                                Add Test Case
+                                                            </AnimatedButton>
+                                                        </div>
+                                                    </div>
+                                                ) : (
+                                                    <div className="grid grid-cols-2 gap-4 p-4 overflow-hidden min-h-[260px]">
+                                                        <div className="space-y-4">
+                                                            {/* Input */}
+                                                            <div className="flex flex-col">
+                                                                <label className={`text-xs font-medium mb-2 ${isDark ? 'text-gray-400' : 'text-gray-600'}`}>
+                                                                    Input:
+                                                                </label>
+                                                                <textarea
+                                                                    className={`p-3 text-sm font-mono rounded-lg border transition-all duration-300 resize-y ${isDark
+                                                                        ? 'bg-gray-800 border-gray-600 text-gray-200 placeholder-gray-500 focus:border-blue-500'
+                                                                        : 'bg-white border-gray-300 text-gray-900 placeholder-gray-400 focus:border-blue-500'
+                                                                        } focus:ring-2 focus:ring-blue-500/20`}
+                                                                    value={formattedInput}
+                                                                    onChange={(e) => {
+                                                                        setFormattedInput(e.target.value);
+                                                                        const updatedTestCases = [...testCases];
+                                                                        updatedTestCases[activeTestCaseIndex] = {
+                                                                            ...updatedTestCases[activeTestCaseIndex],
+                                                                            input: parseFormattedInput(e.target.value)
+                                                                        };
+                                                                        setTestCases(updatedTestCases);
+                                                                    }}
+                                                                    placeholder="Enter input for this test case..."
+                                                                    rows={Math.max(3, (formattedInput || '').split('\n').length)}
+                                                                />
+                                                            </div>
+
+                                                            {/* Expected Output */}
+                                                            <div className="flex flex-col">
+                                                                <label className={`text-xs font-medium mb-2 ${isDark ? 'text-gray-400' : 'text-gray-600'}`}>
+                                                                    Expected Output:
+                                                                </label>
+                                                                <textarea
+                                                                    className={`p-3 text-sm font-mono rounded-lg border transition-all duration-300 ${isDark
+                                                                        ? 'bg-gray-800 border-gray-600 text-gray-200 placeholder-gray-500 focus:border-blue-500'
+                                                                        : 'bg-white border-gray-300 text-gray-900 placeholder-gray-400 focus:border-blue-500'
+                                                                        } focus:ring-2 focus:ring-blue-500/20`}
+                                                                    value={testCases[activeTestCaseIndex]?.expectedOutput || ''}
+                                                                    onChange={(e) => {
+                                                                        const updatedTestCases = [...testCases];
+                                                                        updatedTestCases[activeTestCaseIndex] = {
+                                                                            ...updatedTestCases[activeTestCaseIndex],
+                                                                            expectedOutput: e.target.value
+                                                                        };
+                                                                        setTestCases(updatedTestCases);
+                                                                    }}
+                                                                    placeholder="Enter expected output..."
+                                                                    rows={3}
+                                                                />
+                                                            </div>
+                                                        </div>
+
+                                                        {/* Enhanced Output Display */}
+                                                        <div className="flex flex-col">
+                                                            <label className={`text-xs font-medium mb-2 ${isDark ? 'text-gray-400' : 'text-gray-600'}`}>
+                                                                Output:
+                                                            </label>
+                                                            <div className={`flex-grow p-4 text-sm font-mono rounded-lg border overflow-auto transition-all duration-300 ${isDark
+                                                                ? 'bg-gray-800 border-gray-600 text-gray-200'
+                                                                : 'bg-white border-gray-300 text-gray-900'
+                                                                }`}>
+                                                                {isExecuting ? (
+                                                                    <div className="flex items-center justify-center h-full">
+                                                                        <Loader className="w-6 h-6 animate-spin text-blue-500 mr-3" />
+                                                                        <span className={isDark ? 'text-gray-400' : 'text-gray-600'}>
+                                                                            Executing code...
+                                                                        </span>
+                                                                    </div>
+                                                                ) : executionError ? (
+                                                                    <div className="text-red-400 space-y-2">
+                                                                        <div className="flex items-center gap-2">
+                                                                            <AlertCircle className="w-4 h-4" />
+                                                                            <span className="font-semibold">Execution Error</span>
+                                                                        </div>
+                                                                        <div className="pl-6 text-sm">{executionError}</div>
+                                                                    </div>
+                                                                ) : allExecutionResults && allExecutionResults[activeTestCaseIndex] ? (
+                                                                    (() => {
+                                                                        const result = allExecutionResults[activeTestCaseIndex];
+                                                                        const testCase = testCases[activeTestCaseIndex];
+
+                                                                        let statusText = 'Failed';
+                                                                        let statusColor = 'text-red-400';
+
+                                                                        if (result.status === 'success') {
+                                                                            const isCorrect = testCase && result.stdout.trim() === (testCase.expectedOutput || '').trim();
+                                                                            if (isCorrect) {
+                                                                                statusText = 'Accepted';
+                                                                                statusColor = 'text-green-400';
+                                                                            } else {
+                                                                                statusText = 'Wrong Answer';
+                                                                                statusColor = 'text-yellow-400';
+                                                                            }
+                                                                        }
+
+                                                                        return (
+                                                                            <div className="space-y-4">
+                                                                                <div>
+                                                                                    <div className="font-semibold text-xs mb-2 text-blue-400">Your Output:</div>
+                                                                                    <div className={`pl-3 border-l-2 border-blue-500 ${isDark ? 'text-gray-200' : 'text-gray-800'}`}>
+                                                                                        {result.stdout || "(No output)"}
+                                                                                    </div>
+                                                                                </div>
+
+                                                                                {result.stderr && (
+                                                                                    <div>
+                                                                                        <div className="font-semibold text-xs mb-2 text-red-400">Error:</div>
+                                                                                        <div className="pl-3 border-l-2 border-red-500 text-red-400 text-xs">
+                                                                                            {result.stderr}
+                                                                                        </div>
+                                                                                    </div>
+                                                                                )}
+
+                                                                                {testCase?.expectedOutput && (
+                                                                                    <div>
+                                                                                        <div className="font-semibold text-xs mb-2 text-green-400">Expected Output:</div>
+                                                                                        <div className={`pl-3 border-l-2 border-green-500 ${isDark ? 'text-gray-200' : 'text-gray-800'}`}>
+                                                                                            {testCase.expectedOutput}
+                                                                                        </div>
+                                                                                    </div>
+                                                                                )}
+
+                                                                                <div className={`flex items-center justify-between text-xs pt-3 border-t ${isDark ? 'border-gray-800 text-gray-400' : 'border-gray-200 text-gray-600'}`}>
+                                                                                    <span className={`font-semibold ${statusColor}`}>
+                                                                                        {statusText}
+                                                                                    </span>
+                                                                                    <span>
+                                                                                        {result.executionTimeMs}ms
+                                                                                    </span>
                                                                                 </div>
                                                                             </div>
-                                                                        )}
-
-                                                                        {/* Execution Info */}
-                                                                        <div className="text-xs text-gray-400 mt-2">
-                                                                            Status: <span className={statusColor}>{statusText}</span> |
-                                                                            Time: {executionResult.executionTimeMs}ms
-                                                                        </div>
+                                                                        );
+                                                                    })()
+                                                                ) : (
+                                                                    <div className={`text-center py-8 ${isDark ? 'text-gray-500' : 'text-gray-400'}`}>
+                                                                        <Play className="w-8 h-8 mx-auto mb-2 opacity-50" />
+                                                                        <p className="text-sm">
+                                                                            Click "Run" to execute your code
+                                                                        </p>
                                                                     </div>
-                                                                );
-                                                            })()
-                                                        ) : (
-                                                            <div className="text-gray-400">
-                                                                Click "Run" to execute your code against the test case.
+                                                                )}
                                                             </div>
-                                                        )}
+                                                        </div>
                                                     </div>
-                                                </div>
+                                                )}
                                             </div>
                                         </div>
                                     </ResizablePanel>
@@ -1221,8 +1721,40 @@ export default function CreateProblemPage() {
     );
 }
 
-// Helper to format JSON input string for better display
-const formatDisplayInput = (input: string): string => {
+// Helper function to parse formatted input
+function parseFormattedInput(formattedInput: string): string {
+    // Convert formatted input back to raw input format
+    try {
+        const lines = formattedInput.split('\n').filter(line => line.trim());
+        if (lines.length === 0) return '';
+
+        // If it looks like key=value format, convert to JSON
+        if (lines.some(line => line.includes('='))) {
+            const obj: Record<string, any> = {};
+            lines.forEach(line => {
+                const [key, ...valueParts] = line.split('=');
+                if (key && valueParts.length > 0) {
+                    const value = valueParts.join('=').trim();
+                    try {
+                        obj[key.trim()] = JSON.parse(value);
+                    } catch {
+                        obj[key.trim()] = value.replace(/^["']|["']$/g, '');
+                    }
+                }
+            });
+            return JSON.stringify(obj);
+        }
+
+        return formattedInput;
+    } catch {
+        return formattedInput;
+    }
+}
+
+// Helper function to format display input
+function formatDisplayInput(input: string): string {
+    if (!input) return '';
+
     try {
         const parsed = JSON.parse(input);
         if (typeof parsed === 'object' && parsed !== null && !Array.isArray(parsed)) {
@@ -1230,73 +1762,41 @@ const formatDisplayInput = (input: string): string => {
                 .map(([key, value]) => `${key} = ${JSON.stringify(value)}`)
                 .join('\n');
         }
-    } catch (e) {
-        // Not a valid JSON object string, return original
+        return input;
+    } catch {
+        return input;
     }
-    return input;
-};
+}
 
-// Helper to parse formatted input back to a JSON string
-const parseFormattedInput = (formatted: string): string => {
-    try {
-        // Check if it's already a valid JSON object string
-        JSON.parse(formatted);
-        return formatted;
-    } catch (e) {
-        // Not valid JSON, try to parse from k=v format
-        const lines = formatted.split('\n').filter(line => line.trim() !== '');
-        if (lines.length === 0) return '';
-
-        const obj: { [key: string]: any } = {};
-        for (const line of lines) {
-            const parts = line.split('=');
-            if (parts.length < 2) return formatted; // Malformed, return as is
-
-            const key = parts[0].trim();
-            const valueStr = parts.slice(1).join('=').trim();
-
-            try {
-                obj[key] = JSON.parse(valueStr);
-            } catch (jsonErr) {
-                return formatted; // Malformed value, return as is
-            }
-        }
-        return JSON.stringify(obj);
-    }
-};
-
-// Add a helper function to parse examples from the formatted statement
+// Helper function to parse examples from problem statement
 const parseExamples = (statement: string): Array<{ input: string; output: string; explanation?: string }> => {
     const examples: Array<{ input: string; output: string; explanation?: string }> = [];
 
-    const exampleMatches = statement.match(/Example\s+\d+:[\s\S]*?Input:[\s\S]*?Output:[\s\S]*?(?=Example\s+\d+:|$)/gi);
+    // Try to match different example formats
+    const examplePatterns = [
+        /Example\s+\d+:[\s\S]*?Input:\s*([^\n]*(?:\n(?!Output:).*)*)\s*Output:\s*([^\n]*(?:\n(?!Explanation:|Example).*)*)\s*(?:Explanation:\s*([\s\S]*?)(?=Example\s+\d+:|$))?/gi,
+        /Input:\s*([^\n]*(?:\n(?!Output:).*)*)\s*Output:\s*([^\n]*(?:\n(?!Input:|Example).*)*)/gi
+    ];
 
-    if (!exampleMatches) return examples;
+    for (const pattern of examplePatterns) {
+        const matches = [...statement.matchAll(pattern)];
 
-    exampleMatches.forEach(exampleText => {
-        const inputMatch = exampleText.match(/Input:\s*`([\s\S]+?)`/i);
-        const outputMatch = exampleText.match(/Output:\s*`([\s\S]+?)`/i);
-        const explanationMatch = exampleText.match(/Explanation:\s*([\s\S]+)/i);
+        matches.forEach(match => {
+            const input = match[1]?.trim().replace(/^`|`$/g, '') || '';
+            const output = match[2]?.trim().replace(/^`|`$/g, '') || '';
+            const explanation = match[3]?.trim().replace(/^`|`$/g, '');
 
-        if (inputMatch && outputMatch) {
-            let explanation = explanationMatch ? explanationMatch[1].trim() : undefined;
-
-            // Clean up explanation by removing unwanted formatting characters if it exists
-            if (explanation) {
-                explanation = explanation
-                    .replace(/```\s*\*\*/g, '') // Remove ``` **
-                    .replace(/`/g, '')        // Remove `
-                    .replace(/\*\*/g, '')       // Remove **
-                    .trim();
+            if (input && output) {
+                examples.push({
+                    input,
+                    output,
+                    explanation: explanation || undefined
+                });
             }
+        });
 
-            examples.push({
-                input: inputMatch[1].trim(),
-                output: outputMatch[1].trim(),
-                explanation: explanation
-            });
-        }
-    });
+        if (examples.length > 0) break;
+    }
 
     return examples;
-}; 
+};

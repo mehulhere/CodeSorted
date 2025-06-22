@@ -173,6 +173,10 @@ export const getAIHint = async (problemStatement: string, code: string, language
   return post('/api/ai-hint', { problem_statement: problemStatement, code, language });
 };
 
+export const getLastCode = async (problemId: string, language: string) => {
+  return get(`/last-code?problem_id=${problemId}&language=${language}`);
+};
+
 export const getRateLimits = async () => {
   return get('/api/rate-limits');
 };
@@ -212,6 +216,10 @@ export const getAuthStatus = async (): Promise<AuthStatusResponse> => {
 // Add guest login function
 export const guestLogin = async (): Promise<AuthStatusResponse> => {
   return post('/guest-login');
+};
+
+export const getSubmissionDetails = async (submissionId: string) => {
+  return get(`/submissions/${submissionId}`);
 };
 
 // New functions for problem creation and test cases
