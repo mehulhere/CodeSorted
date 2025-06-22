@@ -32,6 +32,10 @@ func init() {
 	jwtKey = []byte(secret)
 }
 
+type contextKey string
+
+const UserIDKey contextKey = "userID"
+
 // List of allowed origins
 var allowedOrigins = map[string]bool{
 	"http://localhost:3000":  true,
@@ -109,7 +113,7 @@ func JWTAuthMiddleware(next http.HandlerFunc) http.HandlerFunc {
 		}
 
 		// Add userID to the request context
-		ctx := context.WithValue(r.Context(), "userID", userID)
+		ctx := context.WithValue(r.Context(), UserIDKey, userID)
 
 		// Token is valid, call the next handler with the modified context
 		next.ServeHTTP(w, r.WithContext(ctx))

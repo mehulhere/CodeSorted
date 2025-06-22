@@ -73,7 +73,7 @@ export default function SubmissionsPage() {
     const [problemName, setProblemName] = useState<string>("");
     const [statusFilter, setStatusFilter] = useState<string>("all");
     const [languageFilter, setLanguageFilter] = useState<string>("all");
-    const [mySubmissionsOnly, setMySubmissionsOnly] = useState<boolean>(false);
+    const [mySubmissionsOnly, setMySubmissionsOnly] = useState<boolean>(true);
     const [viewMode, setViewMode] = useState<'timeline' | 'table' | 'analytics'>('timeline');
     const [selectedSubmission, setSelectedSubmission] = useState<any>(null);
     const [showDetailModal, setShowDetailModal] = useState(false);
@@ -87,10 +87,9 @@ export default function SubmissionsPage() {
     }, [isLoggedIn]);
 
     useEffect(() => {
-        // Only fetch automatically when pagination changes
-        // For other filter changes, the user needs to click Apply Filters
+        // Fetch submissions when page changes or 'My submissions only' filter is toggled
         fetchSubmissions();
-    }, [pagination.page]);
+    }, [pagination.page, mySubmissionsOnly]);
 
     const fetchSubmissions = async () => {
         setLoading(true);
@@ -121,7 +120,7 @@ export default function SubmissionsPage() {
 
             queryParams.append('limit', pagination.limit.toString());
 
-            const response = await fetch(`${process.env.NEXT_PUBLIC_BACKEND_URL}/submissions?${queryParams.toString()}`, {
+            const response = await fetch(`${process.env.NEXT_PUBLIC_BACKEND_URL}/api/submissions?${queryParams.toString()}`, {
                 method: 'GET',
                 credentials: 'include',
                 headers: {
@@ -201,10 +200,7 @@ export default function SubmissionsPage() {
             page: 1
         });
 
-        // Fetch submissions with reset filters
-        setTimeout(() => {
-            fetchSubmissions();
-        }, 0);
+        // The fetch will be triggered by the useEffect hook.
     };
 
     // Transform submissions to timeline format

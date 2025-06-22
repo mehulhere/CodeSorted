@@ -100,13 +100,29 @@ func main() {
 	http.HandleFunc("/auth/login/", middleware.WithCORS(handlers.OAuthLoginHandler))
 	http.HandleFunc("/auth/callback/", middleware.WithCORS(handlers.OAuthCallbackHandler))
 
+	// Authentication routes - add /api/ versions while keeping originals for backward compatibility
 	http.HandleFunc("/register", middleware.WithCORS(handlers.RegisterHandler))
+	http.HandleFunc("/api/register", middleware.WithCORS(handlers.RegisterHandler))
+
 	http.HandleFunc("/login", middleware.WithCORS(handlers.LoginHandler))
+	http.HandleFunc("/api/login", middleware.WithCORS(handlers.LoginHandler))
+
 	http.HandleFunc("/logout", middleware.WithCORS(handlers.LogoutHandler))
+	http.HandleFunc("/api/logout", middleware.WithCORS(handlers.LogoutHandler))
+
 	http.HandleFunc("/guest-login", middleware.WithCORS(middleware.IPRateLimitMiddleware(3, 60)(handlers.GuestLoginHandler))) // Rate limit: 3 req/hour
+	http.HandleFunc("/api/guest-login", middleware.WithCORS(middleware.IPRateLimitMiddleware(3, 60)(handlers.GuestLoginHandler)))
+
 	http.HandleFunc("/autocomplete", middleware.WithCORS(middleware.JWTAuthMiddleware(middleware.RateLimitMiddleware(models.ServiceCodeCompletion)(handlers.AutocompleteHandler))))
+	http.HandleFunc("/api/autocomplete", middleware.WithCORS(middleware.JWTAuthMiddleware(middleware.RateLimitMiddleware(models.ServiceCodeCompletion)(handlers.AutocompleteHandler))))
+
 	http.HandleFunc("/api/auth-status", middleware.WithCORS(handlers.AuthStatusHandler))
+
+	// Problem routes - add /api/ versions while keeping originals for backward compatibility
 	http.HandleFunc("/problems", middleware.WithCORS(middleware.CacheControlMiddleware(handlers.GetProblemsHandler, 300)))
+	http.HandleFunc("/api/problems", middleware.WithCORS(middleware.CacheControlMiddleware(handlers.GetProblemsHandler, 300)))
+
+	// Handle problem routes with path parameters
 	http.HandleFunc("/problems/", middleware.WithCORS(func(w http.ResponseWriter, r *http.Request) {
 		if strings.HasSuffix(r.URL.Path, "/stats") {
 			middleware.CacheControlMiddleware(handlers.GetProblemStatsHandler, 300)(w, r) // Cache problem stats
@@ -114,8 +130,30 @@ func main() {
 			middleware.CacheControlMiddleware(handlers.GetProblemHandler, 300)(w, r) // Cache individual problem
 		}
 	}))
+	http.HandleFunc("/api/problems/", middleware.WithCORS(func(w http.ResponseWriter, r *http.Request) {
+		// Extract the problem ID from the URL
+		pathParts := strings.Split(r.URL.Path, "/")
+		if len(pathParts) < 3 {
+			http.NotFound(w, r)
+			return
+		}
+
+		// Reconstruct the original path for the handler
+		r.URL.Path = "/problems/" + strings.Join(pathParts[3:], "/")
+
+		if strings.HasSuffix(r.URL.Path, "/stats") {
+			middleware.CacheControlMiddleware(handlers.GetProblemStatsHandler, 300)(w, r)
+		} else {
+			middleware.CacheControlMiddleware(handlers.GetProblemHandler, 300)(w, r)
+		}
+	}))
+
+	// Code execution routes - add /api/ versions while keeping originals for backward compatibility
 	http.HandleFunc("/execute", middleware.WithCORS(middleware.JWTAuthMiddleware(middleware.RateLimitMiddleware(models.ServiceCodeExecution)(handlers.ExecuteCodeHandler))))
+	// Note: /api/execute already exists below
+
 	http.HandleFunc("/testcases", middleware.WithCORS(middleware.JWTAuthMiddleware(handlers.AddTestCaseHandler))) // Only for admins
+	http.HandleFunc("/api/testcases", middleware.WithCORS(middleware.JWTAuthMiddleware(handlers.AddTestCaseHandler)))
 
 	// New routes for problem creation and test case generation
 	http.HandleFunc("/admin/problems", middleware.WithCORS(middleware.JWTAuthMiddleware(handlers.CreateProblemHandler)))
@@ -168,15 +206,24 @@ func main() {
 	http.HandleFunc("/api/rankings", middleware.WithCORS(handlers.GetRankingsHandler))
 	http.HandleFunc("/api/rankings/update", middleware.WithCORS(handlers.ForceUpdateRankings))
 
-	// Submission routes
+	// Submission routes - add /api/ versions while keeping originals for backward compatibility
 	http.HandleFunc("/submissions", middleware.WithCORS(handlers.GetSubmissionsHandler))
+	http.HandleFunc("/api/submissions", middleware.WithCORS(handlers.GetSubmissionsHandler))
+
 	http.HandleFunc("/submissions/", middleware.WithCORS(handlers.GetSubmissionDetailsHandler))
+	http.HandleFunc("/api/submissions/", middleware.WithCORS(handlers.GetSubmissionDetailsHandler))
+
 	http.HandleFunc("/submit", middleware.WithCORS(middleware.JWTAuthMiddleware(middleware.RateLimitMiddleware(models.ServiceCodeSubmission)(handlers.SubmitSolutionHandler))))
+	http.HandleFunc("/api/submit", middleware.WithCORS(middleware.JWTAuthMiddleware(middleware.RateLimitMiddleware(models.ServiceCodeSubmission)(handlers.SubmitSolutionHandler))))
+
 	http.HandleFunc("/convert-code", middleware.WithCORS(middleware.JWTAuthMiddleware(middleware.RateLimitMiddleware(models.ServicePseudocodeToCode)(handlers.ConvertCodeHandler))))
+	http.HandleFunc("/api/convert-code", middleware.WithCORS(middleware.JWTAuthMiddleware(middleware.RateLimitMiddleware(models.ServicePseudocodeToCode)(handlers.ConvertCodeHandler))))
+
 	http.HandleFunc("/api/ai-hint", middleware.WithCORS(middleware.JWTAuthMiddleware(middleware.RateLimitMiddleware(models.ServiceAIHint)(handlers.AIHintHandler))))
 
 	// Last code retrieval route
 	http.HandleFunc("/last-code", middleware.WithCORS(middleware.JWTAuthMiddleware(handlers.GetLastCodeHandler)))
+	http.HandleFunc("/api/last-code", middleware.WithCORS(middleware.JWTAuthMiddleware(handlers.GetLastCodeHandler)))
 
 	// Discussion routes
 	http.HandleFunc("/api/discussions/", middleware.WithCORS(func(w http.ResponseWriter, r *http.Request) {
@@ -237,6 +284,9 @@ func main() {
 			"results": results,
 		})
 	})
+
+	// Route for getting user-specific problem statuses
+	http.HandleFunc("/api/user/problems-status", middleware.WithCORS(handlers.GetUserProblemStatusHandler))
 
 	// Start server
 	port := os.Getenv("PORT")

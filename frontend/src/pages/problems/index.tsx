@@ -77,20 +77,36 @@ export default function ProblemsPage() {
         setIsLoading(true);
         setError(null);
         try {
-            const response = await fetch(`${process.env.NEXT_PUBLIC_BACKEND_URL}/problems`, { cache: 'no-store' });
-            if (!response.ok) {
-                const errorData: ApiError = await response.json();
-                setError(errorData.message || `Failed to fetch problems: ${response.status}`);
+            const problemsResponse = await fetch(`${process.env.NEXT_PUBLIC_BACKEND_URL}/api/problems`, { cache: 'no-store' });
+            if (!problemsResponse.ok) {
+                const errorData: ApiError = await problemsResponse.json();
+                setError(errorData.message || `Failed to fetch problems: ${problemsResponse.status}`);
                 return;
             }
-            const data: EnhancedProblemListItemType[] = await response.json();
+            const problemsData: EnhancedProblemListItemType[] = await problemsResponse.json();
+
+            // Fetch user-specific problem statuses
+            const statusResponse = await fetch(`${process.env.NEXT_PUBLIC_BACKEND_URL}/api/user/problems-status`, {
+                headers: {
+                    // Include auth headers if necessary. Assuming cookies are sent automatically.
+                }
+            });
+
+            let solved = [], attempted = [], bookmarked = [];
+            if (statusResponse.ok) {
+                const statusData = await statusResponse.json();
+                solved = statusData.solved_problems || [];
+                attempted = statusData.attempted_problems || [];
+                bookmarked = statusData.bookmarked_problems || [];
+            }
+
             // Add mock data for demo purposes
-            const enhancedData = data.map(problem => ({
+            const enhancedData = problemsData.map(problem => ({
                 ...problem,
-                acceptance_rate: Math.floor(Math.random() * 60) + 20,
-                solved: Math.random() > 0.7,
-                attempted: Math.random() > 0.5,
-                bookmark: Math.random() > 0.8
+                acceptance_rate: Math.floor(Math.random() * 60) + 20, // This can be replaced with real data if available
+                solved: solved.includes(problem.problem_id),
+                attempted: attempted.includes(problem.problem_id),
+                bookmark: bookmarked.includes(problem.problem_id),
             }));
             setProblems(enhancedData);
         } catch (err) {

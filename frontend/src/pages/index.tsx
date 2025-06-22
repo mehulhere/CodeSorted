@@ -64,10 +64,9 @@ export default function HomePage() {
         const fetchProblems = async () => {
             setLoading(true);
             try {
-                const response = await fetch(`${process.env.NEXT_PUBLIC_BACKEND_URL}/problems`);
+                const response = await fetch(`${process.env.NEXT_PUBLIC_BACKEND_URL}/api/problems`);
                 if (!response.ok) {
-                    setError(`Error: ${response.status}`);
-                    return;
+                    throw new Error(`Error fetching problems: ${response.status}`);
                 }
                 const data = await response.json();
                 setProblems(data);
@@ -79,9 +78,9 @@ export default function HomePage() {
                     problem.tags?.forEach(tag => tags.add(tag));
                 });
                 setAvailableTags(Array.from(tags));
-            } catch (err) {
-                setError('Failed to fetch problems');
-                console.error('Error fetching problems:', err);
+            } catch (error) {
+                console.error("Error fetching problems:", error);
+                setProblems([]);
             } finally {
                 setLoading(false);
             }

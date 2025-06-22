@@ -263,7 +263,7 @@ export default function SingleProblemPage() {
         if (!problemId) return;
         setIsLoadingSubmissions(true);
         try {
-            const response = await fetch(`${process.env.NEXT_PUBLIC_BACKEND_URL}/submissions?problem_id=${problemId}`, {
+            const response = await fetch(`${process.env.NEXT_PUBLIC_BACKEND_URL}/api/submissions?problem_id=${problemId}`, {
                 credentials: 'include',
             });
             if (!response.ok) {
@@ -295,7 +295,7 @@ export default function SingleProblemPage() {
                 setSelectedSubmission(details);
 
                 if (details.status === "ACCEPTED" && details.problem_id) {
-                    const statsResponse = await fetch(`${process.env.NEXT_PUBLIC_BACKEND_URL}/problems/${details.problem_id}/stats`);
+                    const statsResponse = await fetch(`${process.env.NEXT_PUBLIC_BACKEND_URL}/api/problems/${details.problem_id}/stats`);
                     if (statsResponse.ok) {
                         const statsData = await statsResponse.json();
                         setProblemStats(statsData);
@@ -617,23 +617,13 @@ export default function SingleProblemPage() {
         if (!problemId) return;
 
         const fetchProblem = async () => {
-            setIsLoading(true);
-            setError(null);
             try {
-                const response = await fetch(`${process.env.NEXT_PUBLIC_BACKEND_URL}/problems/${problemId}`);
+                setIsLoading(true);
+                const response = await fetch(`${process.env.NEXT_PUBLIC_BACKEND_URL}/api/problems/${problemId}`);
                 if (!response.ok) {
-                    let errorMessage = `Failed to fetch problem: ${response.status}`;
-                    try {
-                        const errorData: ApiError = await response.json();
-                        errorMessage = errorData.message || errorMessage;
-                    } catch (_errorParse) {
-                        errorMessage = response.statusText || errorMessage;
-                        console.error('Error parsing JSON:', _errorParse);
-                    }
-                    setError(errorMessage);
-                    return;
+                    throw new Error(`Error: ${response.status}`);
                 }
-                const data: ProblemType = await response.json();
+                const data = await response.json();
                 setProblem(data);
 
                 // Initialize with sample test cases if available
@@ -645,9 +635,20 @@ export default function SingleProblemPage() {
                     setCustomTestCases(initialTestCases);
                     setTestCaseInput(formatInputForDisplay(initialTestCases[0].input));
                 }
+
+                // Also fetch problem stats if available
+                try {
+                    const statsResponse = await fetch(`${process.env.NEXT_PUBLIC_BACKEND_URL}/api/problems/${data.problem_id}/stats`);
+                    if (statsResponse.ok) {
+                        const statsData = await statsResponse.json();
+                        setProblemStats(statsData);
+                    }
+                } catch (statsErr) {
+                    console.error("Error fetching problem stats:", statsErr);
+                }
             } catch (err) {
-                setError(err instanceof Error ? err.message : 'An unknown error occurred.');
-                console.error(`Fetch problem ${problemId} error:`, err);
+                setError('Failed to load problem details');
+                console.error(err);
             } finally {
                 setIsLoading(false);
             }
