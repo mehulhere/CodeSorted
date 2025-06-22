@@ -1,12 +1,12 @@
 import '@/app/globals.css';
 import Head from 'next/head';
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, useCallback } from 'react';
 import { useRouter } from 'next/router';
 import { ResizableHandle, ResizablePanel, ResizablePanelGroup } from '@/components/ui/resizable';
 import { Button } from '@/components/ui/button';
 import { Textarea } from '@/components/ui/textarea';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
-import { AlertCircle, CheckCircle2, Loader, MessageSquare, Lightbulb, ArrowDown, Plus, X, Timer, MemoryStick, Target, BookOpen, Users, Award, Code2, Eye, Sparkles, CheckCircle, Play, Send, ChevronLeft, ChevronDown, ChevronUp } from 'lucide-react';
+import { AlertCircle, CheckCircle2, Loader, MessageSquare, Lightbulb, ArrowDown, Plus, X, Timer, MemoryStick, Target, BookOpen, Users, Award, Code2, Eye, Sparkles, CheckCircle, Play, Send, ChevronLeft, ChevronDown, ChevronUp, FileText } from 'lucide-react';
 import {
     createProblem,
     generateTestCases,
@@ -18,7 +18,8 @@ import {
     submitSolution,
     getAIHint,
     getCodeCompletion,
-    convertPseudocode
+    convertPseudocode,
+    getSubmissionDetails
 } from '@/lib/api';
 import Editor, { Monaco } from '@monaco-editor/react';
 import type { editor } from 'monaco-editor';
@@ -26,6 +27,16 @@ import { useTheme } from '@/providers/ThemeProvider';
 import GlassCard from '@/components/ui/GlassCard';
 import AnimatedButton from '@/components/ui/AnimatedButton';
 import Link from 'next/link';
+import {
+    Bar,
+    BarChart,
+    CartesianGrid,
+    ResponsiveContainer,
+    Tooltip,
+    XAxis,
+    YAxis,
+    Cell,
+} from "recharts"
 
 // Animated Sprinkler Component
 const AnimatedSprinkler = ({ trigger = false, duration = 3000 }: { trigger?: boolean; duration?: number }) => {
@@ -202,6 +213,101 @@ type ExecutionResult = {
     executionTimeMs: number;
 } | null;
 
+// Copied from [problemId].tsx
+interface SubmissionDetail {
+    id: string;
+    problem_id: string;
+    problem_title: string;
+    user_id: string;
+    username: string;
+    language: string;
+    code: string;
+    status: string;
+    execution_time_ms: number;
+    memory_used_kb: number;
+    test_cases_passed: number;
+    test_cases_total: number;
+    submitted_at: string;
+    time_complexity?: string;
+    memory_complexity?: string;
+    failed_test_case_details?: {
+        input: string;
+        expected_output: string;
+        actual_output: string;
+        error?: string;
+    };
+    test_case_status?: string;
+}
+
+interface ProblemStats {
+    total_accepted_submissions: number;
+    time_complexity_distribution: { [key: string]: number };
+    memory_complexity_distribution: { [key: string]: number };
+}
+
+const complexityOrder = [
+    "O(1)", "O(log n)", "O(n)", "O(n log n)", "O(n^2)", "O(2^n)", "O(n!)"
+];
+
+const getRank = (complexity: string) => {
+    const rank = complexityOrder.indexOf(complexity);
+    return rank === -1 ? Infinity : rank;
+};
+
+const calculatePercentile = (userComplexity: string, distribution: { [key: string]: number }): number => {
+    if (!userComplexity || !distribution) return 0;
+
+    const userRank = getRank(userComplexity);
+    let submissionsWithBetterOrEqualComplexity = 0;
+    let totalSubmissions = 0;
+
+    for (const complexity in distribution) {
+        const count = distribution[complexity];
+        totalSubmissions += count;
+        if (getRank(complexity) <= userRank) {
+            submissionsWithBetterOrEqualComplexity += count;
+        }
+    }
+
+    if (totalSubmissions === 0) return 100;
+
+    const submissionsWithWorseComplexity = totalSubmissions - submissionsWithBetterOrEqualComplexity;
+    const percentile = (submissionsWithWorseComplexity / totalSubmissions) * 100;
+
+    return percentile;
+};
+
+const getStatusClass = (status: string, isDark: boolean) => {
+    const baseClasses = 'px-2 py-1 text-xs font-medium rounded-full';
+    switch (status) {
+        case 'ACCEPTED': return `${baseClasses} ${isDark ? 'bg-green-900/50 text-green-400' : 'bg-green-100 text-green-700'}`;
+        case 'WRONG_ANSWER': return `${baseClasses} ${isDark ? 'bg-red-900/50 text-red-400' : 'bg-red-100 text-red-700'}`;
+        case 'TIME_LIMIT_EXCEEDED': return `${baseClasses} ${isDark ? 'bg-yellow-900/50 text-yellow-400' : 'bg-yellow-100 text-yellow-700'}`;
+        case 'MEMORY_LIMIT_EXCEEDED': return `${baseClasses} ${isDark ? 'bg-yellow-900/50 text-yellow-400' : 'bg-yellow-100 text-yellow-700'}`;
+        case 'RUNTIME_ERROR': return `${baseClasses} ${isDark ? 'bg-orange-900/50 text-orange-400' : 'bg-orange-100 text-orange-700'}`;
+        case 'COMPILATION_ERROR': return `${baseClasses} ${isDark ? 'bg-purple-900/50 text-purple-400' : 'bg-purple-100 text-purple-700'}`;
+        case 'PENDING':
+        case 'PROCESSING':
+        case 'IN_PROGRESS':
+            return `${baseClasses} ${isDark ? 'bg-blue-900/50 text-blue-400' : 'bg-blue-100 text-blue-700'}`;
+        default: return `${baseClasses} ${isDark ? 'bg-gray-700 text-gray-300' : 'bg-gray-200 text-gray-800'}`;
+    }
+};
+
+const renderMarkdown = (text: string) => {
+    const parts = text.split(/(\*\*.*?\*\*|`.*?`)/g);
+
+    return parts.map((part, index) => {
+        if (part.startsWith('**') && part.endsWith('**')) {
+            return <strong key={index}>{part.slice(2, -2)}</strong>;
+        }
+        if (part.startsWith('`') && part.endsWith('`')) {
+            return <code key={index}>{part.slice(1, -1)}</code>;
+        }
+        return part;
+    });
+};
+
 export default function CreateProblemPage() {
     const router = useRouter();
     const { isDark } = useTheme();
@@ -212,6 +318,7 @@ export default function CreateProblemPage() {
     const [problemDetails, setProblemDetails] = useState<ProblemDetails | null>(null);
     const [isGeneratingDetails, setIsGeneratingDetails] = useState(false);
     const [problemView, setProblemView] = useState<'input' | 'preview'>('input');
+    const [currentTab, setCurrentTab] = useState('description');
 
     // Welcome card state
     const [welcomeCardCollapsed, setWelcomeCardCollapsed] = useState(false);
@@ -229,6 +336,12 @@ export default function CreateProblemPage() {
     const [isCreatingProblem, setIsCreatingProblem] = useState(false);
     const [createdProblemId, setCreatedProblemId] = useState<string | null>(null);
     const [error, setError] = useState<string | null>(null);
+
+    // Submission State
+    const [submissions, setSubmissions] = useState<SubmissionDetail[]>([]);
+    const [isLoadingSubmissions, setIsLoadingSubmissions] = useState<boolean>(false);
+    const [selectedSubmission, setSelectedSubmission] = useState<SubmissionDetail | null>(null);
+    const [problemStats, setProblemStats] = useState<ProblemStats | null>(null);
 
     // Editor state
     const [code, setCode] = useState<string>('// Start coding here...');
@@ -264,6 +377,27 @@ export default function CreateProblemPage() {
     const [executionError, setExecutionError] = useState<string | null>(null);
     const [formattedInput, setFormattedInput] = useState('');
 
+    // Fetch submissions for the problem
+    const fetchSubmissions = useCallback(async () => {
+        if (!problemDetails?.problem_id) return;
+        setIsLoadingSubmissions(true);
+        try {
+            const response = await fetch(`${process.env.NEXT_PUBLIC_BACKEND_URL}/submissions?problem_id=${problemDetails.problem_id}`, {
+                credentials: 'include',
+            });
+            if (!response.ok) {
+                setError('Failed to fetch submissions');
+                return;
+            }
+            const data = await response.json();
+            setSubmissions(data.submissions || []);
+        } catch (err) {
+            console.error('Error fetching submissions:', err);
+        } finally {
+            setIsLoadingSubmissions(false);
+        }
+    }, [problemDetails?.problem_id]);
+
     // Check authentication status
     useEffect(() => {
         const checkAuthStatus = async () => {
@@ -279,6 +413,39 @@ export default function CreateProblemPage() {
 
         checkAuthStatus();
     }, []);
+
+    // Effect to poll submission status when a submission is selected
+    useEffect(() => {
+        if (!selectedSubmission?.id) return;
+
+        const isFinalStatus = ["ACCEPTED", "WRONG_ANSWER", "RUNTIME_ERROR", "COMPILATION_ERROR", "TIME_LIMIT_EXCEEDED", "MEMORY_LIMIT_EXCEEDED"].includes(selectedSubmission.status);
+
+        if (isFinalStatus) {
+            fetchSubmissions();
+            return;
+        }
+
+        const poll = async () => {
+            try {
+                const details = await getSubmissionDetails(selectedSubmission.id) as SubmissionDetail;
+                setSelectedSubmission(details);
+
+                if (details.status === "ACCEPTED" && details.problem_id) {
+                    const statsResponse = await fetch(`${process.env.NEXT_PUBLIC_BACKEND_URL}/problems/${details.problem_id}/stats`);
+                    if (statsResponse.ok) {
+                        const statsData = await statsResponse.json();
+                        setProblemStats(statsData);
+                    }
+                }
+            } catch (error) {
+                console.error("Failed to poll submission details:", error);
+            }
+        };
+
+        const intervalId = setInterval(poll, 2000);
+
+        return () => clearInterval(intervalId);
+    }, [selectedSubmission, fetchSubmissions]);
 
     // Effect to update UI test cases when generated cases or sample count changes
     useEffect(() => {
@@ -634,12 +801,16 @@ export default function CreateProblemPage() {
                 currentCode
             ) as SubmitSolutionResponse;
 
-            // Assuming the response includes a submission_id
-            if (response.submission_id) {
-                router.push(`/submissions/${response.submission_id}`);
+            const submissionId = response.submission_id;
+
+            if (submissionId) {
+                // New logic: switch to submissions tab, fetch all submissions, and select the new one.
+                setCurrentTab('submissions');
+                await fetchSubmissions(); // This will re-fetch the list, including the new one.
+                const details = await getSubmissionDetails(submissionId) as SubmissionDetail;
+                setSelectedSubmission(details); // This will select it and trigger polling.
             } else {
-                // Fallback if no ID is returned, maybe just go to the generic submissions page for that problem
-                router.push(`/submissions?problemId=${problemDetails.problem_id}`);
+                setExecutionError("Submission ID was not returned. Please try again.");
             }
         } catch (error) {
             console.error("Error submitting code:", error);
@@ -862,7 +1033,7 @@ export default function CreateProblemPage() {
                                         ].map((tab) => (
                                             <button
                                                 key={tab.id}
-                                                className={`px-6 py-3 text-sm font-medium flex items-center gap-2 transition-all duration-300 ${tab.id === 'description'
+                                                className={`px-6 py-3 text-sm font-medium flex items-center gap-2 transition-all duration-300 ${tab.id === currentTab
                                                     ? isDark
                                                         ? 'text-blue-400 border-b-2 border-blue-400 bg-blue-900/20'
                                                         : 'text-blue-600 border-b-2 border-blue-600 bg-blue-50'
@@ -870,6 +1041,12 @@ export default function CreateProblemPage() {
                                                         ? 'text-gray-400 hover:text-gray-200 hover:bg-gray-700/50'
                                                         : 'text-gray-600 hover:text-gray-900 hover:bg-gray-100'
                                                     }`}
+                                                onClick={() => {
+                                                    setCurrentTab(tab.id);
+                                                    if (tab.id === 'submissions') {
+                                                        fetchSubmissions();
+                                                    }
+                                                }}
                                             >
                                                 <tab.icon className="w-4 h-4" />
                                                 {tab.label}
@@ -982,302 +1159,377 @@ export default function CreateProblemPage() {
                                     </div>
                                 ) : (
                                     <div className="p-6 space-y-6">
-                                        {/* Problem Preview */}
-                                        <div className="flex justify-between items-center mb-4">
-                                            <h2 className={`text-lg font-semibold ${isDark ? 'text-white' : 'text-gray-900'}`}>
-                                                Problem Preview
-                                            </h2>
-                                            <AnimatedButton
-                                                onClick={() => setProblemView('input')}
-                                                variant="secondary"
-                                                size="sm"
-                                            >
-                                                Edit Original
-                                            </AnimatedButton>
-                                        </div>
-
-                                        {problemDetails && (
-                                            <div className="space-y-6">
-                                                {/* Problem Statement */}
-                                                <div>
-                                                    <h2 className={`text-lg font-semibold mb-4 ${isDark ? 'text-white' : 'text-gray-900'}`}>
-                                                        Problem Statement
+                                        {currentTab === 'description' && (
+                                            <>
+                                                {/* Problem Preview */}
+                                                <div className="flex justify-between items-center mb-4">
+                                                    <h2 className={`text-lg font-semibold ${isDark ? 'text-white' : 'text-gray-900'}`}>
+                                                        Problem Preview
                                                     </h2>
-                                                    <GlassCard padding="lg">
-                                                        <div className={`prose max-w-none ${isDark ? 'prose-invert' : ''}`}>
-                                                            <p className={isDark ? 'text-gray-300' : 'text-gray-700'}>
-                                                                {problemDetails.formatted_statement.split('\n\n')[0]}
-                                                            </p>
-                                                        </div>
-                                                    </GlassCard>
+                                                    <AnimatedButton
+                                                        onClick={() => setProblemView('input')}
+                                                        variant="secondary"
+                                                        size="sm"
+                                                    >
+                                                        Edit Original
+                                                    </AnimatedButton>
                                                 </div>
 
-                                                {/* Examples Section */}
-                                                <div>
-                                                    <h2 className={`text-lg font-semibold mb-4 ${isDark ? 'text-white' : 'text-gray-900'}`}>
-                                                        Examples
-                                                    </h2>
-                                                    <div className="space-y-4">
-                                                        {parseExamples(problemDetails.formatted_statement).map((example, idx) => (
-                                                            <GlassCard key={idx} className="overflow-hidden" padding="none">
-                                                                <div className={`px-4 py-3 border-b ${isDark
-                                                                    ? 'bg-gray-700/50 border-gray-600 text-gray-300'
-                                                                    : 'bg-gray-50/50 border-gray-200 text-gray-700'
-                                                                    }`}>
-                                                                    <h3 className="text-sm font-medium">Example {idx + 1}</h3>
-                                                                </div>
-                                                                <div className="p-4 space-y-3">
-                                                                    <div>
-                                                                        <div className={`text-xs font-medium mb-2 ${isDark ? 'text-gray-400' : 'text-gray-600'}`}>
-                                                                            Input:
-                                                                        </div>
-                                                                        <div className={`p-3 rounded-lg font-mono text-sm ${isDark ? 'bg-gray-900 text-green-400' : 'bg-gray-900 text-white'}`}>
-                                                                            {example.input}
-                                                                        </div>
-                                                                    </div>
-                                                                    <div>
-                                                                        <div className={`text-xs font-medium mb-2 ${isDark ? 'text-gray-400' : 'text-gray-600'}`}>
-                                                                            Output:
-                                                                        </div>
-                                                                        <div className={`p-3 rounded-lg font-mono text-sm ${isDark ? 'bg-gray-900 text-blue-400' : 'bg-gray-900 text-white'}`}>
-                                                                            {example.output}
-                                                                        </div>
-                                                                    </div>
-                                                                    {example.explanation && (
-                                                                        <div>
-                                                                            <div className={`text-xs font-medium mb-2 ${isDark ? 'text-gray-400' : 'text-gray-600'}`}>
-                                                                                Explanation:
-                                                                            </div>
-                                                                            <div className={`text-sm ${isDark ? 'text-gray-300' : 'text-gray-700'}`}>
-                                                                                {example.explanation}
-                                                                            </div>
-                                                                        </div>
-                                                                    )}
-                                                                </div>
-                                                            </GlassCard>
-                                                        ))}
-                                                    </div>
-                                                </div>
-
-                                                {/* Constraints */}
-                                                <div>
-                                                    <h2 className={`text-lg font-semibold mb-4 ${isDark ? 'text-white' : 'text-gray-900'}`}>
-                                                        Constraints
-                                                    </h2>
-                                                    <GlassCard padding="lg">
-                                                        <ul className={`list-disc list-inside space-y-2 ${isDark ? 'text-gray-300' : 'text-gray-700'}`}>
-                                                            {problemDetails.constraints.split('\n').filter(c => c.trim()).map((constraint, idx) => (
-                                                                <li key={idx} className="text-sm font-mono">{constraint}</li>
-                                                            ))}
-                                                        </ul>
-                                                    </GlassCard>
-                                                </div>
-
-                                                {/* Enhanced AI Hints Section */}
-                                                <div>
-                                                    <div className="flex items-center justify-between mb-4">
-                                                        <h2 className={`text-lg font-semibold flex items-center gap-2 ${isDark ? 'text-white' : 'text-gray-900'}`}>
-                                                            <Lightbulb className="w-5 h-5 text-yellow-500" />
-                                                            AI Hints
-                                                            <span className={`text-xs px-2 py-1 rounded-full ${isDark ? 'bg-yellow-900/30 text-yellow-400' : 'bg-yellow-100 text-yellow-700'
-                                                                }`}>
-                                                                {problemDetails.difficulty === 'Easy' ? '1 hint' :
-                                                                    problemDetails.difficulty === 'Medium' ? '2 hints' : '3 hints'} available
-                                                            </span>
-                                                        </h2>
-                                                        {!isLoadingHint && !hints && (
-                                                            <AnimatedButton
-                                                                onClick={handleGetHint}
-                                                                variant="warning"
-                                                                size="sm"
-                                                                icon={Sparkles}
-                                                                glow={true}
-                                                            >
-                                                                Get Hint
-                                                            </AnimatedButton>
-                                                        )}
-                                                    </div>
-
-                                                    <GlassCard padding="lg">
-                                                        {isLoadingHint ? (
-                                                            <div className="flex justify-center items-center p-6">
-                                                                <Loader className="w-6 h-6 mr-3 animate-spin text-yellow-500" />
-                                                                <p className={`${isDark ? 'text-gray-300' : 'text-gray-600'}`}>
-                                                                    Generating personalized hints...
-                                                                </p>
-                                                            </div>
-                                                        ) : hintError ? (
-                                                            <div className={`p-4 rounded-lg border ${isDark
-                                                                ? 'bg-red-900/20 border-red-500/30 text-red-400'
-                                                                : 'bg-red-50 border-red-200 text-red-700'
-                                                                }`}>
-                                                                <AlertCircle className="w-4 h-4 inline-block mr-2" />
-                                                                {hintError}
-                                                            </div>
-                                                        ) : hints && visibleHintIndex >= 0 ? (
-                                                            <div className="space-y-4">
-                                                                {hints.slice(0, visibleHintIndex + 1).map((hint, idx) => (
-                                                                    <div key={idx} className={`p-4 rounded-lg border transition-all duration-300 ${idx === visibleHintIndex
-                                                                        ? isDark
-                                                                            ? 'bg-yellow-900/20 border-yellow-500/30'
-                                                                            : 'bg-yellow-50 border-yellow-200'
-                                                                        : isDark
-                                                                            ? 'bg-gray-700/30 border-gray-600/30'
-                                                                            : 'bg-gray-50 border-gray-200'
-                                                                        }`}>
-                                                                        <div className="flex items-start gap-3">
-                                                                            <div className={`w-6 h-6 rounded-full flex items-center justify-center text-xs font-bold ${isDark ? 'bg-yellow-600 text-yellow-100' : 'bg-yellow-500 text-yellow-50'
-                                                                                }`}>
-                                                                                {idx + 1}
-                                                                            </div>
-                                                                            <p className={`text-sm leading-relaxed ${isDark ? 'text-gray-300' : 'text-gray-700'}`}>
-                                                                                {hint}
-                                                                            </p>
-                                                                        </div>
-                                                                    </div>
-                                                                ))}
-
-                                                                {visibleHintIndex < hints.length - 1 && (
-                                                                    <AnimatedButton
-                                                                        onClick={handleShowNextHint}
-                                                                        variant="warning"
-                                                                        className="w-full"
-                                                                        icon={ArrowDown}
-                                                                    >
-                                                                        Show Next Hint ({visibleHintIndex + 2}/{hints.length})
-                                                                    </AnimatedButton>
-                                                                )}
-                                                            </div>
-                                                        ) : (
-                                                            <div className={`text-center py-6 ${isDark ? 'text-gray-400' : 'text-gray-600'}`}>
-                                                                <Lightbulb className="w-12 h-12 mx-auto mb-3 opacity-50" />
-                                                                <p className="text-sm mb-2">
-                                                                    Need help? Get AI-powered hints tailored to your progress!
-                                                                </p>
-                                                                <p className="text-xs opacity-75">
-                                                                    Hints are designed to guide your thinking without spoiling the solution.
-                                                                </p>
-                                                            </div>
-                                                        )}
-                                                    </GlassCard>
-                                                </div>
-
-                                                {/* Test Cases Section */}
-                                                <div>
-                                                    <h2 className={`text-lg font-semibold mb-4 ${isDark ? 'text-white' : 'text-gray-900'}`}>
-                                                        Test Cases
-                                                    </h2>
-                                                    {isGeneratingTestCases ? (
-                                                        <GlassCard padding="lg">
-                                                            <div className="flex items-center justify-center p-4">
-                                                                <Loader className="w-6 h-6 mr-3 animate-spin text-blue-500" />
-                                                                <span className={isDark ? 'text-gray-300' : 'text-gray-600'}>
-                                                                    Generating test cases...
-                                                                </span>
-                                                            </div>
-                                                        </GlassCard>
-                                                    ) : testCaseError ? (
-                                                        <GlassCard className={`border ${isDark ? 'border-red-500/30 bg-red-900/20' : 'border-red-200 bg-red-50'}`}>
-                                                            <div className={`flex items-start gap-3 ${isDark ? 'text-red-400' : 'text-red-800'}`}>
-                                                                <AlertCircle className="h-5 w-5 flex-shrink-0 mt-0.5" />
-                                                                <p>{testCaseError}</p>
-                                                            </div>
-                                                        </GlassCard>
-                                                    ) : generatedTestCases ? (
+                                                {problemDetails && (
+                                                    <div className="space-y-6">
+                                                        {/* Problem Statement */}
                                                         <div>
-                                                            <GlassCard padding="lg" className="mb-4">
-                                                                <div className="flex items-center justify-between">
-                                                                    <div>
-                                                                        <p className={`text-sm ${isDark ? 'text-gray-300' : 'text-gray-700'}`}>
-                                                                            <span className="font-medium">{Object.keys(generatedTestCases).length}</span> test cases generated
-                                                                            (<span className="font-medium">{selectedSampleCount}</span> will be visible to users)
-                                                                        </p>
-                                                                    </div>
-                                                                    <Select value={selectedSampleCount.toString()} onValueChange={(value) => setSelectedSampleCount(parseInt(value))}>
-                                                                        <SelectTrigger className={`w-20 ${isDark ? 'bg-gray-700 border-gray-600 text-gray-200' : 'bg-white border-gray-300 text-gray-900'}`}>
-                                                                            <SelectValue />
-                                                                        </SelectTrigger>
-                                                                        <SelectContent>
-                                                                            {[0, 1, 2, 3, 4, 5].map((count) => (
-                                                                                <SelectItem key={count} value={count.toString()}>
-                                                                                    {count}
-                                                                                </SelectItem>
-                                                                            ))}
-                                                                        </SelectContent>
-                                                                    </Select>
+                                                            <h2 className={`text-lg font-semibold mb-4 ${isDark ? 'text-white' : 'text-gray-900'}`}>
+                                                                Problem Statement
+                                                            </h2>
+                                                            <GlassCard padding="lg">
+                                                                <div className={`prose max-w-none ${isDark ? 'prose-invert' : ''}`}>
+                                                                    <p className={isDark ? 'text-gray-300' : 'text-gray-700'}>
+                                                                        {renderMarkdown(problemDetails.formatted_statement)}
+                                                                    </p>
                                                                 </div>
                                                             </GlassCard>
+                                                        </div>
 
+                                                        {/* Examples Section */}
+                                                        <div>
+                                                            <h2 className={`text-lg font-semibold mb-4 ${isDark ? 'text-white' : 'text-gray-900'}`}>
+                                                                Examples
+                                                            </h2>
                                                             <div className="space-y-4">
-                                                                {testCases.slice(0, selectedSampleCount).map((tc, index) => (
-                                                                    <GlassCard key={index} className="overflow-hidden" padding="none">
-                                                                        <div className={`p-3 border-b ${isDark ? 'bg-gray-700/50 border-gray-600' : 'bg-gray-50/50 border-gray-200'}`}>
-                                                                            <h4 className={`text-sm font-medium ${isDark ? 'text-gray-300' : 'text-gray-800'}`}>
-                                                                                Sample Case {index + 1}
-                                                                            </h4>
+                                                                {parseExamples(problemDetails.formatted_statement).map((example, idx) => (
+                                                                    <GlassCard key={idx} className="overflow-hidden" padding="none">
+                                                                        <div className={`px-4 py-3 border-b ${isDark
+                                                                            ? 'bg-gray-700/50 border-gray-600 text-gray-300'
+                                                                            : 'bg-gray-50/50 border-gray-200 text-gray-700'
+                                                                            }`}>
+                                                                            <h3 className="text-sm font-medium">Example {idx + 1}</h3>
                                                                         </div>
                                                                         <div className="p-4 space-y-3">
                                                                             <div>
-                                                                                <div className={`text-xs font-medium mb-2 ${isDark ? 'text-gray-400' : 'text-gray-600'}`}>Input:</div>
+                                                                                <div className={`text-xs font-medium mb-2 ${isDark ? 'text-gray-400' : 'text-gray-600'}`}>
+                                                                                    Input:
+                                                                                </div>
                                                                                 <div className={`p-3 rounded-lg font-mono text-sm ${isDark ? 'bg-gray-900 text-green-400' : 'bg-gray-900 text-white'}`}>
-                                                                                    {formatDisplayInput(tc.input)}
+                                                                                    {example.input}
                                                                                 </div>
                                                                             </div>
                                                                             <div>
-                                                                                <div className={`text-xs font-medium mb-2 ${isDark ? 'text-gray-400' : 'text-gray-600'}`}>Expected Output:</div>
+                                                                                <div className={`text-xs font-medium mb-2 ${isDark ? 'text-gray-400' : 'text-gray-600'}`}>
+                                                                                    Output:
+                                                                                </div>
                                                                                 <div className={`p-3 rounded-lg font-mono text-sm ${isDark ? 'bg-gray-900 text-blue-400' : 'bg-gray-900 text-white'}`}>
-                                                                                    {tc.expectedOutput}
+                                                                                    {example.output}
                                                                                 </div>
                                                                             </div>
+                                                                            {example.explanation && (
+                                                                                <div>
+                                                                                    <div className={`text-xs font-medium mb-2 ${isDark ? 'text-gray-400' : 'text-gray-600'}`}>
+                                                                                        Explanation:
+                                                                                    </div>
+                                                                                    <div className={`text-sm ${isDark ? 'text-gray-300' : 'text-gray-700'}`}>
+                                                                                        {example.explanation}
+                                                                                    </div>
+                                                                                </div>
+                                                                            )}
                                                                         </div>
                                                                     </GlassCard>
                                                                 ))}
                                                             </div>
                                                         </div>
-                                                    ) : (
-                                                        <GlassCard padding="lg">
-                                                            <p className={`text-sm ${isDark ? 'text-gray-400' : 'text-gray-600'}`}>
-                                                                No test cases generated yet
-                                                            </p>
-                                                        </GlassCard>
-                                                    )}
-                                                </div>
 
-                                                {/* Create Problem Button */}
-                                                <div className="pt-4">
-                                                    <AnimatedButton
-                                                        onClick={handleCreateProblem}
-                                                        disabled={isCreatingProblem}
-                                                        variant="success"
-                                                        className="w-full"
-                                                        loading={isCreatingProblem}
-                                                        gradient={true}
-                                                        glow={true}
-                                                    >
-                                                        {isCreatingProblem ? 'Creating Problem...' : 'Create Problem'}
-                                                    </AnimatedButton>
+                                                        {/* Constraints */}
+                                                        <div>
+                                                            <h2 className={`text-lg font-semibold mb-4 ${isDark ? 'text-white' : 'text-gray-900'}`}>
+                                                                Constraints
+                                                            </h2>
+                                                            <GlassCard padding="lg">
+                                                                <ul className={`list-disc list-inside space-y-2 ${isDark ? 'text-gray-300' : 'text-gray-700'}`}>
+                                                                    {problemDetails.constraints.split('\n').filter(c => c.trim()).map((constraint, idx) => (
+                                                                        <li key={idx} className="text-sm font-mono">{constraint}</li>
+                                                                    ))}
+                                                                </ul>
+                                                            </GlassCard>
+                                                        </div>
 
-                                                    {createdProblemId && (
-                                                        <GlassCard className={`mt-4 border ${isDark ? 'border-green-500/30 bg-green-900/20' : 'border-green-200 bg-green-50'}`}>
-                                                            <div className={`flex items-start gap-3 ${isDark ? 'text-green-400' : 'text-green-800'}`}>
-                                                                <CheckCircle2 className="h-5 w-5 flex-shrink-0 mt-0.5" />
+                                                        {/* Enhanced AI Hints Section */}
+                                                        <div>
+                                                            <div className="flex items-center justify-between mb-4">
+                                                                <h2 className={`text-lg font-semibold flex items-center gap-2 ${isDark ? 'text-white' : 'text-gray-900'}`}>
+                                                                    <Lightbulb className="w-5 h-5 text-blue-500" />
+                                                                    AI Hints
+                                                                    <span className={`text-xs px-2 py-1 rounded-full ${isDark ? 'bg-blue-900/30 text-blue-400' : 'bg-blue-100 text-blue-700'
+                                                                        }`}>
+                                                                        {problemDetails.difficulty === 'Easy' ? '1 hint' :
+                                                                            problemDetails.difficulty === 'Medium' ? '2 hints' : '3 hints'} available
+                                                                    </span>
+                                                                </h2>
+                                                                {!isLoadingHint && !hints && (
+                                                                    <AnimatedButton
+                                                                        onClick={handleGetHint}
+                                                                        variant="primary"
+                                                                        size="sm"
+                                                                        icon={Sparkles}
+                                                                        glow={true}
+                                                                    >
+                                                                        Get Hint
+                                                                    </AnimatedButton>
+                                                                )}
+                                                            </div>
+
+                                                            <GlassCard padding="lg">
+                                                                {isLoadingHint ? (
+                                                                    <div className="flex justify-center items-center p-6">
+                                                                        <Loader className="w-6 h-6 mr-3 animate-spin text-yellow-500" />
+                                                                        <p className={`${isDark ? 'text-gray-300' : 'text-gray-600'}`}>
+                                                                            Generating personalized hints...
+                                                                        </p>
+                                                                    </div>
+                                                                ) : hintError ? (
+                                                                    <div className={`p-4 rounded-lg border ${isDark
+                                                                        ? 'bg-red-900/20 border-red-500/30 text-red-400'
+                                                                        : 'bg-red-50 border-red-200 text-red-700'
+                                                                        }`}>
+                                                                        <AlertCircle className="w-4 h-4 inline-block mr-2" />
+                                                                        {hintError}
+                                                                    </div>
+                                                                ) : hints && visibleHintIndex >= 0 ? (
+                                                                    <div className="space-y-4">
+                                                                        {hints.slice(0, visibleHintIndex + 1).map((hint, idx) => (
+                                                                            <div key={idx} className={`p-4 rounded-lg border transition-all duration-300 ${idx === visibleHintIndex
+                                                                                ? isDark
+                                                                                    ? 'bg-blue-900/20 border-blue-500/30'
+                                                                                    : 'bg-blue-50 border-blue-200'
+                                                                                : isDark
+                                                                                    ? 'bg-gray-700/30 border-gray-600/30'
+                                                                                    : 'bg-gray-50 border-gray-200'
+                                                                                }`}>
+                                                                                <div className="flex items-start gap-3">
+                                                                                    <div className={`w-6 h-6 rounded-full flex items-center justify-center text-xs font-bold ${isDark ? 'bg-blue-600 text-blue-100' : 'bg-blue-500 text-blue-50'
+                                                                                        }`}>
+                                                                                        {idx + 1}
+                                                                                    </div>
+                                                                                    <p className={`text-sm leading-relaxed ${isDark ? 'text-gray-300' : 'text-gray-700'}`}>
+                                                                                        {hint}
+                                                                                    </p>
+                                                                                </div>
+                                                                            </div>
+                                                                        ))}
+
+                                                                        {visibleHintIndex < hints.length - 1 && (
+                                                                            <AnimatedButton
+                                                                                onClick={handleShowNextHint}
+                                                                                variant="primary"
+                                                                                className="w-full"
+                                                                                icon={ArrowDown}
+                                                                            >
+                                                                                Show Next Hint ({visibleHintIndex + 2}/{hints.length})
+                                                                            </AnimatedButton>
+                                                                        )}
+                                                                    </div>
+                                                                ) : (
+                                                                    <div className={`text-center py-6 ${isDark ? 'text-gray-400' : 'text-gray-600'}`}>
+                                                                        <Lightbulb className="w-12 h-12 mx-auto mb-3 opacity-50" />
+                                                                        <p className="text-sm mb-2">
+                                                                            Need help? Get AI-powered hints tailored to your progress!
+                                                                        </p>
+                                                                        <p className="text-xs opacity-75">
+                                                                            Hints are designed to guide your thinking without spoiling the solution.
+                                                                        </p>
+                                                                    </div>
+                                                                )}
+                                                            </GlassCard>
+                                                        </div>
+
+                                                        {/* Test Cases Section */}
+                                                        <div>
+                                                            <h2 className={`text-lg font-semibold mb-4 ${isDark ? 'text-white' : 'text-gray-900'}`}>
+                                                                Test Cases
+                                                            </h2>
+                                                            {isGeneratingTestCases ? (
+                                                                <GlassCard padding="lg">
+                                                                    <div className="flex items-center justify-center p-4">
+                                                                        <Loader className="w-6 h-6 mr-3 animate-spin text-blue-500" />
+                                                                        <span className={isDark ? 'text-gray-300' : 'text-gray-600'}>
+                                                                            Generating test cases...
+                                                                        </span>
+                                                                    </div>
+                                                                </GlassCard>
+                                                            ) : testCaseError ? (
+                                                                <GlassCard className={`border ${isDark ? 'border-red-500/30 bg-red-900/20' : 'border-red-200 bg-red-50'}`}>
+                                                                    <div className={`flex items-start gap-3 ${isDark ? 'text-red-400' : 'text-red-800'}`}>
+                                                                        <AlertCircle className="h-5 w-5 flex-shrink-0 mt-0.5" />
+                                                                        <p>{testCaseError}</p>
+                                                                    </div>
+                                                                </GlassCard>
+                                                            ) : generatedTestCases ? (
                                                                 <div>
-                                                                    <p className="font-medium">Problem created successfully!</p>
-                                                                    <p className="text-sm">Redirecting to the problem page...</p>
-                                                                </div>
-                                                            </div>
-                                                        </GlassCard>
-                                                    )}
+                                                                    <GlassCard padding="lg" className="mb-4">
+                                                                        <div className="flex items-center justify-between">
+                                                                            <div>
+                                                                                <p className={`text-sm ${isDark ? 'text-gray-300' : 'text-gray-700'}`}>
+                                                                                    <span className="font-medium">{Object.keys(generatedTestCases).length}</span> test cases generated
+                                                                                    (<span className="font-medium">{selectedSampleCount}</span> will be visible to users)
+                                                                                </p>
+                                                                            </div>
+                                                                            <Select value={selectedSampleCount.toString()} onValueChange={(value) => setSelectedSampleCount(parseInt(value))}>
+                                                                                <SelectTrigger className={`w-20 ${isDark ? 'bg-gray-700 border-gray-600 text-gray-200' : 'bg-white border-gray-300 text-gray-900'}`}>
+                                                                                    <SelectValue />
+                                                                                </SelectTrigger>
+                                                                                <SelectContent>
+                                                                                    {[0, 1, 2, 3, 4, 5].map((count) => (
+                                                                                        <SelectItem key={count} value={count.toString()}>
+                                                                                            {count}
+                                                                                        </SelectItem>
+                                                                                    ))}
+                                                                                </SelectContent>
+                                                                            </Select>
+                                                                        </div>
+                                                                    </GlassCard>
 
-                                                    {error && (
-                                                        <GlassCard className={`mt-4 border ${isDark ? 'border-red-500/30 bg-red-900/20' : 'border-red-200 bg-red-50'}`}>
-                                                            <div className={`flex items-start gap-3 ${isDark ? 'text-red-400' : 'text-red-800'}`}>
-                                                                <AlertCircle className="h-5 w-5 flex-shrink-0 mt-0.5" />
-                                                                <p>{error}</p>
-                                                            </div>
-                                                        </GlassCard>
-                                                    )}
-                                                </div>
+                                                                    <div className="space-y-4">
+                                                                        {testCases.slice(0, selectedSampleCount).map((tc, index) => (
+                                                                            <GlassCard key={index} className="overflow-hidden" padding="none">
+                                                                                <div className={`p-3 border-b ${isDark ? 'bg-gray-700/50 border-gray-600' : 'bg-gray-50/50 border-gray-200'}`}>
+                                                                                    <h4 className={`text-sm font-medium ${isDark ? 'text-gray-300' : 'text-gray-800'}`}>
+                                                                                        Sample Case {index + 1}
+                                                                                    </h4>
+                                                                                </div>
+                                                                                <div className="p-4 space-y-3">
+                                                                                    <div>
+                                                                                        <div className={`text-xs font-medium mb-2 ${isDark ? 'text-gray-400' : 'text-gray-600'}`}>Input:</div>
+                                                                                        <div className={`p-3 rounded-lg font-mono text-sm ${isDark ? 'bg-gray-900 text-green-400' : 'bg-gray-900 text-white'}`}>
+                                                                                            {formatDisplayInput(tc.input)}
+                                                                                        </div>
+                                                                                    </div>
+                                                                                    <div>
+                                                                                        <div className={`text-xs font-medium mb-2 ${isDark ? 'text-gray-400' : 'text-gray-600'}`}>Expected Output:</div>
+                                                                                        <div className={`p-3 rounded-lg font-mono text-sm ${isDark ? 'bg-gray-900 text-blue-400' : 'bg-gray-900 text-white'}`}>
+                                                                                            {tc.expectedOutput}
+                                                                                        </div>
+                                                                                    </div>
+                                                                                </div>
+                                                                            </GlassCard>
+                                                                        ))}
+                                                                    </div>
+                                                                </div>
+                                                            ) : (
+                                                                <GlassCard padding="lg">
+                                                                    <p className={`text-sm ${isDark ? 'text-gray-400' : 'text-gray-600'}`}>
+                                                                        No test cases generated yet
+                                                                    </p>
+                                                                </GlassCard>
+                                                            )}
+                                                        </div>
+
+                                                        {/* Create Problem Button */}
+                                                        <div className="pt-4">
+                                                            <AnimatedButton
+                                                                onClick={handleCreateProblem}
+                                                                disabled={isCreatingProblem}
+                                                                variant="success"
+                                                                className="w-full"
+                                                                loading={isCreatingProblem}
+                                                                gradient={true}
+                                                                glow={true}
+                                                            >
+                                                                {isCreatingProblem ? 'Creating Problem...' : 'Create Problem'}
+                                                            </AnimatedButton>
+
+                                                            {createdProblemId && (
+                                                                <GlassCard className={`mt-4 border ${isDark ? 'border-green-500/30 bg-green-900/20' : 'border-green-200 bg-green-50'}`}>
+                                                                    <div className={`flex items-start gap-3 ${isDark ? 'text-green-400' : 'text-green-800'}`}>
+                                                                        <CheckCircle2 className="h-5 w-5 flex-shrink-0 mt-0.5" />
+                                                                        <div>
+                                                                            <p className="font-medium">Problem created successfully!</p>
+                                                                            <p className="text-sm">Redirecting to the problem page...</p>
+                                                                        </div>
+                                                                    </div>
+                                                                </GlassCard>
+                                                            )}
+
+                                                            {error && (
+                                                                <GlassCard className={`mt-4 border ${isDark ? 'border-red-500/30 bg-red-900/20' : 'border-red-200 bg-red-50'}`}>
+                                                                    <div className={`flex items-start gap-3 ${isDark ? 'text-red-400' : 'text-red-800'}`}>
+                                                                        <AlertCircle className="h-5 w-5 flex-shrink-0 mt-0.5" />
+                                                                        <p>{error}</p>
+                                                                    </div>
+                                                                </GlassCard>
+                                                            )}
+                                                        </div>
+                                                    </div>
+                                                )}
+                                            </>
+                                        )}
+                                        {currentTab === 'discussion' && (
+                                            <GlassCard className="text-center" padding="lg">
+                                                <MessageSquare className={`w-12 h-12 mx-auto mb-4 ${isDark ? 'text-gray-600' : 'text-gray-400'}`} />
+                                                <h3 className={`text-lg font-semibold mb-2 ${isDark ? 'text-white' : 'text-gray-900'}`}>
+                                                    Discussion Coming Soon
+                                                </h3>
+                                                <p className={`${isDark ? 'text-gray-400' : 'text-gray-600'}`}>
+                                                    Discussion features are being enhanced with the new design system.
+                                                </p>
+                                            </GlassCard>
+                                        )}
+                                        {currentTab === 'submissions' && (
+                                            <div className="p-6">
+                                                {isLoadingSubmissions ? (
+                                                    <div className="flex justify-center items-center p-8">
+                                                        <Loader className="w-6 h-6 animate-spin text-blue-500" />
+                                                    </div>
+                                                ) : selectedSubmission ? (
+                                                    <SubmissionDetailView
+                                                        submission={selectedSubmission}
+                                                        stats={problemStats}
+                                                        onBack={() => setSelectedSubmission(null)}
+                                                        isDark={!!isDark}
+                                                        customTestCases={testCases}
+                                                        setCustomTestCases={setTestCases}
+                                                        setActiveTestCase={setActiveTestCaseIndex}
+                                                    />
+                                                ) : submissions.length > 0 ? (
+                                                    <div className="space-y-3">
+                                                        {submissions.map((sub) => (
+                                                            <GlassCard
+                                                                key={sub.id}
+                                                                padding="md"
+                                                                className="cursor-pointer hover:bg-white/10 transition-colors duration-200"
+                                                                onClick={async () => {
+                                                                    const details = await getSubmissionDetails(sub.id) as SubmissionDetail;
+                                                                    setSelectedSubmission(details)
+                                                                }}
+                                                            >
+                                                                <div className="flex justify-between items-center">
+                                                                    <div className="flex items-center gap-3">
+                                                                        <span className={getStatusClass(sub.status, !!isDark)}>
+                                                                            {sub.status.replace(/_/g, ' ')}
+                                                                        </span>
+                                                                        <span className={`text-sm ${isDark ? 'text-gray-400' : 'text-gray-600'}`}>
+                                                                            {sub.language}
+                                                                        </span>
+                                                                    </div>
+                                                                    <div className={`text-xs ${isDark ? 'text-gray-500' : 'text-gray-400'}`}>
+                                                                        {new Date(sub.submitted_at).toLocaleString()}
+                                                                    </div>
+                                                                </div>
+                                                            </GlassCard>
+                                                        ))}
+                                                    </div>
+                                                ) : (
+                                                    <GlassCard className="text-center" padding="lg">
+                                                        <FileText className={`w-12 h-12 mx-auto mb-4 ${isDark ? 'text-gray-600' : 'text-gray-400'}`} />
+                                                        <h3 className={`text-lg font-semibold mb-2 ${isDark ? 'text-white' : 'text-gray-900'}`}>
+                                                            No Submissions Yet
+                                                        </h3>
+                                                        <p className={`${isDark ? 'text-gray-400' : 'text-gray-600'}`}>
+                                                            {isLoggedIn ?
+                                                                'Submissions for this problem will appear here.' :
+                                                                <>Please <Link href="/login" className="underline font-medium">sign in</Link> to see your submissions.</>
+                                                            }
+                                                        </p>
+                                                    </GlassCard>
+                                                )}
                                             </div>
                                         )}
                                     </div>
@@ -1444,270 +1696,206 @@ export default function CreateProblemPage() {
                                             {/* Enhanced Test Case Tabs */}
                                             <div className={`h-12 border-b flex items-center px-4 transition-colors duration-300 ${isDark ? 'bg-black border-gray-800' : 'bg-gray-100 border-gray-200'}`}>
                                                 <div className="flex items-center gap-2 overflow-x-auto">
-                                                    {/* Show loading state when generating test cases */}
-                                                    {isGeneratingTestCases ? (
-                                                        <div className="flex items-center gap-2">
-                                                            <Loader className="w-4 h-4 animate-spin text-blue-500" />
-                                                            <span className={`text-xs ${isDark ? 'text-gray-400' : 'text-gray-600'}`}>
-                                                                Generating test cases...
-                                                            </span>
-                                                        </div>
-                                                    ) : testCases.length === 0 || (testCases.length === 1 && !testCases[0].input && !testCases[0].expectedOutput) ? (
-                                                        <div className="flex items-center gap-2">
-                                                            <span className={`text-xs ${isDark ? 'text-gray-500' : 'text-gray-500'}`}>
-                                                                No Test Cases
-                                                            </span>
-                                                            <AnimatedButton
-                                                                onClick={() => setTestCases([...testCases, { input: '', expectedOutput: '' }])}
-                                                                size="sm"
-                                                                variant="ghost"
-                                                                icon={Plus}
-                                                                className="px-2 py-1"
+                                                    {testCases.map((_, index) => {
+                                                        // Determine test case status for styling
+                                                        const result = allExecutionResults && allExecutionResults[index];
+                                                        let statusIndicator = null;
+                                                        let borderClass = '';
+
+                                                        if (result) {
+                                                            const testCase = testCases[index];
+                                                            const isCorrect = result.status === 'success' &&
+                                                                testCase &&
+                                                                result.stdout.trim() === (testCase.expectedOutput || '').trim();
+
+                                                            if (isCorrect) {
+                                                                statusIndicator = <div className="w-2 h-2 bg-green-500 rounded-full"></div>;
+                                                                borderClass = 'border-green-500/50';
+                                                            } else if (result.status === 'success') {
+                                                                statusIndicator = <div className="w-2 h-2 bg-red-500 rounded-full"></div>;
+                                                                borderClass = 'border-red-500/50';
+                                                            } else {
+                                                                statusIndicator = <div className="w-2 h-2 bg-yellow-500 rounded-full"></div>;
+                                                                borderClass = 'border-yellow-500/50';
+                                                            }
+                                                        } else {
+                                                            // Add grey dot for test cases that haven't been run yet
+                                                            statusIndicator = <div className="w-2 h-2 bg-gray-400 rounded-full"></div>;
+                                                            borderClass = 'border-gray-400/50';
+                                                        }
+
+                                                        return (
+                                                            <button
+                                                                key={index}
+                                                                className={`px-3 py-1 text-xs rounded-full flex-shrink-0 transition-all duration-300 flex items-center gap-2 border ${activeTestCaseIndex === index
+                                                                    ? `bg-blue-600 text-white shadow-lg ${borderClass}`
+                                                                    : isDark
+                                                                        ? `bg-gray-700 text-gray-300 hover:bg-gray-600 ${borderClass || 'border-transparent'}`
+                                                                        : `bg-gray-200 text-gray-700 hover:bg-gray-300 ${borderClass || 'border-transparent'}`
+                                                                    }`}
+                                                                onClick={() => setActiveTestCaseIndex(index)}
                                                             >
-                                                                Add
-                                                            </AnimatedButton>
-                                                        </div>
-                                                    ) : (
-                                                        <>
-                                                            {testCases.map((_, index) => {
-                                                                // Determine test case status for styling
-                                                                const result = allExecutionResults && allExecutionResults[index];
-                                                                let statusIndicator = null;
-                                                                let borderClass = '';
-
-                                                                if (result) {
-                                                                    const testCase = testCases[index];
-                                                                    const isCorrect = result.status === 'success' &&
-                                                                        testCase &&
-                                                                        result.stdout.trim() === (testCase.expectedOutput || '').trim();
-
-                                                                    if (isCorrect) {
-                                                                        statusIndicator = <div className="w-2 h-2 bg-green-500 rounded-full"></div>;
-                                                                        borderClass = 'border-green-500/50';
-                                                                    } else if (result.status === 'success') {
-                                                                        statusIndicator = <div className="w-2 h-2 bg-red-500 rounded-full"></div>;
-                                                                        borderClass = 'border-red-500/50';
-                                                                    } else {
-                                                                        statusIndicator = <div className="w-2 h-2 bg-yellow-500 rounded-full"></div>;
-                                                                        borderClass = 'border-yellow/50';
-                                                                    }
-                                                                }
-
-                                                                return (
-                                                                    <button
-                                                                        key={index}
-                                                                        className={`px-3 py-1 text-xs rounded-full flex-shrink-0 transition-all duration-300 flex items-center gap-2 border ${activeTestCaseIndex === index
-                                                                            ? `bg-blue-600 text-white shadow-lg ${borderClass}`
-                                                                            : isDark
-                                                                                ? `bg-gray-700 text-gray-300 hover:bg-gray-600 ${borderClass || 'border-transparent'}`
-                                                                                : `bg-gray-200 text-gray-700 hover:bg-gray-300 ${borderClass || 'border-transparent'}`
-                                                                            }`}
-                                                                        onClick={() => setActiveTestCaseIndex(index)}
-                                                                    >
-                                                                        {statusIndicator}
-                                                                        Case {index + 1}
-                                                                    </button>
-                                                                );
-                                                            })}
-                                                            <AnimatedButton
-                                                                onClick={() => setTestCases([...testCases, { input: '', expectedOutput: '' }])}
-                                                                size="sm"
-                                                                variant="ghost"
-                                                                icon={Plus}
-                                                                className="px-2 py-1"
-                                                            >
-                                                                Add
-                                                            </AnimatedButton>
-                                                        </>
-                                                    )}
+                                                                {statusIndicator}
+                                                                Case {index + 1}
+                                                            </button>
+                                                        );
+                                                    })}
+                                                    <AnimatedButton
+                                                        onClick={() => setTestCases([...testCases, { input: '', expectedOutput: '' }])}
+                                                        size="sm"
+                                                        variant="ghost"
+                                                        icon={Plus}
+                                                        className="px-2 py-1"
+                                                    >
+                                                        Add
+                                                    </AnimatedButton>
                                                 </div>
                                             </div>
 
                                             {/* Enhanced Input/Output Area */}
-                                            <div className="flex-grow overflow-hidden">
-                                                {/* Show loading state when generating test cases */}
-                                                {isGeneratingTestCases ? (
-                                                    <div className="h-full flex items-center justify-center">
-                                                        <div className="text-center">
-                                                            <Loader className="w-8 h-8 animate-spin text-blue-500 mx-auto mb-3" />
-                                                            <p className={`text-sm ${isDark ? 'text-gray-400' : 'text-gray-600'}`}>
-                                                                AI is generating test cases...
-                                                            </p>
-                                                            <p className={`text-xs mt-1 ${isDark ? 'text-gray-500' : 'text-gray-500'}`}>
-                                                                This may take a few moments
-                                                            </p>
-                                                        </div>
+                                            <div className="flex-grow grid grid-cols-2 gap-4 p-4 overflow-hidden min-h-[260px]">
+                                                <div className="space-y-4">
+                                                    {/* Input */}
+                                                    <div className="flex flex-col">
+                                                        <label className={`text-xs font-medium mb-2 ${isDark ? 'text-gray-400' : 'text-gray-600'}`}>
+                                                            Input:
+                                                        </label>
+                                                        <textarea
+                                                            className={`p-3 text-sm font-mono rounded-lg border transition-all duration-300 resize-y ${isDark
+                                                                ? 'bg-gray-800 border-gray-600 text-gray-200 placeholder-gray-500 focus:border-blue-500'
+                                                                : 'bg-white border-gray-300 text-gray-900 placeholder-gray-400 focus:border-blue-500'
+                                                                } focus:ring-2 focus:ring-blue-500/20`}
+                                                            value={formattedInput}
+                                                            onChange={(e) => {
+                                                                setFormattedInput(e.target.value);
+                                                                const updatedTestCases = [...testCases];
+                                                                updatedTestCases[activeTestCaseIndex] = {
+                                                                    ...updatedTestCases[activeTestCaseIndex],
+                                                                    input: parseFormattedInput(e.target.value)
+                                                                };
+                                                                setTestCases(updatedTestCases);
+                                                            }}
+                                                            placeholder="Enter input for this test case..."
+                                                            rows={Math.max(3, (formattedInput || '').split('\n').length)}
+                                                        />
                                                     </div>
-                                                ) : testCases.length === 0 || (testCases.length === 1 && !testCases[0].input && !testCases[0].expectedOutput) ? (
-                                                    <div className="h-full flex items-center justify-center">
-                                                        <div className="text-center">
-                                                            <div className={`w-16 h-16 mx-auto mb-4 rounded-full border-2 border-dashed flex items-center justify-center ${isDark ? 'border-gray-600 bg-gray-800/50' : 'border-gray-300 bg-gray-100/50'}`}>
-                                                                <Target className={`w-8 h-8 ${isDark ? 'text-gray-500' : 'text-gray-400'}`} />
-                                                            </div>
-                                                            <h3 className={`text-lg font-medium mb-2 ${isDark ? 'text-gray-300' : 'text-gray-700'}`}>
-                                                                No Test Cases
-                                                            </h3>
-                                                            <p className={`text-sm mb-4 ${isDark ? 'text-gray-500' : 'text-gray-500'}`}>
-                                                                Test cases will be generated automatically when you create a problem,<br />
-                                                                or you can add them manually.
-                                                            </p>
-                                                            <AnimatedButton
-                                                                onClick={() => setTestCases([{ input: '', expectedOutput: '' }])}
-                                                                variant="primary"
-                                                                size="sm"
-                                                                icon={Plus}
-                                                                glow={true}
-                                                            >
-                                                                Add Test Case
-                                                            </AnimatedButton>
-                                                        </div>
+
+                                                    {/* Expected Output */}
+                                                    <div className="flex flex-col">
+                                                        <label className={`text-xs font-medium mb-2 ${isDark ? 'text-gray-400' : 'text-gray-600'}`}>
+                                                            Expected Output:
+                                                        </label>
+                                                        <textarea
+                                                            className={`p-3 text-sm font-mono rounded-lg border transition-all duration-300 ${isDark
+                                                                ? 'bg-gray-800 border-gray-600 text-gray-200 placeholder-gray-500 focus:border-blue-500'
+                                                                : 'bg-white border-gray-300 text-gray-900 placeholder-gray-400 focus:border-blue-500'
+                                                                } focus:ring-2 focus:ring-blue-500/20`}
+                                                            value={testCases[activeTestCaseIndex]?.expectedOutput || ''}
+                                                            onChange={(e) => {
+                                                                const updatedTestCases = [...testCases];
+                                                                updatedTestCases[activeTestCaseIndex] = {
+                                                                    ...updatedTestCases[activeTestCaseIndex],
+                                                                    expectedOutput: e.target.value
+                                                                };
+                                                                setTestCases(updatedTestCases);
+                                                            }}
+                                                            placeholder="Enter expected output..."
+                                                            rows={3}
+                                                        />
                                                     </div>
-                                                ) : (
-                                                    <div className="grid grid-cols-2 gap-4 p-4 overflow-hidden min-h-[260px]">
-                                                        <div className="space-y-4">
-                                                            {/* Input */}
-                                                            <div className="flex flex-col">
-                                                                <label className={`text-xs font-medium mb-2 ${isDark ? 'text-gray-400' : 'text-gray-600'}`}>
-                                                                    Input:
-                                                                </label>
-                                                                <textarea
-                                                                    className={`p-3 text-sm font-mono rounded-lg border transition-all duration-300 resize-y ${isDark
-                                                                        ? 'bg-gray-800 border-gray-600 text-gray-200 placeholder-gray-500 focus:border-blue-500'
-                                                                        : 'bg-white border-gray-300 text-gray-900 placeholder-gray-400 focus:border-blue-500'
-                                                                        } focus:ring-2 focus:ring-blue-500/20`}
-                                                                    value={formattedInput}
-                                                                    onChange={(e) => {
-                                                                        setFormattedInput(e.target.value);
-                                                                        const updatedTestCases = [...testCases];
-                                                                        updatedTestCases[activeTestCaseIndex] = {
-                                                                            ...updatedTestCases[activeTestCaseIndex],
-                                                                            input: parseFormattedInput(e.target.value)
-                                                                        };
-                                                                        setTestCases(updatedTestCases);
-                                                                    }}
-                                                                    placeholder="Enter input for this test case..."
-                                                                    rows={Math.max(3, (formattedInput || '').split('\n').length)}
-                                                                />
-                                                            </div>
+                                                </div>
 
-                                                            {/* Expected Output */}
-                                                            <div className="flex flex-col">
-                                                                <label className={`text-xs font-medium mb-2 ${isDark ? 'text-gray-400' : 'text-gray-600'}`}>
-                                                                    Expected Output:
-                                                                </label>
-                                                                <textarea
-                                                                    className={`p-3 text-sm font-mono rounded-lg border transition-all duration-300 ${isDark
-                                                                        ? 'bg-gray-800 border-gray-600 text-gray-200 placeholder-gray-500 focus:border-blue-500'
-                                                                        : 'bg-white border-gray-300 text-gray-900 placeholder-gray-400 focus:border-blue-500'
-                                                                        } focus:ring-2 focus:ring-blue-500/20`}
-                                                                    value={testCases[activeTestCaseIndex]?.expectedOutput || ''}
-                                                                    onChange={(e) => {
-                                                                        const updatedTestCases = [...testCases];
-                                                                        updatedTestCases[activeTestCaseIndex] = {
-                                                                            ...updatedTestCases[activeTestCaseIndex],
-                                                                            expectedOutput: e.target.value
-                                                                        };
-                                                                        setTestCases(updatedTestCases);
-                                                                    }}
-                                                                    placeholder="Enter expected output..."
-                                                                    rows={3}
-                                                                />
+                                                {/* Enhanced Output Display */}
+                                                <div className="flex flex-col">
+                                                    <label className={`text-xs font-medium mb-2 ${isDark ? 'text-gray-400' : 'text-gray-600'}`}>
+                                                        Output:
+                                                    </label>
+                                                    <div className={`flex-grow p-4 text-sm font-mono rounded-lg border overflow-auto transition-all duration-300 ${isDark
+                                                        ? 'bg-gray-800 border-gray-600 text-gray-200'
+                                                        : 'bg-white border-gray-300 text-gray-900'
+                                                        }`}>
+                                                        {isExecuting ? (
+                                                            <div className="flex items-center justify-center h-full">
+                                                                <Loader className="w-6 h-6 animate-spin text-blue-500 mr-3" />
+                                                                <span className={isDark ? 'text-gray-400' : 'text-gray-600'}>
+                                                                    Executing code...
+                                                                </span>
                                                             </div>
-                                                        </div>
+                                                        ) : executionError ? (
+                                                            <div className="text-red-400 space-y-2">
+                                                                <div className="flex items-center gap-2">
+                                                                    <AlertCircle className="w-4 h-4" />
+                                                                    <span className="font-semibold">Execution Error</span>
+                                                                </div>
+                                                                <div className="pl-6 text-sm">{executionError}</div>
+                                                            </div>
+                                                        ) : allExecutionResults && allExecutionResults[activeTestCaseIndex] ? (
+                                                            (() => {
+                                                                const result = allExecutionResults[activeTestCaseIndex];
+                                                                const testCase = testCases[activeTestCaseIndex];
 
-                                                        {/* Enhanced Output Display */}
-                                                        <div className="flex flex-col">
-                                                            <label className={`text-xs font-medium mb-2 ${isDark ? 'text-gray-400' : 'text-gray-600'}`}>
-                                                                Output:
-                                                            </label>
-                                                            <div className={`flex-grow p-4 text-sm font-mono rounded-lg border overflow-auto transition-all duration-300 ${isDark
-                                                                ? 'bg-gray-800 border-gray-600 text-gray-200'
-                                                                : 'bg-white border-gray-300 text-gray-900'
-                                                                }`}>
-                                                                {isExecuting ? (
-                                                                    <div className="flex items-center justify-center h-full">
-                                                                        <Loader className="w-6 h-6 animate-spin text-blue-500 mr-3" />
-                                                                        <span className={isDark ? 'text-gray-400' : 'text-gray-600'}>
-                                                                            Executing code...
-                                                                        </span>
-                                                                    </div>
-                                                                ) : executionError ? (
-                                                                    <div className="text-red-400 space-y-2">
-                                                                        <div className="flex items-center gap-2">
-                                                                            <AlertCircle className="w-4 h-4" />
-                                                                            <span className="font-semibold">Execution Error</span>
+                                                                let statusText = 'Failed';
+                                                                let statusColor = 'text-red-400';
+
+                                                                if (result.status === 'success') {
+                                                                    const isCorrect = testCase && result.stdout.trim() === (testCase.expectedOutput || '').trim();
+                                                                    if (isCorrect) {
+                                                                        statusText = 'Accepted';
+                                                                        statusColor = 'text-green-400';
+                                                                    } else {
+                                                                        statusText = 'Wrong Answer';
+                                                                        statusColor = 'text-yellow-400';
+                                                                    }
+                                                                }
+
+                                                                return (
+                                                                    <div className="space-y-4">
+                                                                        <div>
+                                                                            <div className="font-semibold text-xs mb-2 text-blue-400">Your Output:</div>
+                                                                            <div className={`pl-3 border-l-2 border-blue-500 ${isDark ? 'text-gray-200' : 'text-gray-800'}`}>
+                                                                                {result.stdout || "(No output)"}
+                                                                            </div>
                                                                         </div>
-                                                                        <div className="pl-6 text-sm">{executionError}</div>
-                                                                    </div>
-                                                                ) : allExecutionResults && allExecutionResults[activeTestCaseIndex] ? (
-                                                                    (() => {
-                                                                        const result = allExecutionResults[activeTestCaseIndex];
-                                                                        const testCase = testCases[activeTestCaseIndex];
 
-                                                                        let statusText = 'Failed';
-                                                                        let statusColor = 'text-red-400';
-
-                                                                        if (result.status === 'success') {
-                                                                            const isCorrect = testCase && result.stdout.trim() === (testCase.expectedOutput || '').trim();
-                                                                            if (isCorrect) {
-                                                                                statusText = 'Accepted';
-                                                                                statusColor = 'text-green-400';
-                                                                            } else {
-                                                                                statusText = 'Wrong Answer';
-                                                                                statusColor = 'text-yellow-400';
-                                                                            }
-                                                                        }
-
-                                                                        return (
-                                                                            <div className="space-y-4">
-                                                                                <div>
-                                                                                    <div className="font-semibold text-xs mb-2 text-blue-400">Your Output:</div>
-                                                                                    <div className={`pl-3 border-l-2 border-blue-500 ${isDark ? 'text-gray-200' : 'text-gray-800'}`}>
-                                                                                        {result.stdout || "(No output)"}
-                                                                                    </div>
-                                                                                </div>
-
-                                                                                {result.stderr && (
-                                                                                    <div>
-                                                                                        <div className="font-semibold text-xs mb-2 text-red-400">Error:</div>
-                                                                                        <div className="pl-3 border-l-2 border-red-500 text-red-400 text-xs">
-                                                                                            {result.stderr}
-                                                                                        </div>
-                                                                                    </div>
-                                                                                )}
-
-                                                                                {testCase?.expectedOutput && (
-                                                                                    <div>
-                                                                                        <div className="font-semibold text-xs mb-2 text-green-400">Expected Output:</div>
-                                                                                        <div className={`pl-3 border-l-2 border-green-500 ${isDark ? 'text-gray-200' : 'text-gray-800'}`}>
-                                                                                            {testCase.expectedOutput}
-                                                                                        </div>
-                                                                                    </div>
-                                                                                )}
-
-                                                                                <div className={`flex items-center justify-between text-xs pt-3 border-t ${isDark ? 'border-gray-800 text-gray-400' : 'border-gray-200 text-gray-600'}`}>
-                                                                                    <span className={`font-semibold ${statusColor}`}>
-                                                                                        {statusText}
-                                                                                    </span>
-                                                                                    <span>
-                                                                                        {result.executionTimeMs}ms
-                                                                                    </span>
+                                                                        {result.stderr && (
+                                                                            <div>
+                                                                                <div className="font-semibold text-xs mb-2 text-red-400">Error:</div>
+                                                                                <div className="pl-3 border-l-2 border-red-500 text-red-400 text-xs">
+                                                                                    {result.stderr}
                                                                                 </div>
                                                                             </div>
-                                                                        );
-                                                                    })()
-                                                                ) : (
-                                                                    <div className={`text-center py-8 ${isDark ? 'text-gray-500' : 'text-gray-400'}`}>
-                                                                        <Play className="w-8 h-8 mx-auto mb-2 opacity-50" />
-                                                                        <p className="text-sm">
-                                                                            Click "Run" to execute your code
-                                                                        </p>
+                                                                        )}
+
+                                                                        {testCase?.expectedOutput && (
+                                                                            <div>
+                                                                                <div className="font-semibold text-xs mb-2 text-green-400">Expected Output:</div>
+                                                                                <div className={`pl-3 border-l-2 border-green-500 ${isDark ? 'text-gray-200' : 'text-gray-800'}`}>
+                                                                                    {testCase.expectedOutput}
+                                                                                </div>
+                                                                            </div>
+                                                                        )}
+
+                                                                        <div className={`flex items-center justify-between text-xs pt-3 border-t ${isDark ? 'border-gray-800 text-gray-400' : 'border-gray-200 text-gray-600'}`}>
+                                                                            <span className={`font-semibold ${statusColor}`}>
+                                                                                {statusText}
+                                                                            </span>
+                                                                            <span>
+                                                                                {result.executionTimeMs}ms
+                                                                            </span>
+                                                                        </div>
                                                                     </div>
-                                                                )}
+                                                                );
+                                                            })()
+                                                        ) : (
+                                                            <div className={`text-center py-8 ${isDark ? 'text-gray-500' : 'text-gray-400'}`}>
+                                                                <Play className="w-8 h-8 mx-auto mb-2 opacity-50" />
+                                                                <p className="text-sm">
+                                                                    Click "Run" to execute your code
+                                                                </p>
                                                             </div>
-                                                        </div>
+                                                        )}
                                                     </div>
-                                                )}
+                                                </div>
                                             </div>
                                         </div>
                                     </ResizablePanel>
@@ -1799,4 +1987,151 @@ const parseExamples = (statement: string): Array<{ input: string; output: string
     }
 
     return examples;
+};
+
+// New component for the complexity chart
+const ComplexityAnalysis: React.FC<{
+    title: string;
+    userComplexity: string | undefined;
+    percentile: number;
+    distribution: { [key: string]: number } | undefined;
+    isDark: boolean;
+}> = ({ title, userComplexity, percentile, distribution, isDark }) => {
+    if (!userComplexity || !distribution) {
+        return null;
+    }
+
+    const chartData = complexityOrder
+        .filter(c => distribution[c] > 0)
+        .map(c => ({
+            name: c,
+            count: distribution[c],
+            isCurrentUser: c === userComplexity
+        }));
+
+    return (
+        <GlassCard padding="lg">
+            <div className="flex justify-between items-center mb-4">
+                <h3 className={`text-xl font-semibold ${isDark ? 'text-white' : 'text-gray-900'}`}>{title}</h3>
+                <span className={`text-sm font-medium px-2 py-1 rounded-full ${isDark ? 'bg-indigo-900/50 text-indigo-400' : 'bg-indigo-100 text-indigo-600'}`}>
+                    {userComplexity}
+                </span>
+            </div>
+            <div className="text-left mb-4">
+                <p className={`text-3xl font-bold ${isDark ? 'text-white' : 'text-gray-800'}`}>{percentile.toFixed(1)}%</p>
+                <p className={`text-sm ${isDark ? 'text-gray-400' : 'text-gray-600'}`}>Beats percentile of submissions</p>
+            </div>
+            <div style={{ width: '100%', height: 200 }}>
+                <ResponsiveContainer>
+                    <BarChart data={chartData} margin={{ top: 5, right: 10, bottom: 5, left: -20 }}>
+                        <CartesianGrid strokeDasharray="3 3" vertical={false} stroke={isDark ? "rgba(255, 255, 255, 0.1)" : "rgba(0, 0, 0, 0.1)"} />
+                        <XAxis dataKey="name" tick={{ fontSize: 12, fill: isDark ? '#a0aec0' : '#4a5568' }} />
+                        <YAxis tick={{ fontSize: 12, fill: isDark ? '#a0aec0' : '#4a5568' }} />
+                        <Tooltip
+                            contentStyle={{
+                                backgroundColor: isDark ? '#2D3748' : '#FFFFFF',
+                                border: `1px solid ${isDark ? '#4A5568' : '#E2E8F0'}`,
+                                color: isDark ? '#FFFFFF' : '#1A202C'
+                            }}
+                            labelStyle={{ color: isDark ? '#FFFFFF' : '#1A202C' }}
+                            cursor={{ fill: isDark ? 'rgba(255, 255, 255, 0.1)' : 'rgba(0, 0, 0, 0.1)' }}
+                        />
+                        <Bar dataKey="count" name="Submissions">
+                            {chartData.map((entry, index) => (
+                                <Cell key={`cell-${index}`} fill={entry.isCurrentUser ? '#6366f1' : (isDark ? '#4a5568' : '#a5b4fc')} />
+                            ))}
+                        </Bar>
+                    </BarChart>
+                </ResponsiveContainer>
+            </div>
+        </GlassCard>
+    );
+};
+
+const SubmissionDetailView: React.FC<{
+    submission: SubmissionDetail;
+    stats: ProblemStats | null;
+    onBack: () => void;
+    isDark: boolean;
+    customTestCases: { input: string; expectedOutput: string; }[];
+    setCustomTestCases: React.Dispatch<React.SetStateAction<{ input: string; expectedOutput: string; }[]>>;
+    setActiveTestCase: React.Dispatch<React.SetStateAction<number>>;
+}> = ({ submission, stats, onBack, isDark, customTestCases, setCustomTestCases, setActiveTestCase }) => {
+
+    const timePercentile = submission.time_complexity && stats ? calculatePercentile(submission.time_complexity, stats.time_complexity_distribution) : 0;
+    const memoryPercentile = submission.memory_complexity && stats ? calculatePercentile(submission.memory_complexity, stats.memory_complexity_distribution) : 0;
+
+    return (
+        <div className="space-y-6">
+            <AnimatedButton onClick={onBack} variant="ghost" size="sm" icon={ChevronLeft}>
+                Back to Submissions
+            </AnimatedButton>
+
+            <GlassCard padding="lg">
+                <div className="flex justify-between items-center">
+                    <h2 className="text-2xl font-bold">Submission Details</h2>
+                    <span className={getStatusClass(submission.status, !!isDark)}>
+                        {submission.status.replace(/_/g, ' ')}
+                    </span>
+                </div>
+            </GlassCard>
+
+            <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+                <GlassCard padding="md"><div className="text-sm">Runtime</div><div className="text-xl font-bold">{submission.execution_time_ms} ms</div></GlassCard>
+                <GlassCard padding="md"><div className="text-sm">Memory</div><div className="text-xl font-bold">{(submission.memory_used_kb / 1024).toFixed(2)} MB</div></GlassCard>
+                <GlassCard padding="md"><div className="text-sm">Testcases</div><div className="text-xl font-bold">{submission.test_cases_passed} / {submission.test_cases_total}</div></GlassCard>
+            </div>
+
+            {submission.status !== "ACCEPTED" && submission.failed_test_case_details && (
+                <GlassCard padding="lg">
+                    <h3 className="text-lg font-semibold mb-4 text-red-400">Test Case Failed</h3>
+                    <div className="grid grid-cols-1 md:grid-cols-3 gap-4 font-mono text-sm">
+                        <div className="p-3 bg-black/30 rounded-lg"><span className="font-semibold text-gray-400">Input:</span><pre className="whitespace-pre-wrap mt-1">{formatDisplayInput(submission.failed_test_case_details.input)}</pre></div>
+                        <div className="p-3 bg-black/30 rounded-lg"><span className="font-semibold text-gray-400">Expected:</span><pre className="whitespace-pre-wrap mt-1">{submission.failed_test_case_details.expected_output}</pre></div>
+                        <div className="p-3 bg-black/30 rounded-lg"><span className="font-semibold text-red-400">Output:</span><pre className="whitespace-pre-wrap mt-1">{submission.failed_test_case_details.actual_output}</pre></div>
+                    </div>
+                    <div className="mt-4 flex justify-end">
+                        <AnimatedButton
+                            size="sm"
+                            variant="primary"
+                            icon={Plus}
+                            onClick={() => {
+                                if (!submission.failed_test_case_details) return;
+                                const newTestCase = {
+                                    input: submission.failed_test_case_details.input,
+                                    expectedOutput: submission.failed_test_case_details.expected_output
+                                };
+                                setCustomTestCases(prevTestCases => {
+                                    const newTestCases = [...prevTestCases, newTestCase];
+                                    setActiveTestCase(newTestCases.length - 1);
+                                    return newTestCases;
+                                });
+                            }}
+                        >
+                            Add as Test Case
+                        </AnimatedButton>
+                    </div>
+                </GlassCard>
+            )}
+
+            {submission.status === "ACCEPTED" && (
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                    <ComplexityAnalysis
+                        title="Time Complexity"
+                        userComplexity={submission.time_complexity}
+                        percentile={timePercentile}
+                        distribution={stats?.time_complexity_distribution}
+                        isDark={isDark}
+                    />
+                    <ComplexityAnalysis
+                        title="Memory Complexity"
+                        userComplexity={submission.memory_complexity}
+                        percentile={memoryPercentile}
+                        distribution={stats?.memory_complexity_distribution}
+                        isDark={isDark}
+                    />
+                </div>
+            )}
+        </div>
+    )
 };
