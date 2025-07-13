@@ -1,6 +1,7 @@
 # codesorted (Online Judge)
 
-This is an Online Judge platform for competitive programming practice and contests. The platform supports multiple programming languages, real-time code execution, and automated evaluation of submissions.
+This is an Online Judge platform for competitive programming practice. The platform supports multiple programming languages, real-time code execution, and automated evaluation of submissions with AI-driven coding features, addressing the need for
+intelligent coding practice environments
 
 ## Features
 
